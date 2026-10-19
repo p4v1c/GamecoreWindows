@@ -22,11 +22,15 @@ from __future__ import annotations
 
 import logging
 import os
-import pwd
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import pwd
+except ImportError:     # Windows: the module still loads, so its OS-neutral parts
+    pwd = None          # are tested; the Linux providers go at port step 7.
 
 from ..catalog import appid
 from . import manifest
