@@ -3,6 +3,7 @@
 On Windows (PowerShell, from the repository root):
 
 ```powershell
+$env:PYTHONUTF8 = '1'      # as CI and the installed backend run (dev log D14)
 python -m venv .venv
 .venv\Scripts\python -m pip install -r backend\requirements.txt pytest
 .venv\Scripts\python -m pytest backend/tests catalog -m "not network"   # what CI runs
@@ -70,6 +71,11 @@ home".
 - A name may not hold `:`: sysfs fixtures such as `3-1:1.0` cannot exist on
   NTFS (those tests are Linux-only, marked).
 - `glob("*.png")` matches `Back.PNG`: names compare case-insensitively.
+- Without UTF-8 mode, `read_text()` with no encoding decodes as the ANSI
+  code page (cp1252 on the runner and on a French Windows): every theme and
+  the README fail. A PC whose system locale is UTF-8 hides it; CI does not.
+- `mimetypes` reads the registry: `.webp` is missing on a bare Windows.
+  `platform/media_types.py` pins what GameCore serves.
 - The event loop's self-pipe is a socket pair built with `connect()`; patch
   `socket.connect` only once the app runs (`test_boot_ready.py`).
 
