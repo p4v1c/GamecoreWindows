@@ -15,6 +15,8 @@ import pytest
 from backend.services import launch, process_manager as pm, rest_mode
 from backend.services.errors import ServiceError
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 class FakeProcess:
     """A child whose group dies when SIGKILL reaches it, unless told to linger."""
@@ -86,7 +88,6 @@ def box(monkeypatch):
     rest_mode.woke()
 
 
-@pytest.mark.linux_until_port(6)
 def test_every_session_is_gone_before_the_box_sleeps(box):
     """A game on screen and a game frozen behind an app: all three go."""
     async def scenario():
@@ -105,7 +106,6 @@ def test_every_session_is_gone_before_the_box_sleeps(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_a_frozen_session_is_thawed_before_it_is_killed(box):
     """A stopped process cannot run its exit path; process_manager.kill thaws it."""
     async def scenario():
@@ -117,7 +117,6 @@ def test_a_frozen_session_is_thawed_before_it_is_killed(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_a_group_that_lingers_is_forced_then_the_box_sleeps(box):
     async def scenario():
         await box["start"](101, "game.iso")
@@ -129,7 +128,6 @@ def test_a_group_that_lingers_is_forced_then_the_box_sleeps(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_nothing_running_still_sleeps(box):
     async def scenario():
         result = await rest_mode.enter()
@@ -138,7 +136,6 @@ def test_nothing_running_still_sleeps(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_launches_are_refused_until_the_wake(box):
     async def scenario():
         await rest_mode.enter()
@@ -152,7 +149,6 @@ def test_launches_are_refused_until_the_wake(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_a_launch_in_flight_is_waited_for_and_then_killed(box, monkeypatch):
     """Pressed launch, then the power menu: the game it starts must not survive."""
     async def scenario():
@@ -171,7 +167,6 @@ def test_a_launch_in_flight_is_waited_for_and_then_killed(box, monkeypatch):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_a_refused_suspend_reports_and_reopens_launches(box):
     async def scenario():
         box["state"]["suspend_ok"] = False
@@ -183,7 +178,6 @@ def test_a_refused_suspend_reports_and_reopens_launches(box):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_a_second_press_while_going_to_sleep_is_refused(box, monkeypatch):
     async def scenario():
         monkeypatch.setattr(rest_mode, "_resting", True)
@@ -193,7 +187,6 @@ def test_a_second_press_while_going_to_sleep_is_refused(box, monkeypatch):
     asyncio.run(scenario())
 
 
-@pytest.mark.linux_until_port(6)
 def test_launches_reopen_if_no_wake_is_ever_reported(box, monkeypatch):
     async def scenario():
         monkeypatch.setattr(rest_mode, "REOPEN_AFTER_SECS", 0.05)

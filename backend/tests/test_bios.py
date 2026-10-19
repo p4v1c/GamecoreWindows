@@ -23,6 +23,8 @@ from backend.services import bios  # noqa: E402
 from backend.services.catalog import load_catalog  # noqa: E402
 from backend.services.catalog.loader import Pack  # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 CATALOG = ROOT / "catalog"
 LOCAL = ROOT / "config" / "catalog.d"
 
@@ -384,7 +386,6 @@ def test_launching_without_a_required_bios_names_the_file(launcher, monkeypatch,
     assert str(tmp_path / "boot.bin") in r.json()["detail"]
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_box_that_has_the_file_still_launches(launcher, monkeypatch, tmp_path):
     """The gate must not become a second way for a working box to fail.
 
@@ -398,7 +399,6 @@ def test_a_box_that_has_the_file_still_launches(launcher, monkeypatch, tmp_path)
     assert r.status_code == 503, r.text
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_check_that_explodes_does_not_stop_the_launch(launcher, monkeypatch):
     """Same guarantee `_free_stale_slots` documents, for the same reason.
 

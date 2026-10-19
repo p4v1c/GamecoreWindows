@@ -165,7 +165,7 @@ def test_reinstalling_over_an_existing_symlink_is_not_an_error(tmp_path, ctx):
 
 # ── postInstall ────────────────────────────────────────────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_a_failing_step_is_a_warning_and_never_an_exception(tmp_path, ctx):
     """The schema says a postInstall failure never interrupts the install. The
     Xenia block once aborted the whole run at 52 %."""

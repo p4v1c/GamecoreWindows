@@ -208,7 +208,7 @@ def test_the_interface_stopping_ends_the_session(box):
 
 # ── the other end: what the backend does with that file ─────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_the_backend_takes_the_display_from_the_session_file(tmp_path, monkeypatch):
     """The pair that closes the loop: the session writes, the backend reads.
 
@@ -238,7 +238,7 @@ def test_the_backend_takes_the_display_from_the_session_file(tmp_path, monkeypat
     assert env["XAUTHORITY"] == "/tmp/cookie-7"
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_no_session_file_means_the_old_behaviour_exactly(tmp_path, monkeypatch):
     """Every box that has not migrated, and every SSH install."""
     import sys

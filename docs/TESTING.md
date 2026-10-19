@@ -15,9 +15,10 @@ isolates the roots and the home, and skips the marked tests below; a catalog
 pack's tests rely on it. The owner may be playing on the same PC: start a long
 run at low priority (`Start-Process -Priority BelowNormal`).
 
-The tree holds about 2 900 tests, 4 of which need the network. On Windows
-about 460 are Linux-only for now (next section) and about 60 skip on missing
-data or tools (ImageMagick, a frontend build, a release tag), as on Linux.
+The tree holds about 2 950 tests, 4 of which need the network. On Windows
+355 are Linux-only for now (next section) and 54 skip on missing data or tools:
+ImageMagick for the bezel tests, seeds with no controller block, maps already
+gone, and a release tag (the Windows repository has none until step 8).
 
 ## Linux code the port has not replaced yet — `linux_until_port`
 
@@ -35,7 +36,15 @@ linux_until_port_module(7)                       # a module Windows cannot impor
 - The step must be 3-10 (`backend/tests/linux_until_port.py`); anything else
   fails the collection.
 - Mark the test that needs Linux, not its file, when the rest of the file runs
-  on Windows. Pure logic in a Linux service is made to run, not marked.
+  on Windows. Pure logic in a Linux service is made to run, not marked: fake
+  the OS boundary. For process groups and uids that is the `posix_boundary`
+  fixture (`backend/tests/posix_boundary.py`): `os.killpg`, `os.getpgid`,
+  `os.getuid`, `os.geteuid` and `SIGKILL`/`SIGSTOP`/`SIGCONT`, played by
+  psutil on the process tree, for the tests of `process_manager`, `session`,
+  `rest_mode` and the guide gesture (`pytestmark =
+  pytest.mark.usefixtures("posix_boundary")`). A test that records the calls
+  patches its own fakes over them. Step 3 replaces both the code and this
+  fixture.
 - Every use is listed in
   [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
   `test_linux_until_port.py` fails when the list and the source disagree.

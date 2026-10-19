@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import usb_devices                          # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 _GHOST = {"id": "testpack", "label": "Test System", "kind": "emulator",
           "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
@@ -65,7 +67,6 @@ def _adapter_present(monkeypatch):
                         lambda *a, **k: {"057e:0337": "GC Adapter"})
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_missing_accessory_does_not_refuse_the_launch(launcher, monkeypatch):
     """503 is the exec step, i.e. nothing upstream said no.
 
@@ -78,7 +79,6 @@ def test_a_missing_accessory_does_not_refuse_the_launch(launcher, monkeypatch):
     assert r.status_code == 503, r.text
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_missing_accessory_is_broadcast_so_the_player_reads_it(launcher, monkeypatch):
     """Not refusing must not become not mentioning. This is the sentence that
     replaces the phone call."""
@@ -99,7 +99,6 @@ def test_a_missing_accessory_is_broadcast_so_the_player_reads_it(launcher, monke
     assert ADAPTER["note"] in notices[0]["detail"]
 
 
-@pytest.mark.linux_until_port(3)
 def test_nothing_is_said_when_the_accessory_is_plugged_in(launcher, monkeypatch):
     """A working box must stay silent. A notice on every launch is noise the
     owner learns to ignore, which costs the one that mattered."""
@@ -117,7 +116,6 @@ def test_nothing_is_said_when_the_accessory_is_plugged_in(launcher, monkeypatch)
     assert [e for e, _ in sent if e == "game:notice"] == []
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_system_declaring_nothing_says_nothing(launcher, monkeypatch):
     sent = []
 
@@ -133,7 +131,6 @@ def test_a_system_declaring_nothing_says_nothing(launcher, monkeypatch):
     assert [e for e, _ in sent if e == "game:notice"] == []
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_check_that_explodes_does_not_stop_the_launch(launcher, monkeypatch):
     """Same guarantee the BIOS gate documents. A check that cannot run must
     cost a sentence, never a game."""

@@ -106,6 +106,8 @@ _filesystem.link_dir(_ROOT / "catalog", _REPO / "catalog")
 # ── Linux code the port has not replaced yet ─────────────────────────────────
 import pytest as _pytest  # noqa: E402
 
+from backend.tests.posix_boundary import posix_boundary  # noqa: E402,F401  (fixture)
+
 
 def pytest_collection_modifyitems(config, items):
     """`linux_until_port(step)`: skipped on Windows, step named (linux_until_port.py)."""

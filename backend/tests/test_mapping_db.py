@@ -310,7 +310,7 @@ def test_nothing_is_served_when_there_is_nothing_to_serve(db, monkeypatch):
     assert mapping_db.served() is None
 
 
-@pytest.mark.linux_until_port(3)
+@pytest.mark.usefixtures("posix_boundary")
 def test_the_launcher_hands_emulators_the_served_file(db, monkeypatch):
     """The end of the chain, and the step that makes the rest matter: a capture
     that never reaches SDL_GAMECONTROLLERCONFIG_FILE is a file on disk nothing

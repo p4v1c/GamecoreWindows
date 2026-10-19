@@ -77,7 +77,7 @@ def test_pack_installs_daemon_service_and_seed(tmp_path, monkeypatch, host_sandb
         assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_host_prerequisites_are_idempotent_and_restore_originals(tmp_path, host_sandbox):
     rel = next(iter(host.UINPUT_FILES))
     previous = host.ETC / rel
@@ -95,7 +95,7 @@ def test_host_prerequisites_are_idempotent_and_restore_originals(tmp_path, host_
     assert not host.RECEIPT.exists()
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_uninstall_keeps_an_operator_edited_ptrace_policy(tmp_path, host_sandbox):
     pack = SimpleNamespace(id="melonds", data={"hostAccess": {"ptrace": True}})
     host.apply_host_access(pack, ap.AppContext(gamecore_path=tmp_path))
@@ -107,7 +107,7 @@ def test_uninstall_keeps_an_operator_edited_ptrace_policy(tmp_path, host_sandbox
     assert host.PTRACE.read_text().strip() == "2"
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.usefixtures("posix_boundary")
 def test_interrupted_ptrace_restore_can_be_retried(tmp_path, monkeypatch, host_sandbox):
     pack = SimpleNamespace(id="melonds", data={"hostAccess": {"ptrace": True}})
     host.apply_host_access(pack, ap.AppContext(gamecore_path=tmp_path))
