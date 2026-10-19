@@ -121,6 +121,7 @@ def test_no_power_supply_directory_at_all_is_not_an_error(client, monkeypatch):
 
 # ── one probe at a time ────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_a_laptop_battery_is_not_a_controller(client, fake_sysfs):
     """This endpoint is asked what PADS are charged.
 
@@ -172,6 +173,7 @@ def test_a_missing_status_file_reads_as_not_charging(client, fake_sysfs):
     assert controllers[0]["label"] == "quiet_pad"
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_model_name_is_preferred_over_the_sysfs_directory_name(client, fake_sysfs):
     """The directory name embeds the pad's MAC. It is what joins a battery to
     a player slot, so it is kept — but it is not what a person should read."""

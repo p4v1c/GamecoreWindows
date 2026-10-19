@@ -20,6 +20,8 @@ sys.path.insert(0, str(ROOT))
 
 from backend.main import app                          # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 @pytest.fixture
 def client():
@@ -233,6 +235,7 @@ for line in sys.stdin:
 '''
 
 
+@pytest.mark.linux_until_port(5)
 def test_pairing_registers_an_agent_and_confirms_the_passkey(client, tmp_path, monkeypatch):
     """`bluetoothctl --agent=X -- pair` registers no agent in 5.87: a mouse's
     passkey confirmation and a DualSense's authorization were refused ("No

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 STEP = REPO / "install" / "steps" / "setup-gamecore-session.sh"
 SELECT = REPO / "install" / "bin" / "gamecore-session-select"
@@ -60,6 +61,7 @@ def _staged(tmp_path, *parts) -> Path:
 
 # ── what it installs ────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_it_installs_the_session_the_entry_and_the_units(staged, tmp_path):
     r = staged["install"]()
     assert r.returncode == 0, r.stderr
@@ -78,6 +80,7 @@ def test_it_installs_the_session_the_entry_and_the_units(staged, tmp_path):
     assert link.is_symlink() or link.is_file()
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_unit_carries_the_paths_the_operator_chose(staged, tmp_path):
     staged["install"](path="/srv/gc", data="/mnt/games", port="9100")
     unit = (staged["units"] / "gamecore-ui.service").read_text()
@@ -88,6 +91,7 @@ def test_the_unit_carries_the_paths_the_operator_chose(staged, tmp_path):
     assert "@GAMECORE" not in unit, "a token was left unexpanded"
 
 
+@pytest.mark.linux_until_port(7)
 def test_running_it_twice_changes_nothing_the_second_time(staged, tmp_path):
     first = staged["install"]()
     assert first.returncode == 0, first.stderr
@@ -117,6 +121,7 @@ def test_installing_does_not_change_how_the_box_boots(staged, tmp_path):
         "the step rewrote the auto-login; that is gamecore-session-select's job")
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_missing_source_stops_rather_than_reporting_success(staged, tmp_path, monkeypatch):
     """A step that exits 0 after installing nothing is a green tick on a box
     that will not boot — the exact failure setup-update-permissions.sh carries
@@ -187,6 +192,7 @@ def _autologin(sddm: Path) -> str:
     return ""
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_the_console_session_points_the_autologin_at_it(switch):
     (switch["xsessions"] / "gamecore.desktop").write_text("[Desktop Entry]\nName=GameCore\n")
     r = switch["run"]("gamecore")
@@ -195,6 +201,7 @@ def test_arming_the_console_session_points_the_autologin_at_it(switch):
     assert "User=player" in (switch["sddm"] / "zz-gamecore-autologin.conf").read_text()
 
 
+@pytest.mark.linux_until_port(7)
 def test_going_back_to_the_desktop_names_a_session_that_exists(switch):
     """"Desktop mode" can no longer mean "the same session without the kiosk":
     the console session starts a compositor and GameCore and nothing else, so
@@ -206,6 +213,7 @@ def test_going_back_to_the_desktop_names_a_session_that_exists(switch):
     assert _autologin(switch["sddm"]) == "plasmax11"
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_a_box_that_was_never_migrated_refuses_and_says_how(switch):
     """Pointing SDDM at a session file that does not exist makes it fall back
     to its own default with no message at all — a black screen, silently."""
@@ -215,6 +223,7 @@ def test_arming_a_box_that_was_never_migrated_refuses_and_says_how(switch):
     assert _autologin(switch["sddm"]) == "", "the auto-login was changed anyway"
 
 
+@pytest.mark.linux_until_port(7)
 def test_leaving_with_no_desktop_installed_refuses_rather_than_stranding(switch):
     """A box with only the console session has nowhere to go; saying so beats
     a greeter nobody can use from a sofa."""
@@ -227,6 +236,7 @@ def test_leaving_with_no_desktop_installed_refuses_rather_than_stranding(switch)
     assert _autologin(switch["sddm"]) == "gamecore", "the box was left pointing at nothing"
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_retires_the_legacy_kiosk_without_killing_the_current_session(switch):
     (switch["xsessions"] / "gamecore.desktop").write_text("[Desktop Entry]\n")
     switch["units"].mkdir()
@@ -240,6 +250,7 @@ def test_arming_retires_the_legacy_kiosk_without_killing_the_current_session(swi
     assert "--now" not in calls and "stop gamecore-ui" not in calls
 
 
+@pytest.mark.linux_until_port(7)
 def test_preparation_installs_the_complete_ota_chain(staged, tmp_path):
     assert staged["install"]().returncode == 0
     for name in ("gamecore-session-select", "gamecore-xsetup", "gamecore-restart", "gamecore-session-migrate"):
@@ -249,6 +260,7 @@ def test_preparation_installs_the_complete_ota_chain(staged, tmp_path):
     assert "start gamecore-session-migrate.service" in _staged(tmp_path, "etc/sudoers.d/gamecore-update").read_text()
 
 
+@pytest.mark.linux_until_port(7)
 def test_preparation_keeps_a_file_by_file_undo(staged, tmp_path):
     before = _staged(tmp_path, "usr/local/bin/gamecore-session-select")
     before.parent.mkdir(parents=True)
@@ -262,6 +274,7 @@ def test_preparation_keeps_a_file_by_file_undo(staged, tmp_path):
     assert not _staged(tmp_path, "usr/share/xsessions/gamecore.desktop").exists()
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_without_a_window_manager_is_refused(switch):
     """The one command in the project that can leave somebody in front of a
     television with a half-working console.
@@ -282,6 +295,7 @@ def test_arming_without_a_window_manager_is_refused(switch):
     assert _autologin(switch["sddm"]) == "", "the box was armed anyway"
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_with_only_openbox_says_what_that_costs(switch):
     """openbox manages windows; it is not the compositor the bezels were tuned
     against. Allowed, and said out loud."""
@@ -301,6 +315,7 @@ def _arm(switch) -> None:
     switch["run"]("gamecore")
 
 
+@pytest.mark.linux_until_port(7)
 def test_leaving_returns_to_the_desktop_the_box_was_using(switch, tmp_path):
     """The reference box is why this exists: its Plasma is a WAYLAND session,
     so the only X11 desktop to pick was openbox. Leaving the console would have
@@ -325,6 +340,7 @@ def test_leaving_returns_to_the_desktop_the_box_was_using(switch, tmp_path):
     assert _autologin(switch["sddm"]) == "plasma", "it went to some other desktop"
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_console_is_never_recorded_as_the_desktop_to_return_to(switch):
     """Arming twice in a row must not make GameCore its own way out."""
     (switch["sddm"] / "zz-gamecore-autologin.conf").write_text(
@@ -336,6 +352,7 @@ def test_the_console_is_never_recorded_as_the_desktop_to_return_to(switch):
     assert recorded.read_text().strip() == "plasmax11"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_desktop_uninstalled_since_the_arming_is_not_used(switch, tmp_path):
     """A Session= naming a .desktop that is gone makes SDDM fall back to its
     own default, silently."""
@@ -346,6 +363,7 @@ def test_a_desktop_uninstalled_since_the_arming_is_not_used(switch, tmp_path):
     assert _autologin(switch["sddm"]) == "plasmax11", "it pointed at a session that is gone"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_box_whose_only_desktop_is_wayland_can_still_leave(switch, tmp_path):
     """It used to be told there was nowhere to go — on the machine where
     leaving matters most."""
@@ -368,6 +386,7 @@ def test_a_box_whose_only_desktop_is_wayland_can_still_leave(switch, tmp_path):
 # original, sorting after it — named another session, and a leftover from an
 # older experiment sorted after that.
 
+@pytest.mark.linux_until_port(7)
 def test_the_backup_is_not_written_where_sddm_reads_it(switch):
     (switch["xsessions"] / "gamecore.desktop").write_text("[Desktop Entry]\nName=GameCore\n")
     (switch["sddm"] / "zz-gamecore-autologin.conf").write_text(
@@ -381,6 +400,7 @@ def test_the_backup_is_not_written_where_sddm_reads_it(switch):
     assert _autologin(switch["sddm"]) == "gamecore"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_stale_gamecore_file_that_would_win_is_retired(switch):
     """A leftover bearing our own prefix is ours to take out; it sorted after
     the file we write and quietly won every arming."""
@@ -396,6 +416,7 @@ def test_a_stale_gamecore_file_that_would_win_is_retired(switch):
     assert _autologin(switch["sddm"]) == "gamecore"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_competing_file_we_may_not_touch_is_reported_and_fails(switch):
     """Not ours to move — so say which file wins, and do not claim success."""
     (switch["xsessions"] / "gamecore.desktop").write_text("[Desktop Entry]\nName=GameCore\n")
@@ -427,6 +448,7 @@ def _restarts(log: Path) -> list[str]:
     return [l for l in log.read_text().splitlines() if l.startswith("restart")]
 
 
+@pytest.mark.linux_until_port(7)
 def test_leaving_with_restart_dm_actually_restarts_the_display_manager(switch):
     (switch["xsessions"] / "gamecore.desktop").write_text("[Desktop Entry]\nName=GameCore\n")
     switch["run"]("gamecore")
@@ -440,6 +462,7 @@ def test_leaving_with_restart_dm_actually_restarts_the_display_manager(switch):
         "the auto-login was rewritten and nothing was asked to re-read it"
 
 
+@pytest.mark.linux_until_port(7)
 def test_leaving_without_the_flag_still_restarts_nothing(switch):
     """Run over SSH this would end whatever session the operator is sitting in.
     It stays opt-in, and the advice is printed instead."""
@@ -454,6 +477,7 @@ def test_leaving_without_the_flag_still_restarts_nothing(switch):
     assert "--restart-dm" in r.stdout, "it should say how to apply it now"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_switch_that_did_not_take_restarts_nothing(switch):
     """Tearing the screen down to apply a choice that was overridden leaves the
     box on the wrong auto-login with no session left to fix it from."""
@@ -468,6 +492,7 @@ def test_a_switch_that_did_not_take_restarts_nothing(switch):
     assert "zzz-operator.conf" in r.stderr + r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_an_option_nobody_declared_is_refused(switch):
     """sudoers matches a command line exactly, so every accepted word here is a
     word that has to be granted somewhere. Unknown ones are a typo, not a hint."""
@@ -478,6 +503,7 @@ def test_an_option_nobody_declared_is_refused(switch):
     assert _autologin(switch["sddm"]) == ""
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_sudoers_rule_for_leaving_is_installed_by_the_update_step(staged):
     """The interface's way out is `desktop --restart-dm`, which sudoers treats
     as a command of its own. A box armed before the flag existed must receive

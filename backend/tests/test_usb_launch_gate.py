@@ -24,6 +24,9 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import usb_devices                          # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
+
 _GHOST = {"id": "testpack", "label": "Test System", "kind": "emulator",
           "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
 

@@ -24,6 +24,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.linux_until_port import linux_until_port_module
+
+linux_until_port_module(7)  # rpcs3_smart imports fcntl (flock)
+
 HERE = Path(__file__).resolve().parent
 PACK = HERE.parent
 MOD_PATH = PACK / "files" / "rpcs3_smart.py"

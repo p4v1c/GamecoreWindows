@@ -27,6 +27,8 @@ import pytest
 
 from backend.services import standby
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 @pytest.fixture
 def screen_calls(monkeypatch):

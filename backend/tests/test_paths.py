@@ -226,6 +226,38 @@ def test_a_relative_roms_path_follows_the_data_root():
         paths.use_roots(*before)
 
 
+def test_windows_roots_keep_code_and_data_apart():
+    """An installed PC: code in Program Files, data on another volume."""
+    root, data = Path(r"C:\Program Files\GameCore"), Path(r"D:\GameCoreData")
+    before = (paths.GAMECORE_ROOT, paths.GAMECORE_DATA)
+    try:
+        paths.use_roots(root, data)
+        assert paths.is_split()
+        assert paths.config_dir() == Path(r"D:\GameCoreData\config")
+        assert paths.roms_root() == Path(r"D:\GameCoreData\emu")
+        assert paths.catalog_dir() == Path(r"C:\Program Files\GameCore\catalog")
+        # A drive path in systems.json is the owner's choice; a relative one
+        # follows the data root, written with either slash.
+        assert paths.resolve_data_path(r"E:\Roms\psx") == Path(r"E:\Roms\psx")
+        assert paths.resolve_data_path("emu/duckstation/") == data / "emu" / "duckstation"
+        assert paths.resolve_data_path(r"emu\duckstation") == data / "emu" / "duckstation"
+    finally:
+        paths.use_roots(*before)
+
+
+def test_one_folder_spelled_two_ways_is_not_a_split(tmp_path):
+    """NTFS names are case-insensitive: `C:\\GameCore` and `c:/gamecore/` are
+    one directory, and calling them split would send writes to the code root."""
+    folder = tmp_path / "GameCore"
+    folder.mkdir()
+    before = (paths.GAMECORE_ROOT, paths.GAMECORE_DATA)
+    try:
+        paths.use_roots(folder, Path(str(folder).lower().replace("\\", "/") + "/"))
+        assert not paths.is_split()
+    finally:
+        paths.use_roots(*before)
+
+
 def test_the_data_root_comes_from_the_environment():
     """Re-imported with GAMECORE_DATA set, because that is how the box will
     run: the installer writes it into the systemd unit, not into code."""

@@ -97,10 +97,12 @@ def test_the_answer_costs_a_dict_lookup(client, monkeypatch):
     def no(*a, **k):
         raise AssertionError("/api/ready did something expensive")
 
-    monkeypatch.setattr(socket.socket, "connect", no)
-    monkeypatch.setattr(subprocess, "run", no)
-    monkeypatch.setattr(subprocess, "Popen", no)
     with client:
+        # Patched once the app runs: on Windows the event loop's own self-pipe
+        # is a socket pair built with connect(), which is not /api/ready's cost.
+        monkeypatch.setattr(socket.socket, "connect", no)
+        monkeypatch.setattr(subprocess, "run", no)
+        monkeypatch.setattr(subprocess, "Popen", no)
         assert client.get("/api/ready").status_code == 200
 
 

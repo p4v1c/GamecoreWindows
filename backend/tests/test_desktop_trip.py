@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+
 ROOT = Path(__file__).resolve().parents[2]
 SELECT = ROOT / "install" / "bin" / "gamecore-session-select"
 SESSION = ROOT / "install" / "bin" / "gamecore-session"
@@ -77,6 +78,7 @@ def switch(tmp_path):
 
 # ── the trip ────────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_a_trip_points_the_display_manager_at_the_desktop(switch):
     """It still has to switch. The player is landing on the desktop in a
     second, and the display manager has to have been told where."""
@@ -86,6 +88,7 @@ def test_a_trip_points_the_display_manager_at_the_desktop(switch):
     assert switch["session"]() == "plasmax11"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_trip_leaves_something_to_come_back_by(switch):
     switch["run"]("gamecore")
     switch["run"]("desktop", "--once")
@@ -94,6 +97,7 @@ def test_a_trip_leaves_something_to_come_back_by(switch):
         "know the console was meant to come back")
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_trip_says_it_is_temporary(switch):
     """The message is the only place a player learns which of the two they
     just chose."""
@@ -105,6 +109,7 @@ def test_a_trip_says_it_is_temporary(switch):
 
 # ── the move, which is a different thing and must stay ──────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_a_plain_desktop_switch_is_still_permanent(switch):
     """"Stop opening the console" is a real thing to want. It keeps its own
     command, and it leaves no marker to undo it."""
@@ -115,6 +120,7 @@ def test_a_plain_desktop_switch_is_still_permanent(switch):
     assert not switch["marker"].exists(), "a permanent move left a return marker"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_move_cancels_a_trip_that_had_not_happened_yet(switch):
     """The player has now said the opposite of what the marker remembers."""
     switch["run"]("gamecore")
@@ -127,6 +133,7 @@ def test_a_move_cancels_a_trip_that_had_not_happened_yet(switch):
         "on the desktop")
 
 
+@pytest.mark.linux_until_port(7)
 def test_arming_by_hand_settles_a_pending_trip(switch):
     """Nothing left to put back — the console is on. A marker surviving that
     re-arms an already-armed box and puzzles the next person to read
@@ -138,6 +145,7 @@ def test_arming_by_hand_settles_a_pending_trip(switch):
     assert not switch["marker"].exists()
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_round_trip_ends_where_it_started(switch):
     """Console, trip to the desktop, re-arm: the box is back to opening the
     console and remembers nothing about the trip."""
@@ -189,6 +197,7 @@ def test_the_electron_fallback_takes_it_too():
     assert "desktop --once --restart-dm" in main
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_trip_is_granted_without_a_password(tmp_path):
     """sudoers matches a command line exactly, so `--once` needs its own line.
     Without it the exit asks for a password a television cannot type."""
@@ -205,6 +214,7 @@ def test_the_trip_is_granted_without_a_password(tmp_path):
     assert "gamecore-session-select desktop --restart-dm" in rules
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_installer_puts_the_unit_where_it_will_run(tmp_path):
     (tmp_path / "home" / "player").mkdir(parents=True)
     r = subprocess.run(

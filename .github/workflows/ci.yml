@@ -4,7 +4,6 @@ name: CI
 # console runs. No release here: publishing is release.yml's job, and it does
 # not exist yet in the Windows edition (port step 8, docs/dev-log/windows-port.md).
 #
-# The backend suite joins this file at port step 2, once it passes on Windows.
 # A suite is never added with continue-on-error: a red step means red.
 
 on:
@@ -59,6 +58,37 @@ jobs:
 
       - name: Every path and link in the docs resolves
         run: python scripts/check-docs.py --all
+
+  # The backend and pack suites. Tests of Linux code a later port step replaces
+  # are skipped with that step named (linux_until_port, docs/TESTING.md).
+  backend:
+    runs-on: windows-latest
+    # UTF-8 mode, as the installed backend runs (dev log D14): without it a
+    # file read with no encoding is decoded as cp1252 and the themes, the
+    # README and every non-ASCII file fail to load.
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install the backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pytest
+
+      - name: Every module compiles
+        run: python -m compileall -q backend
+
+      - name: Backend and pack tests (offline)
+        run: python -m pytest backend/tests catalog -m "not network" -p no:cacheprovider -q
 
   frontend-and-shell:
     runs-on: windows-latest

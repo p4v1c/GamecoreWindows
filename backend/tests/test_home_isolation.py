@@ -16,27 +16,61 @@ whatever the code did. Neither test below depends on what is plugged in.
 from __future__ import annotations
 
 import os
-import pwd
 import sys
 from pathlib import Path
+
+import pytest
+import win32api
+import win32con
+import win32profile
+import win32security
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from backend.services import configgen, pergame  # noqa: E402
 
+# The suite's own fresh temp root (conftest.py). %TEMP% sits inside the real
+# profile on Windows, so "outside the real home" cannot hold; "inside this
+# root" is the stronger property anyway.
+TEST_ROOT = Path(os.environ["GAMECORE_TEST_ROOT"]).resolve()
+
+# Below the real profile, where Windows puts them unless a policy moved them.
+REAL_SUBFOLDER = {"USERPROFILE": ".", "APPDATA": "AppData/Roaming",
+                  "LOCALAPPDATA": "AppData/Local"}
+
+
+def _real(var: str) -> Path:
+    """The account's own folder, from the process token. Not from the
+    environment, and not from SHGetKnownFolderPath, which expands
+    %USERPROFILE% from it: the variables are the thing under test."""
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(),
+                                           win32con.TOKEN_QUERY)
+    profile = Path(win32profile.GetUserProfileDirectory(token))
+    return (profile / REAL_SUBFOLDER[var]).resolve()
+
 
 def test_the_home_the_generators_write_to_is_not_the_developers():
-    """`pwd`, not `$HOME`: the environment variable is the thing under test, so
-    reading it back would only prove conftest agrees with itself."""
-    real = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
+    real = _real("USERPROFILE")
     home = configgen.HOME.resolve()
 
     assert home != real, (
         f"configgen.HOME is the real account home ({real}). Every emulator "
         f"config this suite touches is the box's own.")
-    assert real not in home.parents, (
-        f"configgen.HOME ({home}) sits inside the real account home ({real}).")
+    assert TEST_ROOT in home.parents, (
+        f"configgen.HOME ({home}) is not inside the suite's throwaway root ({TEST_ROOT}).")
+
+
+@pytest.mark.parametrize("var", sorted(REAL_SUBFOLDER))
+def test_the_windows_home_folders_are_not_the_developers(var):
+    """`Path.home()` reads USERPROFILE on Windows, and Windows emulators keep
+    their configs and saves under APPDATA and LOCALAPPDATA."""
+    folder = Path(os.environ[var]).resolve()
+    assert folder != _real(var), (
+        f"{var} is the real account's ({folder}): a test writing there edits "
+        f"this PC's own emulator configs.")
+    assert TEST_ROOT in folder.parents, (
+        f"{var} ({folder}) is not inside the suite's throwaway root ({TEST_ROOT}).")
 
 
 def test_every_profilable_pack_writes_below_that_home():

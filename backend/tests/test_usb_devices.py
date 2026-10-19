@@ -66,6 +66,7 @@ ADAPTER = {
 
 # ── inventory ────────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_inventory_reads_devices_and_skips_their_interfaces(tmp_path):
     sysfs = sysfs_with(tmp_path, {"057e:0337": "GC Adapter", "046d:c52b": "Receiver"})
     found = usb_devices.inventory(sysfs)
@@ -78,6 +79,7 @@ def test_inventory_survives_a_sysfs_that_is_not_there(tmp_path):
     assert usb_devices.inventory(tmp_path / "nope") == {}
 
 
+@pytest.mark.linux_until_port(5)
 def test_inventory_ignores_a_node_whose_ids_are_unreadable(tmp_path):
     """A device unplugged between the listdir and the read. Routine on a box
     someone is plugging things into, which is exactly when this runs."""
@@ -102,6 +104,7 @@ def test_two_identical_adapters_are_one_entry(tmp_path):
 
 # ── presence, the case this whole module exists for ──────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_declared_adapter_present_is_reported_present(tmp_path):
     packs = {"gc": FakePack("gc", [ADAPTER])}
     sysfs = sysfs_with(tmp_path, {"057e:0337": "GC Adapter"})
@@ -111,6 +114,7 @@ def test_declared_adapter_present_is_reported_present(tmp_path):
     assert rows[0]["class"] == "adapter"
 
 
+@pytest.mark.linux_until_port(5)
 def test_declared_adapter_absent_is_reported_absent_with_the_packs_note(tmp_path):
     packs = {"gc": FakePack("gc", [ADAPTER])}
     sysfs = sysfs_with(tmp_path, {"046d:c52b": "Something else"})
@@ -168,6 +172,7 @@ def test_vid_pid_is_normalised_to_one_spelling(raw, expected):
     assert usb_devices.normalize_vid_pid(raw) == expected
 
 
+@pytest.mark.linux_until_port(5)
 def test_case_does_not_decide_whether_a_device_is_found(tmp_path):
     """A pack that spelled the id in upper case must still match sysfs.
 
@@ -190,6 +195,7 @@ def test_launch_notice_names_the_device_and_repeats_the_note(tmp_path):
     assert ADAPTER["note"] in notice
 
 
+@pytest.mark.linux_until_port(5)
 def test_launch_notice_is_empty_when_the_device_is_there(tmp_path):
     packs = {"gc": FakePack("gc", [ADAPTER])}
     sysfs = sysfs_with(tmp_path, {"057e:0337": "GC Adapter"})

@@ -26,6 +26,8 @@ from backend.services import process_manager as pm
 from backend.services import session as xsession
 from backend.services import standby
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 # ── #13 · standby ────────────────────────────────────────────────────────────
 

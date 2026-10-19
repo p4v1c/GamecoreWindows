@@ -12,7 +12,7 @@ import pytest  # noqa: E402
 
 from backend.services import window_focus as wf  # noqa: E402
 
-pytestmark = pytest.mark.skipif(not wf._XLIB_OK, reason="python-xlib missing")
+pytestmark = [pytest.mark.linux_until_port(3), pytest.mark.skipif(not wf._XLIB_OK, reason="python-xlib missing")]
 
 
 class _Disp:

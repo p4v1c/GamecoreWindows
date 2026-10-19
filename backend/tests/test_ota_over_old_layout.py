@@ -37,9 +37,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 UPDATER = REPO / "update" / "linux.sh"
 
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.linux_until_port(8), pytest.mark.skipif(
     not shutil.which("rsync") or not shutil.which("git"),
-    reason="the OTA path is rsync and the release is git archive")
+    reason="the OTA path is rsync and the release is git archive")]
 
 
 def _release_excludes() -> list[str]:

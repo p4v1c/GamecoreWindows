@@ -33,6 +33,9 @@ from backend.services import controller_registry as reg       # noqa: E402
 from backend.services import gamepad_monitor as gm            # noqa: E402
 from backend.services import process_manager as pm            # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
+
 GHOST = {"id": "ghost", "label": "Ghost", "kind": "emulator",
          "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
 

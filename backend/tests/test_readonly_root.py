@@ -30,9 +30,9 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 
-pytestmark = pytest.mark.skipif(
-    os.geteuid() == 0 or not shutil.which("rsync"),
-    reason="root ignores the permission bits this test depends on")
+pytestmark = [pytest.mark.linux_until_port(7), pytest.mark.skipif(
+    (hasattr(os, "geteuid") and os.geteuid() == 0) or not shutil.which("rsync"),
+    reason="root ignores the permission bits this test depends on")]
 
 
 def _code_tree(dest: Path) -> None:

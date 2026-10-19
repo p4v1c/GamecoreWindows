@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -58,6 +60,7 @@ def test_a_wayland_session_leaves_the_monitor_without_a_manager(monkeypatch):
     assert om.OverlayMonitor()._mgr is None
 
 
+@pytest.mark.linux_until_port(4)
 def test_without_python_xlib_it_also_constructs(monkeypatch):
     monkeypatch.setattr(om, "_WAYLAND_SESSION", False)
     monkeypatch.setattr(om, "_XLIB_OK", False)

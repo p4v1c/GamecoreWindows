@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "migrate-userdata.py"
 
@@ -133,6 +134,7 @@ def test_it_stops_short_of_switching_the_box_over(box):
 
 # ── What the plan has to say out loud ────────────────────────────────────────
 
+@pytest.mark.linux_until_port(10)
 def test_a_symlink_is_named_and_not_copied(box):
     """`rglob` neither copies a link nor descends into a linked directory. A
     ROM directory that is really a link to another disk would vanish from the
@@ -162,7 +164,8 @@ def test_a_live_database_is_called_out(box):
     assert "stop gamecore-ui gamecore-backend" in out
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
+@pytest.mark.linux_until_port(10)
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root can write anywhere")
 def test_a_destination_this_user_cannot_create_is_planned_but_not_written(box, tmp_path):
     """`/userdata` sits under `/`, which is root's.
 

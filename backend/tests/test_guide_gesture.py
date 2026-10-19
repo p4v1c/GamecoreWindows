@@ -26,6 +26,8 @@ from backend.services import gamepad_monitor as gm    # noqa: E402
 from backend.services.gamepad_devices import EV_ABS  # noqa: E402
 from backend.services import process_manager as pm    # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 
 @pytest.fixture
 def manager(monkeypatch):

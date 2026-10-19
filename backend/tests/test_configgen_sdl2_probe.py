@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -157,12 +159,13 @@ def test_enumerating_a_pad_does_not_change_what_a_later_probe_is_told(monkeypatc
     from backend.services.configgen import mapping_db
 
     monkeypatch.delenv("SDL_GAMECONTROLLERCONFIG_FILE", raising=False)
-    monkeypatch.setattr(mapping_db, "served", lambda: Path("/tmp/served.txt"))
+    served = Path("/tmp/served.txt")
+    monkeypatch.setattr(mapping_db, "served", lambda: served)
 
     with cc._served_db_in_env():
         inside = sp.os.environ.get("SDL_GAMECONTROLLERCONFIG_FILE")
 
-    assert inside == "/tmp/served.txt", "the name lookup still gets its table"
+    assert inside == str(served), "the name lookup still gets its table"
     assert "SDL_GAMECONTROLLERCONFIG_FILE" not in sp.os.environ, (
         "the table outlived the call, and the next probe inherits it")
 
@@ -214,6 +217,7 @@ def test_a_successful_flatpak_lookup_is_cached(monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.linux_until_port(5)
 def test_two_installed_branches_resolve_to_the_one_flatpak_run_starts(monkeypatch, tmp_path):
     """A local Eden build (branch master) next to Flathub's (stable) made
     `flatpak info dev.eden_emu.eden` fail with "multiple branches". The runtime

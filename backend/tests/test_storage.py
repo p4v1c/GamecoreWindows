@@ -159,6 +159,7 @@ def test_a_disk_with_no_usable_label_falls_back_to_its_uuid():
 
 # ── the stable link, which is the whole design ───────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_the_link_points_at_wherever_the_disk_landed(data_root):
     link = storage.link_volume(volume())
     assert link == data_root / "volumes" / "roms"
@@ -166,6 +167,7 @@ def test_the_link_points_at_wherever_the_disk_landed(data_root):
     assert str(link.readlink()) == "/run/media/gc/ROMS"
 
 
+@pytest.mark.linux_until_port(5)
 def test_replugging_repoints_the_link_instead_of_failing(data_root):
     """The bug the stable link exists for.
 
@@ -205,6 +207,7 @@ def test_unlinking_removes_only_our_own_symlink(data_root):
     assert (real / "a-game.iso").exists()
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_link_left_over_from_a_previous_session_is_found(data_root):
     """The reboot hole. The box is powered off with the disk attached and comes
     up without it: nothing generated a departure, so last session's link is
@@ -223,6 +226,7 @@ def test_a_link_left_over_from_a_previous_session_is_found(data_root):
 
 # ── the P3 seam: a library on an external disk ───────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_a_romspath_under_the_stable_link_resolves_onto_the_disk(data_root):
     """Point 2 of the brief, and it needed no new code — which is the P3 split
     paying for itself. `volumes/roms/nintendo` is a relative romsPath like any
@@ -236,6 +240,7 @@ def test_a_romspath_under_the_stable_link_resolves_onto_the_disk(data_root):
     assert (resolved / "game.iso").read_text() == "rom"
 
 
+@pytest.mark.linux_until_port(5)
 def test_the_scanner_reads_nothing_from_a_disk_that_has_gone(data_root):
     """Hot removal must not take the scanner down — it must return an empty
     system. `iter_rom_files` already returns early for a path that is not
@@ -303,6 +308,7 @@ def test_unmounting_flushes_before_the_cable_comes_out(data_root):
     assert not (data_root / "volumes" / "roms").exists()
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_busy_disk_reports_why_rather_than_a_generic_failure(data_root):
     """"target is busy" is actionable — a game is still reading it. Replacing
     udisks's own words with a generic failure leaves nothing to act on."""

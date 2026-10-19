@@ -21,6 +21,8 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import process_manager as pm    # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 _SYSTEM = {"id": "testpack", "label": "Test System", "kind": "emulator",
            "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
 

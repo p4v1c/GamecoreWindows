@@ -17,6 +17,7 @@ from backend.services import configgen, paths, profile_saves, profiles
 from backend.services import launch as launch_service
 from backend.services.catalog import load_catalog, load_schema, validate
 from backend.services.errors import ServiceError
+from backend.services.platform import filesystem
 
 
 @pytest.fixture
@@ -235,5 +236,5 @@ def test_an_optional_layout_is_skipped_but_one_must_apply(data, monkeypatch, tmp
         profile_saves.place("shadps4")
     (root / "home" / "1").mkdir(parents=True)
     profile_saves.place("shadps4")
-    assert (root / "home/1/savedata").is_symlink()
+    assert filesystem.is_link(root / "home/1/savedata")
     assert not (root / "savedata").exists(), "the other layout is left alone"

@@ -55,8 +55,12 @@ from .services.process_manager import process_manager
 from .config import BACKEND_PORT
 from .services.paths import (backend_data_dir, covers_dir, frontend_dist_dir,
                             overlays_dir, themes_dir)
+from .services.platform.media_types import pin_media_types
 
 log = logging.getLogger(__name__)
+
+# Before any response is built: the registry's types differ from PC to PC.
+pin_media_types()
 
 async def _repair_playtime() -> None:
     """Carry playtime across a change in what the library lists.

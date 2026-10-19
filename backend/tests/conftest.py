@@ -80,8 +80,15 @@ os.environ["XDG_CONFIG_HOME"] = str(_ROOT / "config-home")
 #
 # The seam is one line because the damage is one line. Set before any import,
 # like GAMECORE_PATH above, since Path.home() is read at module scope.
-os.environ["HOME"] = str(_ROOT / "home")
-(_ROOT / "home").mkdir(parents=True, exist_ok=True)
+#
+# On Windows `Path.home()` and `expanduser` read USERPROFILE, never HOME, and
+# emulators keep their configs under APPDATA / LOCALAPPDATA: all four point
+# into the throwaway root, or the line above guards nothing.
+_HOME = _ROOT / "home"
+for _var, _sub in (("HOME", ""), ("USERPROFILE", ""),
+                   ("APPDATA", "AppData/Roaming"), ("LOCALAPPDATA", "AppData/Local")):
+    os.environ[_var] = str(_HOME / _sub)
+    (_HOME / _sub).mkdir(parents=True, exist_ok=True)
 
 # The catalogue is SHIPPED CODE, not box state: catalog/<id>/pack.json is the
 # single source scraper.py, gamemedia.py and the installers read. The throwaway
@@ -90,7 +97,29 @@ os.environ["HOME"] = str(_ROOT / "home")
 # builds its tables at import time would come up empty under test and the
 # suite would be green about maps that are simply absent.
 _REPO = Path(__file__).resolve().parents[2]
-(_ROOT / "catalog").symlink_to(_REPO / "catalog")
+# A junction, not a symlink: symlinks need admin on Windows (WinError 1314).
+from backend.services.platform import filesystem as _filesystem  # noqa: E402
+
+_filesystem.link_dir(_ROOT / "catalog", _REPO / "catalog")
+
+
+# ── Linux code the port has not replaced yet ─────────────────────────────────
+import pytest as _pytest  # noqa: E402
+
+from backend.tests.posix_boundary import posix_boundary  # noqa: E402,F401  (fixture)
+
+
+def pytest_collection_modifyitems(config, items):
+    """`linux_until_port(step)`: skipped on Windows, step named (linux_until_port.py)."""
+    from backend.tests.linux_until_port import reason
+
+    for item in items:
+        mark = item.get_closest_marker("linux_until_port")
+        if mark is None:
+            continue
+        message = reason(mark.args[0] if mark.args else None)
+        if sys.platform == "win32":
+            item.add_marker(_pytest.mark.skip(reason=message))
 
 
 # ── The box is not a test bench: no sudo, no xset ────────────────────────────
@@ -102,7 +131,6 @@ _REPO = Path(__file__).resolve().parents[2]
 # into the TV session. Stubbed at `_run_cmd`, standby's only way out of the
 # process. test_standby_switch, test_standby_launch and test_session_robustness
 # add their own function-scoped patch on top to observe the attempts.
-import pytest as _pytest
 
 
 @_pytest.fixture(autouse=True, scope="session")

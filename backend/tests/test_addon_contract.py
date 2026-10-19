@@ -30,9 +30,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 CLI = REPO / "install" / "bin" / "gamecore-addon"
 
-pytestmark = pytest.mark.skipif(
+pytestmark = [pytest.mark.linux_until_port(9), pytest.mark.skipif(
     not shutil.which("git") or not shutil.which("bash"),
-    reason="the CLI requires git and bash")
+    reason="the CLI requires git and bash")]
 
 # What a ported addon's install.sh is entitled to. Written out by the hook so
 # the test asserts on what the hook SAW, not on what the CLI meant to send.

@@ -23,6 +23,8 @@ from backend.services import bios  # noqa: E402
 from backend.services.catalog import load_catalog  # noqa: E402
 from backend.services.catalog.loader import Pack  # noqa: E402
 
+pytestmark = pytest.mark.usefixtures("posix_boundary")
+
 CATALOG = ROOT / "catalog"
 LOCAL = ROOT / "config" / "catalog.d"
 

@@ -180,6 +180,7 @@ def test_a_traversal_out_of_the_addons_directory_is_refused(client, library):
     assert r.status_code == 400
 
 
+@pytest.mark.linux_until_port(4)
 def test_a_symlink_in_a_pack_is_not_followed(client, library, tmp_path):
     """A pack is an archive someone downloaded. A link inside one is a way to
     reach back out of the directory this endpoint went to trouble to confine."""

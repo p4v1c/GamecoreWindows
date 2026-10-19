@@ -5,11 +5,15 @@ keeps the original files, group membership and ptrace value for uninstall.
 """
 from __future__ import annotations
 
-import grp
 import json
 import os
 from pathlib import Path
 import subprocess
+
+try:
+    import grp
+except ImportError:     # Windows: the module still loads, so its OS-neutral parts
+    grp = None          # are tested; the Linux providers go at port step 7.
 
 from .providers import Result
 

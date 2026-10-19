@@ -26,6 +26,9 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
+
 REPO = Path(__file__).resolve().parents[2]
 UPDATER = REPO / "update/linux.sh"
 INSTALLERS = (REPO / "install/arch.sh",
@@ -67,6 +70,7 @@ def test_the_updater_derives_the_rules_instead_of_repeating_them():
         f"the drift check hardcodes command paths again: {sorted(set(literals))}")
 
 
+@pytest.mark.linux_until_port(8)
 def test_every_granted_privilege_is_one_the_updater_can_report():
     """Both halves of the fact have to move together.
 
@@ -108,6 +112,7 @@ def test_the_check_reads_nopasswd_and_not_mere_permission():
         "command a wheel user may run with a password")
 
 
+@pytest.mark.linux_until_port(8)
 def test_the_updater_still_parses_and_lints():
     """It runs unattended on every box in the fleet."""
     assert subprocess.run(["bash", "-n", str(UPDATER)],
