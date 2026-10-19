@@ -1,6 +1,6 @@
 ---
 name: gamecore-comments
-description: Comment rules for GameCore (GamecoreRenew). Use whenever writing or editing a comment, docstring or JSDoc in backend/, frontend/, electron/, catalog/, install/, scripts/, update/ or config/themes/ — including when adding a feature, fixing a bug, or reviewing a diff. English only, short, why-not-what.
+description: Comment rules for GameCore for Windows. Use whenever writing or editing a comment, docstring or JSDoc in backend/, frontend/, electron/, catalog/, install/, scripts/, update/ or config/themes/ — including when adding a feature, fixing a bug, or reviewing a diff. English only, short, why-not-what.
 ---
 
 # GameCore comments
@@ -39,7 +39,7 @@ cannot say. No stories.
 time.sleep(0.5)
 
 # Good
-# SDL enumerates the pad ~300 ms after udev; earlier reads return no GUID.
+# SDL enumerates the pad ~300 ms after WM_DEVICECHANGE; earlier reads return no GUID.
 time.sleep(0.5)
 ```
 

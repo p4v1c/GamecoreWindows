@@ -1,0 +1,91 @@
+name: CI
+
+# The checks every pull request and every push to main must pass, on the OS the
+# console runs. No release here: publishing is release.yml's job, and it does
+# not exist yet in the Windows edition (port step 8, docs/dev-log/windows-port.md).
+#
+# The backend suite joins this file at port step 2, once it passes on Windows.
+# A suite is never added with continue-on-error: a red step means red.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 3.12 is the embedded Python the installer ships (dev log, decisions).
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # .gitattributes forces LF; a CRLF checkout would change the bytes the
+      # catalogue signature and the fixtures are computed over.
+      - name: Checkout is LF
+        shell: bash
+        run: |
+          if git ls-files --eol | grep -v '\.\(cmd\|bat\)$' | grep -q 'w/crlf'; then
+            git ls-files --eol | grep 'w/crlf' | grep -v '\.\(cmd\|bat\)$'
+            echo "::error::CRLF in the working tree — check .gitattributes"
+            exit 1
+          fi
+
+      - name: Validate the catalogue
+        run: python scripts/check-catalog.py
+
+      # The shell scripts are the Linux installer, still in the tree until the
+      # port replaces them; shellcheck keeps them honest until they go.
+      - name: Lint — Python (ruff) and shell (shellcheck)
+        shell: bash
+        run: |
+          pip install 'ruff==0.16.1' 'shellcheck-py==0.11.0.1'
+          ruff check .
+          shellcheck -S warning $(git ls-files '*.sh') install/bin/*
+
+      - name: Catalogue is in sync with install/generated/*.dist
+        run: python scripts/gen-catalog.py --check
+
+      - name: Every path and link in the docs resolves
+        run: python scripts/check-docs.py --all
+
+  frontend-and-shell:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 22, not the newest LTS: Electron 31 cannot unpack itself under newer
+      # Node and exits 0 anyway (docs/architecture/09-gotchas.md).
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            electron/package-lock.json
+
+      - name: Frontend — vitest, tsc, bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test:run
+          npm run build
+
+      - name: Electron shell bench
+        working-directory: electron
+        run: |
+          npm ci
+          npm test

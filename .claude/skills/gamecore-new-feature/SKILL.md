@@ -1,6 +1,6 @@
 ---
 name: gamecore-new-feature
-description: Workflow for adding any new feature to GameCore (GamecoreRenew) — decide where the code goes, build it in layers, test it, document it, ship it. Use at the start of every feature, new endpoint, new setting page, new emulator/app, new theme surface, or new install step. Chains the other gamecore-* skills.
+description: Workflow for adding any new feature to GameCore for Windows — decide where the code goes, build it in layers, test it, document it, ship it. Use at the start of every feature, new endpoint, new setting page, new emulator/app, new theme surface, or new install step. Chains the other gamecore-* skills.
 ---
 
 # GameCore new feature
@@ -11,14 +11,14 @@ description: Workflow for adding any new feature to GameCore (GamecoreRenew) —
 |---|---|---|
 | an emulator / app / system | `catalog/<id>/` only → `gamecore-catalog-pack` | 10 |
 | a backend capability | `services/<name>.py` + thin `routers/<name>.py` | 03 + 04 |
-| an OS setting (wifi, audio, BT, display) | `routers/settings/<name>.py` + service | 03 |
+| an OS setting (wifi, audio, BT, display) | `routers/settings/<name>.py` + service; the Win32/WinRT call in `services/platform/` | 03 + 04 |
 | a push to the UI | `ws.broadcast("<domain>:<event>")` | 05 event table |
 | UI behaviour | screen `index.tsx` / hook / `lib/` | 05 |
 | UI look | `Default*View.tsx`, or the theme in `config/themes/<name>/` | 05 / themes |
 | a theme-visible API | `frontend/src/lib/themeSdk.ts` (SDK version bump) | themes README |
 | Electron window / IPC | `electron/` | 06 |
 | a box config file | `config/<name>.json` via `paths.py` | 07 |
-| install / OTA | pack model first; `arch.sh` only if the pack model cannot express it | 10 / 11 / 13 |
+| install / OTA | pack model first; an `install/steps/*.ps1` step only if the pack model cannot express it | 10 / 11 / 13 |
 | an addon hook | contract `api` in `docs/architecture/12-addon-contract.md` | 12 |
 
 Grep first: the helper, list, or constant you need probably exists
@@ -51,3 +51,5 @@ Budgets while building: `gamecore-file-size`, `gamecore-naming`,
 - [ ] English comments, short
 - [ ] works with a pad only, on a fresh install, and after an OTA
       (config/ untouched, `frontend/dist` rebuilt — see gotchas "OTA rebuild trap")
+- [ ] said in `docs/dev-log/windows-port.md`: what was tested on the real
+      Windows PC and what was not

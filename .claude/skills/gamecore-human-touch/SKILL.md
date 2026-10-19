@@ -66,14 +66,17 @@ Applies to UI strings first, then docs, release notes, PRs, commits.
 | Passive, agentless ("Settings were updated") | Actor or result: "Saved." |
 | Curly/straight quote and apostrophe mix | One style per file (UI: typographic ’ “ ”) |
 
+No Linux vocabulary in UI text (Plasma, KDE, Flatpak, systemd, udev): the
+player is on Windows. Name what they see ("Windows desktop").
+
 Voice for GameCore: a console, not a chatbot. Short, calm, specific, English,
 second person only when giving an instruction. Button = verb (+ object).
 
 ## 3. Measure
 
-```bash
-python3 .claude/skills/gamecore-human-touch/scripts/slop-audit.py      # counts per theme
-python3 .claude/skills/gamecore-human-touch/scripts/slop-audit.py -v   # with samples
+```powershell
+.venv\Scripts\python .claude/skills/gamecore-human-touch/scripts/slop-audit.py      # counts per theme
+.venv\Scripts\python .claude/skills/gamecore-human-touch/scripts/slop-audit.py -v   # with samples
 ```
 
 It counts fonts, uppercase/tracking, gradients, glows, blur, violet, emoji,

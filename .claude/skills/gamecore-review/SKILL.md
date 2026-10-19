@@ -1,6 +1,6 @@
 ---
 name: gamecore-review
-description: Review a GameCore (GamecoreRenew) diff, branch or the whole repo against the project's own rules (comments, docs, quality, naming, file size, tests, commits) and output a short findings report. Use when asked to review code, audit the repo, check a PR, or before merging.
+description: Review a GameCore for Windows diff, branch or the whole repo against the project's own rules (comments, docs, quality, naming, file size, tests, commits) and output a short findings report. Use when asked to review code, audit the repo, check a PR, or before merging.
 ---
 
 # GameCore review
@@ -15,20 +15,23 @@ Output is a **report, straight to the point**: one line per finding.
 ## 1. Automated pass
 
 ```bash
+# Git Bash, or the same commands one by one in PowerShell
 ruff check .
-python3 scripts/check-docs.py --all
-python3 scripts/check-catalog.py && python3 scripts/gen-catalog.py --check
-bash .claude/skills/gamecore-file-size/scripts/check-file-size.sh [--diff]
+.venv/Scripts/python scripts/check-docs.py --all
+.venv/Scripts/python scripts/check-catalog.py && .venv/Scripts/python scripts/gen-catalog.py --check
+.venv/Scripts/python .claude/skills/gamecore-file-size/scripts/check-file-size.py [--diff]
 # French left in code comments / commit subjects
 git diff -U0 origin/main | grep -nE '^\+.*(#|//|\*) .*\b(le|la|les|une|pour|est|pas|dans|avec)\b'
 git log origin/main..HEAD --format=%s | grep -E '\b(le|la|les|une|pour|est|pas)\b'
+# OS calls that escaped the platform layer
+git grep -nE "os\.name ?== ?.nt.|sys\.platform|ctypes\.windll|^import win32|^from win32" -- backend ':!backend/services/platform' ':!backend/tests'
 ```
 
 ## 2. Manual checklist (per skill)
 
 | Skill | Question |
 |---|---|
-| gamecore-code-quality | right layer? one source of truth? no FastAPI in services? no hardcoded roots? |
+| gamecore-code-quality | right layer? one source of truth? no FastAPI in services? no hardcoded roots? OS calls only in `services/platform/`? |
 | gamecore-file-size | any file grew past budget? functions > 50 lines? |
 | gamecore-naming | names match the tables? events `domain:event`? |
 | gamecore-comments | English, why, ≤ 3 lines? no commented-out code? |

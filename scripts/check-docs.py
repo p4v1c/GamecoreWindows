@@ -59,7 +59,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -149,7 +149,8 @@ def _tracked() -> set[str]:
     paths: set[str] = set()
     for line in out.splitlines():
         paths.add(line)
-        parent = Path(line).parent
+        # Posix: git prints `/`, and a Windows Path would join parents with `\`.
+        parent = PurePosixPath(line).parent
         while str(parent) != ".":
             paths.add(str(parent))
             parent = parent.parent
