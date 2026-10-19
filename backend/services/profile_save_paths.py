@@ -8,7 +8,8 @@ saves, in two ways an emulator can be told:
   option's own value is put back for the primary profile.
 - `dirs`: folders it has no option for (PPSSPP's SAVEDATA, Eden's
   nand/user/save). The folder is renamed `<name>.gamecore-primary` and a
-  symlink to the profile's folder takes its place; the primary profile gets
+  directory link (a junction, `services/platform/filesystem.py`) to the
+  profile's folder takes its place; the primary profile gets
   its folder back under its own name. A rename in place, never a copy: the
   saves themselves are not touched.
 
@@ -22,12 +23,12 @@ back.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
 from ..utils import atomic_write, atomic_write_json
 from .errors import ServiceError
+from .platform import filesystem
 
 SAVES_TOKEN = "@SAVES@"
 STORE_NAME = ".primary.json"
@@ -171,29 +172,29 @@ def _backup(path: Path) -> Path:
 
 def _is_ours(path: Path, root: Path) -> bool:
     """A link this module made: it points into the profile saves root."""
-    return path.is_symlink() and Path(os.readlink(path)).is_relative_to(root)
+    return filesystem.is_link(path) and filesystem.link_target(path).is_relative_to(root)
 
 
 def apply_dir(path: Path, target: Path | None, root: Path) -> None:
-    """`path` becomes a symlink to `target`, or the primary's folder again (None).
+    """`path` becomes a link to `target`, or the primary's folder again (None).
     A link the owner made himself (saves on another disk) is his folder."""
     backup = _backup(path)
-    taken = backup.exists() or backup.is_symlink()
+    taken = backup.exists() or filesystem.is_link(backup)
     if target is not None:
         if not path.parent.is_dir():
             raise ServiceError(500, f"{path.parent} is missing: start the emulator once first.")
         target.mkdir(parents=True, exist_ok=True)
         if _is_ours(path, root):
             path.unlink()
-        elif path.exists() or path.is_symlink():
+        elif path.exists() or filesystem.is_link(path):
             if taken:
                 raise ServiceError(500, f"{path} and {backup.name} both exist: sort them out by hand.")
             path.rename(backup)
-        os.symlink(target, path, target_is_directory=True)
+        filesystem.link_dir(path, target)
         return
     if _is_ours(path, root):
         path.unlink()
-    elif path.exists() or path.is_symlink():
+    elif path.exists() or filesystem.is_link(path):
         if taken:
             # The emulator replaced the link with a real folder: whose saves
             # those are cannot be told, so neither side is overwritten.

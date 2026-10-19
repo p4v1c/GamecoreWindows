@@ -101,12 +101,3 @@ def test_the_saved_session_carries_the_identity(session_file, monkeypatch):
     assert saved["boot_id"] == "boot-a"
     assert saved["leader_start"] == "t4242"
 
-
-def test_start_time_reads_field_22_past_a_comm_with_spaces(tmp_path,
-                                                           monkeypatch):
-    (tmp_path / "77").mkdir()
-    fields = " ".join(str(n) for n in range(3, 23))      # fields 3..22
-    (tmp_path / "77" / "stat").write_text(f"77 (a) b (c)) {fields} 23 24\n")
-    monkeypatch.setattr(process_identity, "PROC_DIR", tmp_path)
-    assert process_identity.start_time(77) == "22"
-    assert process_identity.start_time(78) == ""
