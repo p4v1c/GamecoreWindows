@@ -1,0 +1,30 @@
+# LF everywhere, whatever core.autocrlf says on the machine that checks out.
+# Git for Windows ships autocrlf=true: a CRLF checkout changes the bytes the
+# catalogue signature, the seed hashes and the test fixtures are computed over.
+* text=auto eol=lf
+
+# cmd.exe misparses labels and line continuations in LF batch files.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.mp3   binary
+*.ogg   binary
+*.wav   binary
+*.mp4   binary
+*.zip   binary
+*.gz    binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.sqlite binary
+*.db    binary
