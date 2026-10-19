@@ -2,35 +2,19 @@
 
 A pgid alone survives a power cut in session.json but not in the kernel: after
 a reboot it can name any process. Boot id + the leader's start time cannot.
+Both come from the OS through `services/platform/processes.py`.
 """
-from pathlib import Path
-
-BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
-PROC_DIR = Path("/proc")
-# Field 22 of /proc/<pid>/stat: start time in clock ticks since boot.
-_STARTTIME_FIELD = 22
-# Fields after `comm` (field 2) start at field 3.
-_FIRST_FIELD_AFTER_COMM = 3
+from .platform import processes
 
 
 def boot_id() -> str:
-    """This boot's id, or "" when /proc cannot say."""
-    try:
-        return BOOT_ID_FILE.read_text().strip()
-    except OSError:
-        return ""
+    """This boot's id, or "" when the OS cannot say."""
+    return processes.boot_id()
 
 
 def start_time(pid: int) -> str:
     """The start time of `pid`, or "" when it does not exist or is unreadable."""
-    try:
-        stat = (PROC_DIR / str(pid) / "stat").read_text()
-    except OSError:
-        return ""
-    # comm may hold spaces and ')'; the numeric fields follow the last ')'.
-    rest = stat.rsplit(")", 1)[-1].split()
-    index = _STARTTIME_FIELD - _FIRST_FIELD_AFTER_COMM
-    return rest[index] if len(rest) > index else ""
+    return processes.start_time(pid)
 
 
 def matches(entry: dict, pgid: int) -> bool:

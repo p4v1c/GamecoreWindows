@@ -868,6 +868,27 @@ Owns `GAMECORE_ROOT`, `GAMECORE_DATA` and `_LAYOUT`. Nothing outside it may join
 a writable directory onto a root; `test_paths.py` enforces that on the AST.
 Fully described in [7](07-config-and-data.md#path-resolution--backendservicespathspy).
 
+### `platform/` — every call into Windows
+
+`backend/services/platform/` holds the OS calls, one module per concern, under
+the names the services call. Nothing else imports `ctypes.windll`, `winreg`,
+`_winapi` or `win32*`, or checks `os.name` (`gamecore-review` greps for it).
+A Linux mechanism leaves the tree in the port step that lands its replacement
+([dev log](../dev-log/windows-port.md)); the modules so far:
+
+| Module | Function | Does | Replaces (Linux) |
+|---|---|---|---|
+| `filesystem.py` | `link_dir(link, target)` | a **junction** to an existing local directory; `FileExistsError` / `FileNotFoundError` otherwise | `os.symlink` (needs admin or Developer Mode on Windows: `WinError 1314`) |
+| | `is_link(path)` | junction or symlink, also when its target is gone | `Path.is_symlink()`, False for a junction |
+| | `link_target(path)` | where it points, without the `\\?\` prefix | `os.readlink` |
+| `processes.py` | `boot_id()` | `BootId` under `HKLM\...\Memory Management\PrefetchParameters`, incremented every boot; `""` when unreadable | `/proc/sys/kernel/random/boot_id` |
+| | `start_time(pid)` | creation time from `psutil`, ms precision, as a string; `""` for no such process | field 22 of `/proc/<pid>/stat` |
+
+Callers: `process_identity.py` (both of `processes.py`), `profile_save_paths.py`
+(the junction a profile's save folder becomes). `shutil.rmtree` and
+`Path.unlink()` remove a junction without entering it; the test suite's own
+`catalog/` link depends on that (`test_platform_filesystem.py`).
+
 ### `configgen/` — the controller pipeline
 
 `__init__.py` (apply/release/scan/forget), `controllers.py` (SDL resolution,
@@ -1066,7 +1087,7 @@ pack, because saves are not controller config.
 | Function | Does |
 |---|---|
 | `apply_keys(entries, folder, root)` | each `(file, entry)` option set to the profile's value, the file's own values remembered first in `root/.primary.json`; `folder` None puts the remembered values back (an option that was absent is removed) and forgets them. A missing file is created with the profile's options alone (never for the primary) |
-| `apply_dir(path, target)` | `path` renamed `<name>.gamecore-primary` and replaced by a symlink to `target`; None removes the link and renames the folder back. Refuses when its parent is missing, or when a real folder and its `.gamecore-primary` both exist (whose saves are whose cannot be told) |
+| `apply_dir(path, target)` | `path` renamed `<name>.gamecore-primary` and replaced by a directory link (a junction, `platform/filesystem.py`) to `target`; None removes the link and renames the folder back. Refuses when its parent is missing, or when a real folder and its `.gamecore-primary` both exist (whose saves are whose cannot be told) |
 | `read_key`, `write_key` | one `key = value` in an INI section, or a flat file; a new option in a flat file goes before its first `#include` |
 
 ### `playtime_rows.py` — playtime per profile

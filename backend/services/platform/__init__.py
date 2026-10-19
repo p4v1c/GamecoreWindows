@@ -1,0 +1,14 @@
+"""Every call into the operating system, one module per concern.
+
+Services call these names instead of `os.symlink`, `/proc` or a Win32 API, so
+the Windows edition replaces a Linux mechanism in one place. Nothing outside
+this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
+(`gamecore-review` greps for it).
+
+| Module          | Concern                                   | Replaces (Linux)              |
+|-----------------|-------------------------------------------|-------------------------------|
+| `filesystem.py` | directory links                           | `os.symlink`, `os.readlink`   |
+| `processes.py`  | boot identity, process start time         | `/proc` reads                 |
+
+Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
+"""
