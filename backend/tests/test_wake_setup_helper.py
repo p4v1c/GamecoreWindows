@@ -13,6 +13,7 @@ import pytest
 
 from backend.services.gamepad_devices import BTN_SOUTH, is_pad_keys
 
+
 REPO = Path(__file__).resolve().parents[2]
 HELPER = REPO / "install" / "bin" / "gamecore-wake-setup"
 USB_ROOT = "devices/pci0000:00/0000:00:14.0/usb3"
@@ -92,6 +93,7 @@ def wake(dev: Path) -> str:
     return (dev / "power" / "wakeup").read_text().strip()
 
 
+@pytest.mark.linux_until_port(6)
 def test_the_adapter_and_the_pads_are_armed_and_nothing_else(sysfs):
     r = run(sysfs)
     assert r.returncode == 0, r.stderr
@@ -104,6 +106,7 @@ def test_the_adapter_and_the_pads_are_armed_and_nothing_else(sysfs):
     assert wake(usb["everything"]) == "disabled"
 
 
+@pytest.mark.linux_until_port(6)
 @pytest.mark.parametrize("name", list(DEVICES))
 def test_the_helper_and_the_backend_agree_on_what_a_pad_is(sysfs, name):
     run(sysfs)
@@ -111,6 +114,7 @@ def test_the_helper_and_the_backend_agree_on_what_a_pad_is(sysfs, name):
     assert (wake(sysfs["usb"][name]) == "enabled") == is_pad_keys(codes)
 
 
+@pytest.mark.linux_until_port(6)
 def test_a_second_run_writes_nothing(sysfs):
     run(sysfs)
     second = run(sysfs)
@@ -118,6 +122,7 @@ def test_a_second_run_writes_nothing(sysfs):
     assert second.stdout == "", "an attribute already enabled was written again"
 
 
+@pytest.mark.linux_until_port(6)
 def test_udev_mode_arms_one_device(sysfs):
     usb = sysfs["usb"]
     node = next((usb["ds4"] / "3-1:1.0").glob("*/input/input*"))

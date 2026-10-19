@@ -36,6 +36,7 @@ def client():
         yield c
 
 
+@pytest.mark.linux_until_port(5)
 def test_the_listing_describes_what_a_romspath_should_point_at(client, monkeypatch):
     """`stable_path`, never `mountpoint`. A library recorded against the real
     mount point scans nothing the day the disk is replugged."""

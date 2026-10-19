@@ -90,6 +90,7 @@ def test_no_launcher_argument_is_a_bare_relative_path(packs):
         "directory rather than a named root: " + ", ".join(offenders))
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_two_root_tokens_resolve_to_the_roots_they_name(monkeypatch):
     """With the roots genuinely split — which is the only way this test means
     anything.
@@ -117,6 +118,7 @@ def test_the_two_root_tokens_resolve_to_the_roots_they_name(monkeypatch):
     assert tokens[1] == "/userdata/somewhere"
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_code_token_survives_a_root_that_contains_a_space(monkeypatch):
     """Why the token is quoted in the pack and not left bare.
 

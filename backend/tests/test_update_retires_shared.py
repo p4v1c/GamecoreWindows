@@ -61,6 +61,7 @@ def _shipped_shared(root: Path) -> Path:
     return d
 
 
+@pytest.mark.linux_until_port(8)
 def test_the_orphan_is_moved_out_of_the_themes_directory(tmp_path):
     themes = tmp_path / "themes"
     themes.mkdir()
@@ -72,6 +73,7 @@ def test_the_orphan_is_moved_out_of_the_themes_directory(tmp_path):
     assert "retired" in out
 
 
+@pytest.mark.linux_until_port(8)
 def test_it_is_recoverable_rather_than_gone(tmp_path):
     """Moved to .prev/, the same recovery the replace path uses. An operator who
     put something of their own in there gets it back from a known place rather
@@ -86,6 +88,7 @@ def test_it_is_recoverable_rather_than_gone(tmp_path):
     assert kept.is_file(), "the retirement deleted rather than set aside"
 
 
+@pytest.mark.linux_until_port(8)
 def test_running_it_twice_is_not_an_error(tmp_path):
     """Every box takes every release. This runs on all of them, including the
     ones that took the previous one."""
@@ -99,6 +102,7 @@ def test_running_it_twice_is_not_an_error(tmp_path):
     assert "retired" not in out, "it claimed to retire a directory that was gone"
 
 
+@pytest.mark.linux_until_port(8)
 def test_a_second_run_does_not_destroy_the_first_snapshot_it_cannot_replace(tmp_path):
     """The snapshot from the real retirement survives a later empty run."""
     themes = tmp_path / "themes"
@@ -110,6 +114,7 @@ def test_a_second_run_does_not_destroy_the_first_snapshot_it_cannot_replace(tmp_
     assert (themes / ".prev" / "_shared" / "settings" / "screen.js").is_file()
 
 
+@pytest.mark.linux_until_port(8)
 def test_a_shared_directory_this_project_did_not_ship_is_left_alone(tmp_path):
     """The markers are checked, and both of them.
 
@@ -129,6 +134,7 @@ def test_a_shared_directory_this_project_did_not_ship_is_left_alone(tmp_path):
     assert "left untouched" in out
 
 
+@pytest.mark.linux_until_port(8)
 def test_nothing_else_under_themes_is_touched(tmp_path):
     """The blast radius, stated as a test.
 

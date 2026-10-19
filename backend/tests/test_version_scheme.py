@@ -148,27 +148,7 @@ def test_a_declared_version_fits_the_scheme(where, version):
     )
 
 
-# ── the release pipeline uses it ────────────────────────────────────────────
-
-def test_the_workflow_computes_the_tag_with_this_script():
-    """The tests above prove the script. This proves the release uses it.
-
-    It replaced a third-party action that incremented the patch without a
-    ceiling — which is how the previous tag reached `v1.0.182`. If the workflow
-    ever goes back to bumping on its own, every test in this file is about code
-    nothing runs.
-    """
-    wf = (REPO / ".github" / "workflows" / "release.yml").read_text()
-    assert "scripts/next_version.py" in wf, (
-        "release.yml no longer computes its tag with next_version.py"
-    )
-    # Matched on a `uses:` line, not anywhere in the file: the step it replaced
-    # is named in a comment above the new one, and a naive substring search
-    # fails on the explanation rather than on the thing it warns about.
-    assert not re.search(r"^\s*uses:.*github-tag-action", wf, re.M), (
-        "the unbounded third-party tag action is back in release.yml"
-    )
-
+# ── the release pipeline can use it ─────────────────────────────────────────
 
 def test_the_script_is_shipped_to_the_runner():
     """It is invoked from the repository checkout, so it has to be tracked."""

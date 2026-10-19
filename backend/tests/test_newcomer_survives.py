@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from backend.services.catalog import load_catalog  # noqa: E402
+from backend.services.platform import filesystem  # noqa: E402
 
 CATALOG = ROOT / "catalog"
 
@@ -125,7 +127,8 @@ def _pack_data(kind: str, **overrides) -> dict:
 def catalogue(tmp_path):
     """A catalogue directory: every real pack, plus one newcomer.
 
-    Symlinks rather than copies, and the SHIPPED side rather than
+    A junction per pack rather than a copy (the two top-level files are
+    copied: a junction is a folder), and the SHIPPED side rather than
     `config/catalog.d/`, so the newcomer is an ordinary pack: nothing is
     stripped by the data-only rule and no consumer needs an environment flag to
     see it. `_schema/` comes along because `load_catalog` reads the schema from
@@ -135,7 +138,10 @@ def catalogue(tmp_path):
         root = tmp_path / f"catalog-{kind}-{len(list(tmp_path.iterdir()))}"
         root.mkdir()
         for entry in CATALOG.iterdir():
-            (root / entry.name).symlink_to(entry)
+            if entry.is_dir():
+                filesystem.link_dir(root / entry.name, entry)
+            else:
+                shutil.copy2(entry, root / entry.name)
         local = tmp_path / f"local-{root.name}"
         local.mkdir()
 
@@ -354,6 +360,7 @@ def test_catalog_query_drops_the_newcomer_only_where_it_declares_nothing(catalog
 
 # ── scripts/gamecore-provider.py ───────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 @pytest.mark.parametrize("kind", KINDS)
 def test_the_installer_bridge_installs_the_newcomer(catalogue, tmp_path, kind):
     """`--dry-run`, so nothing is fetched and no network is touched: what is

@@ -20,6 +20,7 @@ def environment(tmp_path):
             "PATH": str(tmp_path / "bin") + ":" + os.environ["PATH"]}
 
 
+@pytest.mark.linux_until_port(8)
 @pytest.mark.parametrize("mode", ["console", "legacy", "desktop"])
 def test_ota_restarts_the_owner_of_the_ui(tmp_path, mode):
     calls = tmp_path / "calls"
@@ -44,6 +45,7 @@ esac
     assert ("restart gamecore-ui.service" in lines) == (mode == "legacy")
 
 
+@pytest.mark.linux_until_port(8)
 @pytest.mark.parametrize("prepared", [False, True])
 def test_ota_requires_the_one_time_preparation(tmp_path, prepared):
     bins, units = tmp_path / "bin", tmp_path / "units"
@@ -71,6 +73,7 @@ def test_preflight_precedes_download_and_deployment():
     assert text.index('bash "$UPDATE_DIR/check-session-prerequisites.sh"') < text.index('curl -sf')
 
 
+@pytest.mark.linux_until_port(7)
 @pytest.mark.parametrize("current,late", [("1920x1080", False), ("1280x720", False), ("1920x1080", True)])
 def test_graphical_start_applies_only_the_confirmed_mode(tmp_path, current, late):
     config = tmp_path / "config"

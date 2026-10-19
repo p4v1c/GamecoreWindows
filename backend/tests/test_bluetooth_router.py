@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from backend.main import app                          # noqa: E402
 
 
+
 @pytest.fixture
 def client():
     return TestClient(app)
@@ -76,6 +77,7 @@ PAIRED = "\n".join([
 ])
 
 
+@pytest.mark.linux_until_port(5)
 def test_the_paired_list_carries_each_device_and_its_connected_state(client, btctl):
     btctl["answers"] = {
         "devices Paired": PAIRED,
@@ -92,6 +94,7 @@ def test_the_paired_list_carries_each_device_and_its_connected_state(client, btc
     assert all(d["paired"] for d in body)
 
 
+@pytest.mark.linux_until_port(5)
 def test_every_info_call_goes_out_before_any_of_them_answers(client, btctl):
     """The paired list used to be a sequential loop — one `bluetoothctl info`
     per device, each awaited before the next was spawned. Three paired devices
@@ -118,6 +121,7 @@ def test_every_info_call_goes_out_before_any_of_them_answers(client, btctl):
     )
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_box_with_nothing_paired_answers_an_empty_list_not_an_error(client, btctl):
     """The screen distinguishes "nothing paired" from "not loaded yet", so this
     has to be a clean empty list rather than a failure it would render as the
@@ -130,6 +134,7 @@ def test_a_box_with_nothing_paired_answers_an_empty_list_not_an_error(client, bt
 MAC = "A0:9E:1B:44:D2:18"
 
 
+@pytest.mark.linux_until_port(5)
 def test_forgetting_disconnects_then_removes_the_pairing(client, btctl):
     """The two calls, in that order, on the address the player chose — and
     nothing else touches the adapter."""
@@ -141,6 +146,7 @@ def test_forgetting_disconnects_then_removes_the_pairing(client, btctl):
     assert verbs[:2] == [["disconnect", MAC], ["remove", MAC]]
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_device_still_paired_afterwards_was_not_forgotten(client, btctl):
     """bluetoothctl's exit status is not the answer; the paired list is. A
     removal that left the device paired must say so, or the screen hides a
@@ -154,11 +160,13 @@ def test_a_device_still_paired_afterwards_was_not_forgotten(client, btctl):
     assert "Failed to remove device" in body["message"]
 
 
+@pytest.mark.linux_until_port(5)
 def test_an_address_bluez_no_longer_knows_is_already_forgotten(client, btctl):
     btctl["answers"] = {"devices Paired": "", "remove": f"Device {MAC} not available"}
     assert client.delete(f"/api/settings/bluetooth/devices/{MAC}").json()["ok"] is True
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_lower_case_address_is_the_same_device(client, btctl):
     btctl["answers"] = {"devices Paired": f"Device {MAC} Marshall Major IV"}
     body = client.delete(f"/api/settings/bluetooth/devices/{MAC.lower()}").json()
@@ -171,6 +179,7 @@ def test_anything_but_an_address_never_reaches_bluetoothctl(client, btctl):
     assert btctl["calls"] == []
 
 
+@pytest.mark.linux_until_port(5)
 def test_named_devices_come_before_bare_addresses_in_both_lists(client, btctl):
     """An unnamed device is listed as its own address, with DASHES — the old
     check stripped colons only and never recognised one."""
@@ -233,6 +242,7 @@ for line in sys.stdin:
 '''
 
 
+@pytest.mark.linux_until_port(5)
 def test_pairing_registers_an_agent_and_confirms_the_passkey(client, tmp_path, monkeypatch):
     """`bluetoothctl --agent=X -- pair` registers no agent in 5.87: a mouse's
     passkey confirmation and a DualSense's authorization were refused ("No

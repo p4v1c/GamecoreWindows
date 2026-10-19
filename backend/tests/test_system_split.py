@@ -217,6 +217,7 @@ def test_an_existing_destination_is_never_overwritten(box, packs):
 
 # ── the command itself ──────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(10)
 def test_the_command_dry_runs_by_default(box):
     before = _fingerprint(box)
     env = {k: v for k, v in os.environ.items() if not k.startswith("GAMECORE_")}

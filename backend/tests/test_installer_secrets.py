@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.linux_until_port(7)
+
 ARCH = Path(__file__).resolve().parents[2] / "install" / "arch.sh"
 
 

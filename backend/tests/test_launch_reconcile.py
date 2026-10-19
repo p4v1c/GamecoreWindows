@@ -33,6 +33,7 @@ from backend.services import controller_registry as reg       # noqa: E402
 from backend.services import gamepad_monitor as gm            # noqa: E402
 from backend.services import process_manager as pm            # noqa: E402
 
+
 GHOST = {"id": "ghost", "label": "Ghost", "kind": "emulator",
          "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
 
@@ -116,6 +117,7 @@ def _launch(client):
 
 # ── the guarantee: never at the cost of a launch ─────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_a_cleanup_that_raises_does_not_stop_the_launch(launcher, monkeypatch):
     """The failure mode that would make this change a net loss.
 
@@ -134,6 +136,7 @@ def test_a_cleanup_that_raises_does_not_stop_the_launch(launcher, monkeypatch):
     assert "ghost" in r.json()["detail"]
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_cleanup_that_hangs_does_not_hold_the_launch(launcher, monkeypatch):
     """A stalled home directory must cost a stale config, not a launch.
 
@@ -176,6 +179,7 @@ def test_the_cleanup_runs_before_the_emulator_starts(launcher, monkeypatch):
 
 # ── what it actually does ────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_only_the_slots_nobody_holds_are_freed(launcher, monkeypatch):
     """A connected pad's slot is not a stale slot. Freeing everything and
     letting the monitor rewrite it would pass a "no ghosts" test while
@@ -203,6 +207,7 @@ def test_only_the_slots_nobody_holds_are_freed(launcher, monkeypatch):
         f"release cannot decide anything the roster owns — the multitap.")
 
 
+@pytest.mark.linux_until_port(3)
 def test_only_the_emulator_being_launched_is_touched(launcher, monkeypatch):
     """Rewriting Cemu because someone started PCSX2 is a side effect nobody
     asked for, and it is also what would put this over its time budget."""
@@ -218,6 +223,7 @@ def test_only_the_emulator_being_launched_is_touched(launcher, monkeypatch):
         f"the pass was not scoped to the launched emulator: {seen}")
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_launch_with_no_pad_connected_still_works(launcher):
     """Nothing connected is a legitimate state — a mouse-and-keyboard box, or
     a pad that has not woken up yet. It must not turn a launch into a 500."""
@@ -256,6 +262,7 @@ def _pad_is_connected(unprofiled: bool) -> None:
         gm._applied["40:1b:5f:b9:ea:8d"] = (("footprint",), 0)
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_launch_waits_for_a_pad_that_is_not_profiled_yet(launcher, waiting):
     """The defect itself: an emulator that starts before its config is written
     is an emulator with a dead pad, and it will never re-read the file."""
@@ -272,6 +279,7 @@ def test_the_launch_waits_for_a_pad_that_is_not_profiled_yet(launcher, waiting):
         f"config written — this is the race D1 measured")
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_settled_roster_costs_the_launch_nothing(launcher, waiting):
     """The normal case, and it must be free: one scan period after boot every
     pad is written, and a console that paused before every game would have
@@ -288,6 +296,7 @@ def test_a_settled_roster_costs_the_launch_nothing(launcher, waiting):
         f"a launch with every pad already profiled waited {elapsed:.2f}s")
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_wait_ends_as_soon_as_the_pad_is_written(launcher, waiting):
     """It waits for the event, not for the budget. The budget is only the
     point at which it gives up."""
@@ -319,6 +328,7 @@ def test_the_wait_ends_as_soon_as_the_pad_is_written(launcher, waiting):
         f"the pad was written, not sat out the budget")
 
 
+@pytest.mark.linux_until_port(3)
 def test_giving_up_launches_the_game_anyway(launcher, waiting):
     """A budget that expires must cost a possibly-stale config, never a game.
 
@@ -336,6 +346,7 @@ def test_giving_up_launches_the_game_anyway(launcher, waiting):
         f"config is a playable game; this is a dead box.")
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_monitor_that_never_started_is_not_waited_for(launcher, monkeypatch):
     """No monitor means nothing will ever profile anything. Waiting the full
     budget before every single launch, for a pass that is not coming, is how a

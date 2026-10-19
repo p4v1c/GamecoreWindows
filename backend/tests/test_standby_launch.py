@@ -28,6 +28,7 @@ import pytest
 from backend.services import standby
 
 
+
 @pytest.fixture
 def screen_calls(monkeypatch):
     """Swallow xset/cpupower and record what standby tried to run."""
@@ -56,6 +57,7 @@ def launcher(monkeypatch, screen_calls):
         yield c
 
 
+@pytest.mark.linux_until_port(3)
 @pytest.mark.parametrize("stage", ["screensaver", "sleep"])
 def test_launching_a_game_wakes_the_box(launcher, stage):
     standby._state = stage
@@ -63,6 +65,7 @@ def test_launching_a_game_wakes_the_box(launcher, stage):
     assert standby.get_state() == "active"
 
 
+@pytest.mark.linux_until_port(3)
 def test_launching_puts_the_screen_back_on(launcher, screen_calls):
     # Not just the flag: `sleep` cut the panel through DPMS, and a state that
     # says "active" over a screen that is still off is the exact disagreement
@@ -73,6 +76,7 @@ def test_launching_puts_the_screen_back_on(launcher, screen_calls):
     assert any("dpms" in " ".join(c) and "on" in c for c in screen_calls), screen_calls
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_refused_launch_still_wakes(launcher):
     # This one fails with 503 — the emulator is not installed. The screen must
     # come back regardless, or the player is left staring at a black television
@@ -92,12 +96,14 @@ def test_a_launch_for_a_system_that_does_not_exist_changes_nothing(launcher):
     assert standby.get_state() == "sleep"
 
 
+@pytest.mark.linux_until_port(3)
 def test_waking_is_idempotent_when_the_box_was_already_awake(launcher):
     standby._state = "active"
     launcher.post("/api/games/launch", json={"system_id": "ghost"})
     assert standby.get_state() == "active"
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_idle_clock_restarts_from_the_launch(launcher):
     # `run()` holds the clock while a game runs, but the game has to get as far
     # as running first. A launch landing seconds before the sleep threshold used

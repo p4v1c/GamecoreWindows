@@ -20,6 +20,10 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.linux_until_port(7)
+
 REPO = Path(__file__).resolve().parents[2]
 CLI = REPO / "install" / "bin" / "gamecore-emu"
 

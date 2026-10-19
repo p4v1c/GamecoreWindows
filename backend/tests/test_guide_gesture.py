@@ -27,6 +27,7 @@ from backend.services.gamepad_devices import EV_ABS  # noqa: E402
 from backend.services import process_manager as pm    # noqa: E402
 
 
+
 @pytest.fixture
 def manager(monkeypatch):
     """The real manager, with its signals recorded and its disk untouched."""
@@ -92,6 +93,7 @@ def guide(monkeypatch):
 
 # ── the pairing ──────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_one_press_does_nothing_at_all(manager, guide):
     """A single press must never reach the game. It is two accidental taps
     away from the gesture, and it used to be a kill."""
@@ -102,6 +104,7 @@ def test_one_press_does_nothing_at_all(manager, guide):
     assert manager.foreground_session is not None
 
 
+@pytest.mark.linux_until_port(3)
 def test_two_presses_inside_the_window_suspend_the_game(manager, guide):
     _resident(manager, game_key="zelda.iso", system_id="dolphin")
     guide.press()
@@ -113,6 +116,7 @@ def test_two_presses_inside_the_window_suspend_the_game(manager, guide):
     assert guide.actions == [{"action": "backgrounded", "gesture": "guide"}]
 
 
+@pytest.mark.linux_until_port(3)
 def test_two_presses_too_far_apart_are_two_first_presses(manager, guide):
     _resident(manager, game_key="zelda.iso", system_id="dolphin")
     guide.press()
@@ -123,6 +127,7 @@ def test_two_presses_too_far_apart_are_two_first_presses(manager, guide):
     assert manager.foreground_session is not None
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_third_press_completes_a_pair_with_the_second(manager, guide):
     _resident(manager, game_key="zelda.iso", system_id="dolphin")
     guide.press()
@@ -136,6 +141,7 @@ def test_the_third_press_completes_a_pair_with_the_second(manager, guide):
 
 # ── the debounce ─────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_one_press_reported_twice_is_still_one_press(manager, guide):
     """A pad exposing the button as both BTN_MODE and KEY_HOMEPAGE reports
     every press twice, microseconds apart. Two reports of one press must not
@@ -149,6 +155,7 @@ def test_one_press_reported_twice_is_still_one_press(manager, guide):
     assert manager.foreground_session is not None
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_duplicate_of_the_acting_press_does_not_arm_the_next_one(manager, guide):
     """The defect this pairing was rewritten for.
 
@@ -172,6 +179,7 @@ def test_the_duplicate_of_the_acting_press_does_not_arm_the_next_one(manager, gu
     assert len(guide.actions) == 1
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_pairing_does_not_depend_on_where_monotonic_starts(manager, guide,
                                                                monkeypatch):
     """`time.monotonic()` counts from an arbitrary point, so a box whose clock
@@ -188,6 +196,7 @@ def test_the_pairing_does_not_depend_on_where_monotonic_starts(manager, guide,
 
 # ── what it does when it fires ───────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_nothing_is_killed_when_the_suspend_fails(manager, guide, monkeypatch):
     """A failed suspend is not consent to end anything, and the fallback that
     reached for `kill()` destroyed a *suspended* game the player never pointed
@@ -208,6 +217,7 @@ def test_nothing_is_killed_when_the_suspend_fails(manager, guide, monkeypatch):
     assert guide.actions == [{"action": "failed", "gesture": "guide"}]
 
 
+@pytest.mark.linux_until_port(3)
 def test_with_nothing_running_it_only_says_so(manager, guide):
     guide.press()
     guide.wait(0.4)
@@ -216,6 +226,7 @@ def test_with_nothing_running_it_only_says_so(manager, guide):
     assert guide.actions == [{"action": "home", "gesture": "guide"}]
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_pair_begun_in_a_game_never_opens_the_session_menu(manager, guide):
     """The browser sees the same two presses and can suspend the game before
     the second one reaches this monitor. Answering `home` then opened the
@@ -229,6 +240,7 @@ def test_a_pair_begun_in_a_game_never_opens_the_session_menu(manager, guide):
     assert guide.actions == [{"action": "backgrounded", "gesture": "guide"}]
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_pair_begun_in_the_interface_still_opens_it(manager, guide):
     _resident(manager, game_key="zelda.iso", system_id="dolphin", state="background")
     guide.press()
@@ -361,6 +373,7 @@ def test_other_buttons_are_not_part_of_the_chord(chord):
     assert chord.fired == []
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_chord_suspends_a_running_game(manager, guide):
     _resident(manager, game_key="zelda.iso", system_id="dolphin")
     asyncio.run(gm._suspend_to_interface("start+select", foreground_only=True))
@@ -369,6 +382,7 @@ def test_the_chord_suspends_a_running_game(manager, guide):
     assert guide.actions == [{"action": "backgrounded", "gesture": "start+select"}]
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_chord_does_nothing_when_no_game_holds_the_screen(manager, guide):
     """Start and Select are ordinary interface buttons. Holding them in a menu
     must not quietly send anybody home."""

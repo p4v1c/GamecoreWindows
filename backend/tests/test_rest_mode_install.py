@@ -9,6 +9,9 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
+
 REPO = Path(__file__).resolve().parents[2]
 STEP = REPO / "install" / "steps" / "setup-rest-mode.sh"
 SESSION_STEP = REPO / "install" / "steps" / "setup-gamecore-session.sh"
@@ -28,6 +31,7 @@ def _tree(root: Path) -> dict:
     return {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+@pytest.mark.linux_until_port(6)
 def test_the_step_installs_every_piece_and_enables_the_unit(tmp_path):
     r = _run(["bash", str(STEP), "player"], tmp_path)
     assert r.returncode == 0, r.stderr
@@ -38,6 +42,7 @@ def test_the_step_installs_every_piece_and_enables_the_unit(tmp_path):
     assert os.access(tmp_path / "usr/local/bin/gamecore-wake-setup", os.X_OK)
 
 
+@pytest.mark.linux_until_port(6)
 def test_the_sudoers_rule_grants_suspend_and_nothing_else(tmp_path):
     _run(["bash", str(STEP), "player"], tmp_path)
     rules = [line for line in (tmp_path / PIECES[0]).read_text().splitlines()
@@ -46,6 +51,7 @@ def test_the_sudoers_rule_grants_suspend_and_nothing_else(tmp_path):
     assert oct((tmp_path / PIECES[0]).stat().st_mode & 0o777) == "0o440"
 
 
+@pytest.mark.linux_until_port(6)
 def test_a_second_run_changes_nothing(tmp_path):
     _run(["bash", str(STEP), "player"], tmp_path)
     before = _tree(tmp_path)
@@ -55,6 +61,7 @@ def test_a_second_run_changes_nothing(tmp_path):
     assert _tree(tmp_path) == before
 
 
+@pytest.mark.linux_until_port(6)
 def test_the_ota_migration_path_installs_them_too(tmp_path):
     """update/linux.sh → gamecore-session-migrate → setup-gamecore-session.sh."""
     (tmp_path / "home" / "player").mkdir(parents=True)

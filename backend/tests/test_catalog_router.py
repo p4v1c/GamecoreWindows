@@ -132,7 +132,7 @@ def test_without_the_permissions_setup_it_runs_in_place(monkeypatch):
     """A development checkout should fail on its own terms, not pretend."""
     monkeypatch.setattr(catalog.shutil, "which", lambda n: None)
     argv = catalog._cli_argv("install", "rpcs3")
-    assert argv[0].endswith("install/bin/gamecore-emu")
+    assert Path(argv[0]).as_posix().endswith("install/bin/gamecore-emu")
     assert "sudo" not in argv
 
 

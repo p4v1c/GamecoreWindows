@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.linux_until_port import linux_until_port_module
+
+linux_until_port_module(7)  # lutris_setup imports fcntl (flock)
+
 yaml = pytest.importorskip("yaml")
 
 FILES = Path(__file__).resolve().parents[1] / "files"

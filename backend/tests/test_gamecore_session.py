@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 SESSION = REPO / "install" / "bin" / "gamecore-session"
 
@@ -95,6 +96,7 @@ def _asked(box) -> str:
 
 # ── the environment, handed over rather than guessed ────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_the_session_writes_its_environment_where_the_backend_can_read_it(box):
     """The backend is a system unit — deliberately, so the API survives without
     a graphical session — and a system unit sees nothing of one. It used to
@@ -112,6 +114,7 @@ def test_the_session_writes_its_environment_where_the_backend_can_read_it(box):
     assert not seen.exists(), "the session left its environment behind for the next one"
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_user_manager_is_told_and_then_untold(box):
     box["run"]("exit 0")
     asked = _asked(box)
@@ -122,6 +125,7 @@ def test_the_user_manager_is_told_and_then_untold(box):
 
 # ── what it starts ──────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_it_starts_the_session_target_and_stops_it_on_the_way_out(box):
     box["run"]("exit 0")
     asked = _asked(box)
@@ -146,6 +150,7 @@ def test_it_starts_a_compositor_and_nothing_resembling_a_desktop(box):
         assert forbidden not in source, f"the console session starts {forbidden}"
 
 
+@pytest.mark.linux_until_port(7)
 def test_without_a_display_it_says_so_instead_of_starting(box, tmp_path):
     r = subprocess.run(["bash", str(SESSION)], text=True, capture_output=True, timeout=30,
                        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
@@ -156,6 +161,7 @@ def test_without_a_display_it_says_so_instead_of_starting(box, tmp_path):
 
 # ── what ends it, and what must not ─────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_a_compositor_that_exits_cleanly_ends_the_session(box):
     """That is the player leaving — Settings → Desktop closes the session."""
     r = box["run"]("exit 0")
@@ -163,6 +169,7 @@ def test_a_compositor_that_exits_cleanly_ends_the_session(box):
     assert "ending the session" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_compositor_that_keeps_crashing_does_not_end_the_session(box):
     """The one that would be a login loop on a television.
 
@@ -186,6 +193,7 @@ def test_a_compositor_that_keeps_crashing_does_not_end_the_session(box):
     assert "ending the session" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_interface_stopping_ends_the_session(box):
     """Quitting GameCore leaves an X server with nobody drawing on it; the
     session has to go with it."""
@@ -200,6 +208,7 @@ def test_the_interface_stopping_ends_the_session(box):
 
 # ── the other end: what the backend does with that file ─────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_the_backend_takes_the_display_from_the_session_file(tmp_path, monkeypatch):
     """The pair that closes the loop: the session writes, the backend reads.
 
@@ -229,6 +238,7 @@ def test_the_backend_takes_the_display_from_the_session_file(tmp_path, monkeypat
     assert env["XAUTHORITY"] == "/tmp/cookie-7"
 
 
+@pytest.mark.linux_until_port(7)
 def test_no_session_file_means_the_old_behaviour_exactly(tmp_path, monkeypatch):
     """Every box that has not migrated, and every SSH install."""
     import sys
@@ -257,6 +267,7 @@ def test_no_session_file_means_the_old_behaviour_exactly(tmp_path, monkeypatch):
 # like it worked — and then the bezels stack at random and a fullscreen
 # emulator answers to nobody.
 
+@pytest.mark.linux_until_port(7)
 def test_openbox_is_taken_when_there_is_no_kwin_for_x11(box):
     """Not an equivalent, and the code says so: openbox is a window manager,
     not the compositor the overlays were tuned against. The difference that
@@ -272,6 +283,7 @@ def test_openbox_is_taken_when_there_is_no_kwin_for_x11(box):
     assert "starting window manager:" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_kwin_is_preferred_over_the_fallback(box):
     _stub(box["bin"] / "fake_kwin", "exit 0")
     _stub(box["bin"] / "openbox", "exit 0")
@@ -280,6 +292,7 @@ def test_kwin_is_preferred_over_the_fallback(box):
     assert "falling back to openbox" not in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_no_window_manager_at_all_is_said_out_loud_and_survivable(box):
     """It still starts — a console with no bezels beats no console — but the
     journal has to carry both the reason and the fix."""

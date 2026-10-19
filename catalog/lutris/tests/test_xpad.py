@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from backend.tests.linux_until_port import linux_until_port_module
+
+linux_until_port_module(7)  # imports fcntl: uinput
+
 PACK = Path(__file__).resolve().parents[1]
 REPO = PACK.parents[1]
 sys.path.insert(0, str(PACK / "files"))

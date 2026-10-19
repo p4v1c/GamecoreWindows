@@ -9,6 +9,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+from backend.tests.linux_until_port import linux_until_port_module
+
+linux_until_port_module(7)  # launcher imports fcntl: evdev and uinput
+
 HERE = Path(__file__).resolve().parent
 MP = HERE.parent / "multiplayer"
 sys.path.insert(0, str(MP))

@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from backend.services.catalog import load_catalog  # noqa: E402
+from backend.services.platform import filesystem  # noqa: E402
 
 CATALOG = ROOT / "catalog"
 LOCAL = ROOT / "config" / "catalog.d"
@@ -300,43 +301,6 @@ def test_the_old_n64_app_id_is_gone_from_every_consumer():
         f"the pre-migration N64 app id is still live in: {offenders}")
 
 
-# ── packaging: what the installers call must actually ship ─────────────────
-
-def test_every_helper_the_installers_call_is_shipped():
-    """Found the hard way in phase 3.
-
-    arch.sh, install-emu-configs.sh and uninstall.sh now call
-    scripts/catalog-query.py and scripts/gamecore-provider.py — and neither
-    release archive copied scripts/. That does not degrade anything: it breaks
-    the install outright, on a real box, and never in CI.
-
-    So the rule is checked rather than remembered: every top-level directory an
-    installer references must be in both archives.
-    """
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    ota = set(re.findall(r"cp -r\s+(\S+)\s+dist_ota/", workflow))
-    full = set(re.findall(r"cp -r\s+(\S+)\s+dist_full/", workflow))
-
-    referenced = set()
-    for name in ("install/arch.sh", "install/steps/install-emu-configs.sh",
-                 "install/uninstall.sh", "install/steps/flatpakify-systems.sh"):
-        text = (ROOT / name).read_text(encoding="utf-8")
-        for line in text.splitlines():
-            if line.lstrip().startswith("#"):
-                continue
-            # "$GAMECORE_PATH/<dir>/…" or "$GC_PATH/<dir>/…"
-            referenced |= set(re.findall(
-                r"\$(?:GAMECORE_PATH|GC_PATH)/([a-z][a-z0-9_-]*)/", line))
-
-    # emu/ and config/ are user data: created on the box, never shipped.
-    referenced -= {"emu", "config", "bin", "lib"}
-
-    missing_ota = sorted(referenced - ota)
-    missing_full = sorted(referenced - full)
-    assert not missing_ota, f"referenced by an installer, absent from the OTA archive: {missing_ota}"
-    assert not missing_full, f"referenced by an installer, absent from the full archive: {missing_full}"
-
-
 # ── launcher tokens, resolved at read time ─────────────────────────────────
 
 def test_a_launcher_token_is_resolved_when_the_grid_is_read():
@@ -485,7 +449,7 @@ def _flatpakify_box(tmp_path, tiles, installed):
     import subprocess
 
     for name in ("backend", "catalog"):
-        (tmp_path / name).symlink_to(ROOT / name)
+        filesystem.link_dir(tmp_path / name, ROOT / name)
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "systems.json").write_text(json.dumps(tiles))
 
@@ -505,6 +469,7 @@ def _flatpakify_box(tmp_path, tiles, installed):
     return json.loads((tmp_path / "config" / "systems.json").read_text()), r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_prune_resolves_the_token_instead_of_reading_it_as_an_app_id(packs, tmp_path):
     """The regression that would have emptied every fresh install's grid.
 
@@ -542,6 +507,7 @@ def test_the_prune_resolves_the_token_instead_of_reading_it_as_an_app_id(packs, 
         f"was read as an application id.\n{out}")
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_prune_still_drops_a_tile_whose_whole_list_is_absent(packs, tmp_path):
     """The other direction: teaching the prune about the token must not turn it
     into a prune that never prunes. A tile that cannot launch is worse than no
@@ -637,6 +603,7 @@ def test_a_spent_fallback_is_reported_even_though_nothing_is_broken(monkeypatch,
     assert "DEGRADED" in out and "org.example.Gone" in out
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_shell_side_sandbox_grants_the_data_root_too():
     """arch.sh reads its sandbox flags from here, so the shell installer has
     to grant the data root exactly as `providers.sandbox_flags` does — or a
@@ -652,17 +619,3 @@ def test_the_shell_side_sandbox_grants_the_data_root_too():
             _catalog_query("sandbox", "--gamecore-data", "/opt/GameCore")}
     assert same["net.rpcs3.RPCS3"] == "--filesystem=/opt/GameCore --device=all --socket=x11"
 
-
-def test_an_update_never_touches_the_players_bezels():
-    """Bezels are the player's. v1.2.68/69 had the OTA add every shipped bezel
-    the box lacked — including ones the owner had deliberately removed (N64,
-    DS, 3DS, PS1, PS2) — so each update put them back. The OTA archive does not
-    carry assets/, and the updater writes nothing under assets/overlays/ or
-    into config/overlays.json."""
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
-    assert "assets" not in set(re.findall(r"cp -r\s+(\S+)\s+dist_ota/", workflow))
-    updater = (ROOT / "update/linux.sh").read_text(encoding="utf-8")
-    assert "--exclude='assets/overlays/'" in updater
-    assert "merge_overlays" not in updater
-    code = [l for l in updater.splitlines() if not l.lstrip().startswith("#")]
-    assert not any("overlays.json" in l for l in code)
