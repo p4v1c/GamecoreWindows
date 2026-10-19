@@ -21,7 +21,6 @@ sys.path.insert(0, str(ROOT))
 from backend.main import app                          # noqa: E402
 
 
-
 @pytest.fixture
 def client():
     return TestClient(app)

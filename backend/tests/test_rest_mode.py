@@ -16,7 +16,6 @@ from backend.services import launch, process_manager as pm, rest_mode
 from backend.services.errors import ServiceError
 
 
-
 class FakeProcess:
     """A child whose group dies when SIGKILL reaches it, unless told to linger."""
 

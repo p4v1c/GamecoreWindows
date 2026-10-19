@@ -28,7 +28,6 @@ import pytest
 from backend.services import standby
 
 
-
 @pytest.fixture
 def screen_calls(monkeypatch):
     """Swallow xset/cpupower and record what standby tried to run."""

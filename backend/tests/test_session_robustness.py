@@ -27,7 +27,6 @@ from backend.services import session as xsession
 from backend.services import standby
 
 
-
 # ── #13 · standby ────────────────────────────────────────────────────────────
 
 @pytest.fixture
