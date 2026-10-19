@@ -883,9 +883,10 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `link_target(path)` | where it points, without the `\\?\` prefix | `os.readlink` |
 | `processes.py` | `boot_id()` | `BootId` under `HKLM\...\Memory Management\PrefetchParameters`, incremented every boot; `""` when unreadable | `/proc/sys/kernel/random/boot_id` |
 | | `start_time(pid)` | creation time from `psutil`, ms precision, as a string; `""` for no such process | field 22 of `/proc/<pid>/stat` |
+| `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (both of `processes.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
