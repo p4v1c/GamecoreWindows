@@ -47,6 +47,8 @@ Measured on the Windows 11 PC with the copied tree, Python 3.13:
 | `shellcheck -S warning` | green (shellcheck-py) |
 | `pytest backend/tests catalog` | **cannot collect**: `conftest.py` symlinks `catalog/` into the test root (`WinError 1314`, symlinks need admin or Developer Mode) — step 2 |
 | file-size check | 3 FAIL already upstream: `catalog/rpcs3/files/rpcs3_smart.py` (1233), `electron/main.js` (1147), `backend/services/process_manager.py` (933). The port touches the last two: each must shrink, not grow |
+| frontend `npm run test:run` + `npm run build` (Node 22.23.3) | green: 89 files, 777 tests; bundle built |
+| electron `npm test` | green: 38 tests |
 | `git ls-files` | no symlink, no case collision, no reserved character in a tracked name |
 
 ## Done
@@ -60,7 +62,8 @@ Measured on the Windows 11 PC with the copied tree, Python 3.13:
 - `.gitattributes`: LF everywhere (Git for Windows defaults to
   `autocrlf=true`), CRLF for `.cmd`/`.bat`.
 - `scripts/check-docs.py` fixed for Windows paths.
-- `ci.yml` on `windows-latest`; the Linux `release.yml` and
+- `ci.yml` on `windows-latest`, frontend and Electron suites included
+  (green on Windows unchanged); the Linux `release.yml` and
   `verify-catalog.yml` removed.
 - Docs read: `README.md` (outline), `CONTRIBUTING.md`, `docs/TESTING.md`,
   `docs/architecture/01`–`13`. `docs/themes/README.md` and the README's user
