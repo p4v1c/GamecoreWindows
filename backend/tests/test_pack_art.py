@@ -101,7 +101,9 @@ def test_a_pack_json_override_keeps_the_shipped_photo(tmp_path, monkeypatch):
 def test_only_plain_names_and_known_formats_count(tmp_path):
     for name in ("console.webp", "Back.PNG", "notes.txt", "a b.png", ".hidden.png"):
         (tmp_path / name).write_bytes(b"x")
-    assert sorted(pictures_in(tmp_path)) == ["console"]
+    # NTFS matches names case-insensitively: Back.PNG is the "back" picture
+    # (docs/dev-log/windows-port.md, D10).
+    assert sorted(pictures_in(tmp_path)) == ["back", "console"]
 
 
 def test_the_override_directory_is_part_of_the_data_layout():
