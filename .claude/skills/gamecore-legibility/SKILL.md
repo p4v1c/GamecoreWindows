@@ -51,44 +51,50 @@ Exempt, and only these:
 
 Dev server. It is read-only (every write but the theme switch gets a 403:
 an audit press once launched Steam on the box) and never runs the real
-lifespan (`sudo -n cpupower`, and failed sudo attempts lock the account):
+lifespan (it changes the power plan, the display mode and the screen
+timers of the machine it runs on):
 
-```bash
-mkdir -p /tmp/gcdata/config && cp install/generated/systems.json.dist /tmp/gcdata/config/systems.json \
-  && cp install/generated/apps.json.dist /tmp/gcdata/config/apps.json && cp -r config/themes /tmp/gcdata/config/
+```powershell
+$d = "$env:TEMP\gcdata"
+New-Item -ItemType Directory -Force "$d\config", "$d\emu\azahar" | Out-Null
+Copy-Item install\generated\systems.json.dist "$d\config\systems.json"
+Copy-Item install\generated\apps.json.dist "$d\config\apps.json"
+Copy-Item -Recurse -Force config\themes "$d\config\"
 # a library with games: empty files with real names
-mkdir -p /tmp/gcdata/emu/azahar && touch "/tmp/gcdata/emu/azahar/"{"Mario Kart 7","Pokemon X","Kid Icarus - Uprising"}" (Europe).3ds"
-(cd frontend && npx vite build)
-GAMECORE_PATH=$PWD GAMECORE_DATA=/tmp/gcdata PYTHONPATH=$PWD \
-  python3 .claude/skills/gamecore-legibility/scripts/devserve.py &
+'Mario Kart 7', 'Pokemon X', 'Kid Icarus - Uprising' | ForEach-Object { New-Item -ItemType File -Force "$d\emu\azahar\$_ (Europe).3ds" | Out-Null }
+Push-Location frontend; npx vite build; Pop-Location
+$env:GAMECORE_PATH = $PWD; $env:GAMECORE_DATA = $d; $env:PYTHONPATH = $PWD
+Start-Process .venv\Scripts\python .claude\skills\gamecore-legibility\scripts\devserve.py
 ```
 
-Re-copy `config/themes` into `/tmp/gcdata` after each theme edit; rebuild the
-frontend after each `frontend/src` edit.
+Re-copy `config/themes` into `$env:TEMP\gcdata` after each theme edit;
+rebuild the frontend after each `frontend/src` edit. The audit drives
+headless Chrome, or Edge when Chrome is absent (`GAMECORE_CHROME` overrides
+the executable).
 
 Audit, per theme and per screen:
 
-```bash
-A=.claude/skills/gamecore-legibility/scripts/legibility-audit.mjs
-for t in default orbit shelf summer; do
+```powershell
+$A = '.claude/skills/gamecore-legibility/scripts/legibility-audit.mjs'
+foreach ($t in 'default', 'orbit', 'shelf', 'summer', 'jelly') {
   node $A --theme $t                           # home
   node $A --theme $t --press confirm          # library (Orbit: --press r1,confirm)
   node $A --theme $t --press x                # controller screen
   node $A --theme $t --press power            # power menu
   node $A --theme $t --press menu             # settings
-done
-node $A --theme shelf --press x --shot /tmp/shelf-pad.png --all   # every item + screenshot
-node $A --theme orbit --press power --shot /tmp/p.png --crops --clip 660,300,600,560   # + 2x quarters, 2x region
+}
+node $A --theme shelf --press x --shot "$env:TEMP\shelf-pad.png" --all   # every item + screenshot
+node $A --theme orbit --press power --shot "$env:TEMP\p.png" --crops --clip 660,300,600,560   # + 2x quarters, 2x region
 ```
 
 Controller states need pads. `--init` runs a script before the page and
 `--eval` runs expressions after the presses (`;;`-separated, 900 ms apart);
 `scripts/fake-pads.js` fakes the Gamepad API, the roster and a suspended game:
 
-```bash
-F=.claude/skills/gamecore-legibility/scripts/fake-pads.js
+```powershell
+$F = '.claude/skills/gamecore-legibility/scripts/fake-pads.js'
 # □ opens the controller screen; hold east, R2 at 60 %, left stick moved
-node $A --theme orbit --url 'http://127.0.0.1:8766/?pads=ds4,xbox' --init $F \
+node $A --theme orbit --url 'http://127.0.0.1:8766/?pads=ds4,xbox' --init $F `
   --eval '0;;0;;0;;__press(2);;__hold(1);;__hold(7,0.6);;__axes([0.8,-0.5,0,0])'
 node $A --theme shelf --url 'http://127.0.0.1:8766/?pads=ds4&bg=1' --init $F --eval '0;;0;;0;;__press(8)'  # power menu
 ```

@@ -1,6 +1,6 @@
 ---
 name: gamecore-naming
-description: Naming conventions for GameCore (GamecoreRenew) — files, modules, functions, variables, constants, React components/hooks, tests, endpoints, WebSocket events, catalog pack ids, CLI tools, branches. Use whenever creating or renaming anything in the repo, or reviewing names.
+description: Naming conventions for GameCore for Windows — files, modules, functions, variables, constants, React components/hooks, tests, endpoints, WebSocket events, catalog pack ids, CLI tools, branches. Use whenever creating or renaming anything in the repo, or reviewing names.
 ---
 
 # GameCore naming
@@ -15,8 +15,10 @@ except established ones (`gp`, `ws`, `db`, `emu`, `ota`, `bt`, `id`).
 | Python module | `snake_case.py` | `controller_capture.py` |
 | Python test | `test_<module>.py` | `backend/tests/test_pergame.py` |
 | Pack test | `catalog/<id>/tests/test_*.py` | `catalog/rpcs3/tests/test_smart_launch.py` |
-| Repo script | `kebab-case.py` / `.sh` in `scripts/` | `check-catalog.py` |
-| Installed CLI | `gamecore-<verb-or-noun>`, no extension, `install/bin/` | `gamecore-session-select` |
+| Repo script | `kebab-case.py` / `.ps1` in `scripts/` | `check-catalog.py` |
+| Installed CLI | `gamecore-<verb-or-noun>` Python entry point, `install/bin/`, with a `gamecore-<name>.cmd` shim on `PATH` | `gamecore-addon` |
+| Platform module | `backend/services/platform/<concern>.py`, same function names the Linux services call | `platform/processes.py` |
+| Installer step | `install/steps/<verb>-<noun>.ps1` | `install/steps/register-logon-task.ps1` |
 | React component | `PascalCase.tsx` | `SessionBar.tsx` |
 | Screen folder | `PascalCase/` + `index.tsx` + `Default<Name>View.tsx` + `types.ts` | `LibraryScreen/` |
 | Hook | `useCamelCase.ts` | `useGamepad.ts` |
@@ -45,7 +47,9 @@ except established ones (`gp`, `ws`, `db`, `emu`, `ota`, `bt`, `id`).
 | Pack id | lowercase, no separator, = directory name | `megadrive`, `pcsx2` |
 | Config key (JSON) | match the file's existing case; never mix in one file | — |
 | Env var | `GAMECORE_<NAME>` | `GAMECORE_DATA` |
-| systemd unit | `gamecore-<role>.service` | `gamecore-backend.service` |
+| Scheduled task | `\GameCore\<Role>` | `\GameCore\Backend` |
+| Windows service | `GameCore<Role>` (display name `GameCore <role>`) | `GameCoreCaddy` |
+| Firewall rule | `GameCore - <what>` | `GameCore - Web access` |
 
 ## Git
 

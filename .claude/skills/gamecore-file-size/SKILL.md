@@ -1,6 +1,6 @@
 ---
 name: gamecore-file-size
-description: Prevent giant files in GameCore (GamecoreRenew). Use before adding code to any file, when creating a module, when a file passes ~400 lines, and in every review. Gives the line budgets, the exemption list, and how to split Python services, React screens, Electron main, theme CSS and shell installers.
+description: Prevent giant files in GameCore for Windows. Use before adding code to any file, when creating a module, when a file passes ~400 lines, and in every review. Gives the line budgets, the exemption list, and how to split Python services, React screens, Electron main, theme CSS and shell installers.
 ---
 
 # GameCore file size
@@ -19,9 +19,9 @@ helpers allowed).
 
 ## Run the check
 
-```bash
-bash .claude/skills/gamecore-file-size/scripts/check-file-size.sh          # whole repo
-bash .claude/skills/gamecore-file-size/scripts/check-file-size.sh --diff   # files changed vs origin/main
+```powershell
+.venv\Scripts\python .claude/skills/gamecore-file-size/scripts/check-file-size.py          # whole repo
+.venv\Scripts\python .claude/skills/gamecore-file-size/scripts/check-file-size.py --diff   # files changed vs origin/main
 ```
 
 In `--diff` mode a FAIL on a file that was already over budget means: check
@@ -32,9 +32,9 @@ In `--diff` mode a FAIL on a file that was already over budget means: check
 - Generated: `install/generated/*`, `install/installer-gui/catalog_data.py`
 - Data / vendored: `backend/data/gamecontrollerdb.txt`, `backend/services/gamemedia/` vendored parts, seeds, fixtures (`**/tests/fixtures/**`, `catalog/*/seed/**`)
 - Lockfiles, `LICENSE`, `CHANGELOG.md`
-- `install/arch.sh` / `uninstall.sh`: monolithic **by decision**
-  (`docs/architecture/11-install-script-seams.md`) — still no net growth
-  without a pack-model reason.
+- `install/arch.sh` / `uninstall.sh`: the Linux installer, monolithic by
+  decision upstream; removed by the port. The Windows installer is **not**
+  exempt: one `install/steps/<step>.ps1` per step from the start.
 - Tests: budget ×1.5; split by behaviour when over (`test_<module>_<behaviour>.py`).
 
 ## How to split
@@ -57,6 +57,9 @@ In `--diff` mode a FAIL on a file that was already over budget means: check
 - **Theme CSS / settings.css** → `css/<concern>.css`, `@import`ed in cascade
   order from `theme.css`; tests read the whole sheet with `read_css`
   (`backend/tests/css_bundle.py`). Bump the theme version.
+- **Platform layer** → one module per OS concern in
+  `backend/services/platform/` (`processes.py`, `display.py`, `power.py`…),
+  never one `windows.py` holding everything.
 - **Pack daemon** (`catalog/*/files/*.py`) → sibling modules listed in
   `pack.json` `files`; stdlib only; a test runs the installed copy's `--help`.
 - Snapshot behaviour first (`backend/tests/characterisation.py`) or compare

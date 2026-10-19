@@ -1,6 +1,6 @@
 ---
 name: gamecore-tests
-description: Testing rules for GameCore (GamecoreRenew) — pytest backend and pack tests, vitest frontend, Electron bench, network marker, characterisation before refactor. Use whenever adding logic, fixing a bug, refactoring, or before a PR.
+description: Testing rules for GameCore for Windows — pytest backend and pack tests, vitest frontend, Electron bench, network marker, characterisation before refactor. Use whenever adding logic, fixing a bug, refactoring, or before a PR.
 ---
 
 # GameCore tests
@@ -19,7 +19,14 @@ description: Testing rules for GameCore (GamecoreRenew) — pytest backend and p
 
 1. **A bug fix starts with a test that fails on the old code.**
 2. Filesystem: take the root from `GAMECORE_TEST_ROOT` or `tmp_path` —
-   never `Path.home()`, never `/opt`, never `/userdata`.
+   never `Path.home()`, never `%APPDATA%`, never `C:\Program Files\GameCore`,
+   never the data root.
+9. **A Windows replacement gets its own tests** (platform layer, jobs,
+   pads, power, display, installer steps, updater): the pure part with fakes
+   on every runner, the real Win32 call behind `@pytest.mark.windows_only`
+   only when it cannot be faked, and checked once on the real PC.
+10. A Linux-only test goes **with the code it tested** — removed, not
+    skipped. A `skip` added by the port is a finding in review.
 3. Internet → `@pytest.mark.network`. CI runs `-m "not network"`.
 4. **Refactor = characterisation first**: snapshot the old output
    (`backend/tests/characterisation.py`), replay against the new code.
@@ -31,11 +38,13 @@ description: Testing rules for GameCore (GamecoreRenew) — pytest backend and p
 
 ## Run (what CI runs)
 
-```bash
-ruff check .
-python3 -m pytest backend/tests catalog -m "not network"
-cd frontend && npm run test:run && npm run build
-cd electron && npm test
+```powershell
+.venv\Scripts\ruff check .
+.venv\Scripts\python -m pytest backend/tests catalog -m "not network"
+Push-Location frontend; npm run test:run; npm run build; Pop-Location
+Push-Location electron; npm test; Pop-Location
 ```
+
+CI runs the same on `windows-latest` (`.github/workflows/ci.yml`).
 
 Full list: `CONTRIBUTING.md` "Before you open a pull request", `docs/TESTING.md`.

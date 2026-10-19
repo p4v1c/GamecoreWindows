@@ -16,15 +16,15 @@ Costs tokens. It is still cheaper than the owner finding it on the TV.
 Use the read-only dev server and the capture tool from `gamecore-legibility`
 (never the real lifespan, never press ✕ on a game or app tile):
 
-```bash
-A=.claude/skills/gamecore-legibility/scripts/legibility-audit.mjs
-OUT=~/Downloads/<topic>/shots          # the owner looks here too
-node $A --theme <t> [--press <gp>] --shot $OUT/<t>-<screen>-before.png --crops   # on main, before
-node $A --theme <t> [--press <gp>] --shot $OUT/<t>-<screen>-after.png --crops    # on the branch
-node $A --theme <t> [--press <gp>] --shot $OUT/<t>-<screen>-card.png --clip 660,300,600,560   # one component, 2x
+```powershell
+$A = '.claude/skills/gamecore-legibility/scripts/legibility-audit.mjs'
+$OUT = "$env:USERPROFILE\Downloads\<topic>\shots"          # the owner looks here too
+node $A --theme <t> [--press <gp>] --shot "$OUT\<t>-<screen>-before.png" --crops   # on main, before
+node $A --theme <t> [--press <gp>] --shot "$OUT\<t>-<screen>-after.png" --crops    # on the branch
+node $A --theme <t> [--press <gp>] --shot "$OUT\<t>-<screen>-card.png" --clip 660,300,600,560   # one component, 2x
 ```
 
-- Every theme the change can reach (default, orbit, shelf, summer), every
+- Every theme the change can reach (default, orbit, shelf, summer, jelly), every
   screen and state it touches: focused and unfocused, empty and full, long
   names, several pads, error state, the modal open and closed.
 - A 1920×1080 image is shrunk when you read it: small defects hide. Read the
@@ -77,4 +77,4 @@ Checklist for every image:
 In the PR and to the owner: a table per theme × screen with the before and
 after images, the passes (findings, what was fixed), and what was not
 checked (states the dev data cannot reach, the TV itself). Keep the
-screenshots in `~/Downloads/<topic>/shots/`.
+screenshots in `%USERPROFILE%\Downloads\<topic>\shots\`.

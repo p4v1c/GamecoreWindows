@@ -1,13 +1,15 @@
-"""Dev-only: serve the app WITHOUT its lifespan, with the boot steps marked
+r"""Dev-only: serve the app WITHOUT its lifespan, with the boot steps marked
 done so the UI leaves its splash, and READ-ONLY.
 
 Read-only because this is the real backend on the real box: a ✕ press during
 an audit once launched Steam. Every write is refused (403) except switching
 the theme, which the audit needs. Never run the real lifespan in dev either:
-it calls `sudo -n cpupower`, and failed sudo attempts lock the account.
+it changes the power plan, the display mode and the screen timers of the
+machine it runs on.
 
-    GAMECORE_PATH=$PWD GAMECORE_DATA=/tmp/gcdata PYTHONPATH=$PWD \
-        python3 .claude/skills/gamecore-legibility/scripts/devserve.py
+    $env:GAMECORE_PATH = $PWD; $env:GAMECORE_DATA = "$env:TEMP\gcdata"
+    $env:PYTHONPATH = $PWD
+    .venv\Scripts\python .claude/skills/gamecore-legibility/scripts/devserve.py
 
 GAMECORE_DATA needs config/systems.json and config/apps.json (copy them from
 install/generated/*.dist), config/themes/ (copy from the repo), and ROMs as

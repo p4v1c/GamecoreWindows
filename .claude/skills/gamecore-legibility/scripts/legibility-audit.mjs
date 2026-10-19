@@ -15,7 +15,7 @@
 // 2x (out-clip.png), for a close visual review.
 // Exit 1 when something fails.
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -47,10 +47,24 @@ if (THEME) {
   if (!res.ok) throw new Error(`theme switch failed: ${res.status}`)
 }
 
+// Windows has no `chromium` on PATH: Chrome when installed, else the Edge
+// every Windows 11 ships. GAMECORE_CHROME names another one.
+function browserPath() {
+  if (process.env.GAMECORE_CHROME) return process.env.GAMECORE_CHROME
+  if (process.platform !== 'win32') return 'chromium'
+  const roots = [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA]
+  const rel = [join('Google', 'Chrome', 'Application', 'chrome.exe'),
+    join('Microsoft', 'Edge', 'Application', 'msedge.exe')]
+  for (const r of rel) for (const root of roots) {
+    if (root && existsSync(join(root, r))) return join(root, r)
+  }
+  throw new Error('no Chrome or Edge found; set GAMECORE_CHROME')
+}
+
 const profile = mkdtempSync(join(tmpdir(), 'legibility-'))
 // Headless Chromium still plays through the box's speakers and reads its real
 // pads: muted, and blind to pads unless --init fakes some (fake-pads.js).
-const chrome = spawn('chromium', ['--headless=new', `--remote-debugging-port=${PORT}`,
+const chrome = spawn(browserPath(), ['--headless=new', `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${profile}`, '--window-size=1920,1080', '--hide-scrollbars', '--mute-audio', 'about:blank'],
 { stdio: 'ignore' })
 
