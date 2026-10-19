@@ -32,6 +32,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
@@ -87,6 +88,7 @@ _STUB_FAILS = "import sys; sys.exit(1)\n"
 _STUB_LIES = "pass\n"
 
 
+@pytest.mark.linux_until_port(7)
 def test_it_builds_the_index_and_passes_gamecore_path(box):
     """The whole point. Without GAMECORE_PATH the index goes to ~/.cache."""
     root, run, calls, stub = box
@@ -103,6 +105,7 @@ def test_it_builds_the_index_and_passes_gamecore_path(box):
         "the index would land in the invoking user's ~/.cache")
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_second_run_does_not_download_it_again(box):
     """Re-running the installer is documented as safe."""
     root, run, calls, stub = box
@@ -114,6 +117,7 @@ def test_a_second_run_does_not_download_it_again(box):
         "the second run rebuilt the index")
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_failed_build_never_fails_the_install(box):
     """A missing description is a degraded box. An aborted installer is not."""
     root, run, calls, stub = box
@@ -126,6 +130,7 @@ def test_a_failed_build_never_fails_the_install(box):
     assert "--refresh" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_build_that_reports_success_and_writes_nothing_is_caught(box):
     """Exit 0 with no file is the failure nobody sees.
 
@@ -140,6 +145,7 @@ def test_a_build_that_reports_success_and_writes_nothing_is_caught(box):
     assert "wrote no index" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_skip_variable_is_honoured_and_says_how_to_undo_it(box):
     root, run, calls, stub = box
     stub(_STUB_OK)
@@ -151,6 +157,7 @@ def test_the_skip_variable_is_honoured_and_says_how_to_undo_it(box):
     assert "--refresh" in r.stdout, "skipping must print the way back"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_missing_gamescrape_is_reported_not_fatal(box):
     """A partial tree — an interrupted rsync, a hand-assembled install."""
     root, run, calls, stub = box

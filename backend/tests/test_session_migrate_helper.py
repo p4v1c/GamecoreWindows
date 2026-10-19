@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 HELPER = REPO / "install" / "bin" / "gamecore-session-migrate"
 PREFLIGHT = REPO / "update" / "check-session-prerequisites.sh"
@@ -78,6 +79,7 @@ def _called(box) -> list[str]:
 
 # ── where the values come from ──────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_the_installer_s_own_record_is_used_when_it_is_there(box):
     r = box["run"](manifest=(
         f"USER_NAME=player\nGAMECORE_PATH={box['install']}\n"
@@ -86,6 +88,7 @@ def test_the_installer_s_own_record_is_used_when_it_is_there(box):
     assert _called(box) == [f"player {box['install']} /userdata 9100"]
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_box_with_no_manifest_asks_the_installation_itself(box):
     """The case that cost a failed update: installed before the manifest
     existed. The backend's unit carries all four values, is root-owned, and is
@@ -100,6 +103,7 @@ def test_a_box_with_no_manifest_asks_the_installation_itself(box):
     assert "gamecore-backend.service" in r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_neither_source_is_refused_with_the_command_to_run(box):
     r = box["run"]()
     assert r.returncode != 0
@@ -108,6 +112,7 @@ def test_neither_source_is_refused_with_the_command_to_run(box):
     assert _called(box) == [], "it ran the step without knowing what to migrate"
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_path_that_holds_no_installation_is_refused(box):
     box["systemd"](environment="GAMECORE_PATH=/nowhere", user="pavic")
     r = box["run"]()
@@ -116,6 +121,7 @@ def test_a_path_that_holds_no_installation_is_refused(box):
     assert _called(box) == []
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_data_root_defaults_to_the_install_like_everywhere_else(box):
     box["systemd"](environment=f"GAMECORE_PATH={box['install']}", user="pavic")
     r = box["run"]()
@@ -125,6 +131,7 @@ def test_the_data_root_defaults_to_the_install_like_everywhere_else(box):
 
 # ── the dry run the preflight leans on ──────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_check_resolves_and_does_nothing(box):
     box["systemd"](environment=f"GAMECORE_PATH={box['install']}", user="pavic")
     r = box["run"]("--check")
@@ -185,6 +192,7 @@ def restart_box(tmp_path):
     return {"run": run, "systemd": systemd, "calls": calls}
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_restart_works_on_a_box_with_no_manifest(restart_box):
     """The failure that ends an update after it has succeeded: the new version
     is written, the restart is asked for, it dies on a missing file, and the
@@ -196,6 +204,7 @@ def test_the_restart_works_on_a_box_with_no_manifest(restart_box):
     assert "restart gamecore-backend.service" in asked
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_manifest_still_wins_when_it_is_there(restart_box):
     restart_box["systemd"](user="from-the-unit")
     r = restart_box["run"](manifest="USER_NAME=from-the-manifest\n")
@@ -203,6 +212,7 @@ def test_the_manifest_still_wins_when_it_is_there(restart_box):
     assert "from-the-manifest@" in restart_box["calls"].read_text()
 
 
+@pytest.mark.linux_until_port(7)
 def test_no_user_anywhere_is_said_rather_than_guessed(restart_box):
     restart_box["systemd"](user="")
     r = restart_box["run"]()

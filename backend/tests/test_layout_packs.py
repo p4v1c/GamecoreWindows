@@ -43,6 +43,7 @@ def host_sandbox(tmp_path, monkeypatch):
     return calls
 
 
+@pytest.mark.linux_until_port(7)
 @pytest.mark.parametrize("emu", ["azahar", "melonds"])
 def test_pack_installs_daemon_service_and_seed(tmp_path, monkeypatch, host_sandbox, emu):
     pack = load_catalog(ROOT / "catalog", tmp_path / "none")[emu]
@@ -76,6 +77,7 @@ def test_pack_installs_daemon_service_and_seed(tmp_path, monkeypatch, host_sandb
         assert run.returncode == 0, run.stderr
 
 
+@pytest.mark.linux_until_port(7)
 def test_host_prerequisites_are_idempotent_and_restore_originals(tmp_path, host_sandbox):
     rel = next(iter(host.UINPUT_FILES))
     previous = host.ETC / rel
@@ -93,6 +95,7 @@ def test_host_prerequisites_are_idempotent_and_restore_originals(tmp_path, host_
     assert not host.RECEIPT.exists()
 
 
+@pytest.mark.linux_until_port(7)
 def test_uninstall_keeps_an_operator_edited_ptrace_policy(tmp_path, host_sandbox):
     pack = SimpleNamespace(id="melonds", data={"hostAccess": {"ptrace": True}})
     host.apply_host_access(pack, ap.AppContext(gamecore_path=tmp_path))
@@ -104,6 +107,7 @@ def test_uninstall_keeps_an_operator_edited_ptrace_policy(tmp_path, host_sandbox
     assert host.PTRACE.read_text().strip() == "2"
 
 
+@pytest.mark.linux_until_port(7)
 def test_interrupted_ptrace_restore_can_be_retried(tmp_path, monkeypatch, host_sandbox):
     pack = SimpleNamespace(id="melonds", data={"hostAccess": {"ptrace": True}})
     host.apply_host_access(pack, ap.AppContext(gamecore_path=tmp_path))
@@ -129,6 +133,7 @@ def test_host_access_is_stripped_from_untrusted_packs(tmp_path, monkeypatch):
     assert "hostAccess" not in pack.data
 
 
+@pytest.mark.linux_until_port(7)
 def test_provider_uses_named_users_home_not_roots(tmp_path, monkeypatch):
     provider = module(ROOT / "scripts/gamecore-provider.py")
     pack = SimpleNamespace(id="azahar", kind="emulator", data={})
@@ -142,6 +147,7 @@ def test_provider_uses_named_users_home_not_roots(tmp_path, monkeypatch):
     assert seen[0].user_home == tmp_path
 
 
+@pytest.mark.linux_until_port(7)
 def test_start_services_does_not_reinstall_the_emulator(tmp_path, monkeypatch):
     provider = module(ROOT / "scripts/gamecore-provider.py")
     pack = SimpleNamespace(id="azahar", kind="emulator", data={})
@@ -154,6 +160,7 @@ def test_start_services_does_not_reinstall_the_emulator(tmp_path, monkeypatch):
     assert calls == ["azahar"]
 
 
+@pytest.mark.linux_until_port(7)
 def test_service_restart_reloads_the_gaming_users_manager(tmp_path, monkeypatch):
     ctx = ap.AppContext(gamecore_path=tmp_path, user_home=tmp_path, user="player")
     ctx.unit_dir.mkdir(parents=True)
@@ -209,6 +216,7 @@ def test_melonds_uses_native_config_even_when_stale_flatpak_config_exists(tmp_pa
     assert not daemon.is_melonds_binary("/tmp/unrelated/melon")
 
 
+@pytest.mark.linux_until_port(7)
 def test_ui_install_starts_each_daemon_after_its_configuration(tmp_path):
     """Execute the real CLI's install loop; only external effects are stubs."""
     (tmp_path / "catalog").mkdir()
@@ -240,6 +248,7 @@ cmd_install azahar melonds
     ]
 
 
+@pytest.mark.linux_until_port(7)
 def test_general_installer_collects_emulator_services(tmp_path):
     """Run the actual emulator installation phase, with no package manager."""
     scripts = tmp_path / "scripts"

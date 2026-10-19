@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.services import process_manager as pm  # noqa: E402
 
 
+
 class FakeProcess:
     """A child that exits when the test says so."""
 
@@ -83,6 +84,7 @@ async def _launch(manager, procs, *, game_key: str, system_id: str,
 
 # ── the signal, and where it is aimed ────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_suspending_signals_the_group_and_not_the_process(manager, signals,
                                                           monkeypatch):
     """An emulator is a tree, and a Flatpak one is five processes deep.
@@ -110,6 +112,7 @@ def test_suspending_signals_the_group_and_not_the_process(manager, signals,
 
 # ── lock 1: the 409 ──────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_a_suspended_game_refuses_a_different_game(manager, signals,
                                                    monkeypatch):
     async def scenario():
@@ -130,6 +133,7 @@ def test_a_suspended_game_refuses_a_different_game(manager, signals,
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_selecting_the_suspended_game_resumes_instead_of_spawning(
         manager, signals, monkeypatch):
     async def scenario():
@@ -148,6 +152,7 @@ def test_selecting_the_suspended_game_resumes_instead_of_spawning(
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_second_thing_on_the_screen_is_still_refused(manager, signals,
                                                        monkeypatch):
     """The half of the old rule that was right: one screen, one session."""
@@ -162,6 +167,7 @@ def test_a_second_thing_on_the_screen_is_still_refused(manager, signals,
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_session_past_the_cap_is_refused_by_name(manager, signals,
                                                      monkeypatch):
     """The cap is memory, and the refusal says what is holding it.
@@ -194,6 +200,7 @@ def test_the_session_past_the_cap_is_refused_by_name(manager, signals,
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_cap_leaves_room_for_a_game_beside_a_backgrounded_app(
         manager, signals, monkeypatch):
     """One thing in the background must not fill the box.
@@ -218,6 +225,7 @@ def test_the_cap_leaves_room_for_a_game_beside_a_backgrounded_app(
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_suspending_an_app_is_not_refused_while_a_game_is_held(
         manager, signals, monkeypatch):
     """The dead end an earlier draft of this shipped with.
@@ -246,6 +254,7 @@ def test_suspending_an_app_is_not_refused_while_a_game_is_held(
 
 # ── lock 2's backend half: what the state says ───────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_the_state_reports_both_slots_and_stays_readable_by_an_old_client(
         manager, signals, monkeypatch):
     """`/games/session` has always been "the game in front of me", flat.
@@ -276,6 +285,7 @@ def test_the_state_reports_both_slots_and_stays_readable_by_an_old_client(
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_an_application_session_is_named_as_one(manager, signals, monkeypatch):
     """A tile with no ROM launches with `game_key == system_id`.
 
@@ -302,6 +312,7 @@ def test_an_application_session_is_named_as_one(manager, signals, monkeypatch):
 
 # ── the events ───────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_both_events_are_numbered_and_carry_the_whole_state(manager, signals,
                                                             monkeypatch):
     """The run number exists because two sessions can overlap for a moment.
@@ -377,6 +388,7 @@ def test_playtime_never_goes_backwards(monkeypatch):
 
 # ── killing ──────────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_closing_a_suspended_session_thaws_it_first(manager, signals,
                                                     monkeypatch):
     """A stopped process cannot run its own exit path.
@@ -398,6 +410,7 @@ def test_closing_a_suspended_session_thaws_it_first(manager, signals,
     asyncio.run(scenario())
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_bare_kill_closes_the_suspended_one_when_the_screen_is_empty(
         manager, signals, monkeypatch):
     """What "close it" means from a session bar with nothing else running."""
@@ -414,6 +427,7 @@ def test_a_bare_kill_closes_the_suspended_one_when_the_screen_is_empty(
 
 # ── the reap, which the slot cap made load-bearing ───────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_a_game_that_has_exited_does_not_hold_a_slot(manager, signals,
                                                      monkeypatch):
     """`is_running` frees a child the instant it has a return code, which is
@@ -470,6 +484,7 @@ def test_a_suspended_session_survives_a_backend_restart(tmp_path, monkeypatch):
     assert fresh.is_running and not fresh.is_foreground
 
 
+@pytest.mark.linux_until_port(3)
 def test_what_is_written_can_be_read_back(tmp_path, monkeypatch):
     """Both slots round-trip, so a restart finds the box as it was left."""
     session_file = tmp_path / "session.json"

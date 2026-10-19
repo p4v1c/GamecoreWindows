@@ -18,8 +18,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 
-pytestmark = pytest.mark.skipif(not shutil.which("rsync"),
-                                reason="the OTA installs with rsync")
+pytestmark = [pytest.mark.linux_until_port(8), pytest.mark.skipif(not shutil.which("rsync"),
+                                reason="the OTA installs with rsync")]
 
 _USER_DATA = {
     "emu/duckstation/game.bin": "a ROM",

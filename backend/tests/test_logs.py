@@ -29,6 +29,7 @@ def data(tmp_path, monkeypatch):
     paths.use_roots(*before)
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_launch_keeps_what_the_emulator_printed(data, monkeypatch):
     manager = pm.ProcessManager()
     monkeypatch.setattr(pm, "display_env", AsyncMock(return_value={}))

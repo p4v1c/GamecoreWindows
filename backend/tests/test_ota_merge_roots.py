@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from backend.services.platform import filesystem
+
 REPO = Path(__file__).resolve().parents[2]
 UPDATER = REPO / "update" / "linux.sh"
 
@@ -55,8 +57,8 @@ def two_roots(tmp_path):
     code = tmp_path / "GameCore"
     data = tmp_path / "userdata"
     code.mkdir()
-    (code / "backend").symlink_to(REPO / "backend")
-    (code / "catalog").symlink_to(REPO / "catalog")
+    filesystem.link_dir(code / "backend", REPO / "backend")
+    filesystem.link_dir(code / "catalog", REPO / "catalog")
     (code / "config").mkdir()
     (data / "config").mkdir(parents=True)
 
@@ -135,6 +137,7 @@ def test_the_operator_s_removed_list_is_read_from_the_data_root(two_roots):
     assert "duckstation" in ids                    # a genuinely new one still lands
 
 
+@pytest.mark.linux_until_port(8)
 def test_a_new_system_whose_emulator_is_absent_stays_off_the_grid(two_roots):
     """A tile for an emulator the box does not have only fails at launch. The
     RetroArch packs are the case: pacman says their core is not installed."""
@@ -201,6 +204,7 @@ def _updater_data_root(tmp_path: Path, environment: str | None,
     return r.stdout.strip()
 
 
+@pytest.mark.linux_until_port(8)
 def test_the_updater_reads_the_data_root_from_the_backend_unit_when_the_shell_has_none(tmp_path):
     """Typed at a shell after the data moved, the updater used to fall back
     to the install and merge the catalogue into the abandoned config/ — with
@@ -210,6 +214,7 @@ def test_the_updater_reads_the_data_root_from_the_backend_unit_when_the_shell_ha
     assert got == "/userdata"
 
 
+@pytest.mark.linux_until_port(8)
 def test_the_updater_keeps_an_explicit_data_root_and_the_old_default(tmp_path):
     assert _updater_data_root(tmp_path, "GAMECORE_DATA=/userdata", data_env="/elsewhere") == "/elsewhere"
     # No unit, unit without the variable, systemctl failing: the install.

@@ -1,12 +1,77 @@
 # Testing
 
-```bash
-pip install -r backend/requirements.txt pytest
-pytest backend/tests -q                     # everything
-pytest backend/tests -q -m "not network"    # offline subset — what CI runs
+On Windows (PowerShell, from the repository root):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r backend\requirements.txt pytest
+.venv\Scripts\python -m pytest backend/tests catalog -m "not network"   # what CI runs
+.venv\Scripts\python -m pytest backend/tests catalog                    # with the network tests
 ```
 
-147 tests, 143 of which need no network.
+Run `backend/tests` and `catalog` together: `backend/tests/conftest.py`
+isolates the roots and the home, and skips the marked tests below; a catalog
+pack's tests rely on it. The owner may be playing on the same PC: start a long
+run at low priority (`Start-Process -Priority BelowNormal`).
+
+The tree holds about 2 900 tests, 4 of which need the network. On Windows
+about 460 are Linux-only for now (next section) and about 60 skip on missing
+data or tools (ImageMagick, a frontend build, a release tag), as on Linux.
+
+## Linux code the port has not replaced yet — `linux_until_port`
+
+The Windows port removes a Linux mechanism in the step that lands its
+replacement ([dev log](dev-log/windows-port.md), D7). Until then its tests
+stay, marked with that step, and are skipped on Windows with the step named:
+
+```python
+@pytest.mark.linux_until_port(3)                 # one test
+pytestmark = pytest.mark.linux_until_port(7)     # every test in the module
+linux_until_port_module(7)                       # a module Windows cannot import (pwd, fcntl):
+                                                 # call it before those imports
+```
+
+- The step must be 3-10 (`backend/tests/linux_until_port.py`); anything else
+  fails the collection.
+- Mark the test that needs Linux, not its file, when the rest of the file runs
+  on Windows. Pure logic in a Linux service is made to run, not marked.
+- Every use is listed in
+  [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
+  `test_linux_until_port.py` fails when the list and the source disagree.
+- The step that replaces the code deletes its tests, and their rows.
+
+A Windows replacement gets its own tests in the same PR
+(`test_platform_*.py`): the pure part with fakes, the Win32 call for real on
+the runner.
+
+## The home, on Windows
+
+`Path.home()` and `os.path.expanduser` read **USERPROFILE**, never HOME, and
+Windows emulators keep configs and saves under APPDATA and LOCALAPPDATA.
+`conftest.py` points HOME, USERPROFILE, APPDATA and LOCALAPPDATA into the
+throwaway root before any import; `test_home_isolation.py` compares them with
+the account's real profile read from the process token, not from the
+environment (`SHGetKnownFolderPath` expands `%USERPROFILE%` from it, so it would
+agree with conftest whatever it did).
+
+`%TEMP%` sits inside the real profile, so the throwaway root does too: the
+guarantee is "inside the suite's fresh temp root", never "outside the real
+home".
+
+## Windows file semantics a test meets
+
+- A file another handle holds cannot be deleted: close it first. The shared
+  playtime connection (`db._DB`) and the log files (`logs._handlers()`) stay
+  open after a `TestClient` lifespan; `test_covers.py` closes both before it
+  wipes its root.
+- Folder links are junctions (`platform/filesystem.link_dir`); a symlink needs
+  admin (`WinError 1314`). `rmtree` and `unlink` remove a junction without
+  entering it.
+- A name may not hold `:`: sysfs fixtures such as `3-1:1.0` cannot exist on
+  NTFS (those tests are Linux-only, marked).
+- `glob("*.png")` matches `Back.PNG`: names compare case-insensitively.
+- The event loop's self-pipe is a socket pair built with `connect()`; patch
+  `socket.connect` only once the app runs (`test_boot_ready.py`).
 
 ## The suite used to be decorative
 
@@ -138,6 +203,11 @@ python -m pytest tests/
 addon directory at install time; from a checkout it has not been copied yet.
 
 ## Running a backend by hand
+
+On the Windows PC, prefer the read-only dev server of the `gamecore-legibility`
+skill (`.claude/skills/gamecore-legibility/scripts/devserve.py`): `uvicorn`
+runs the real lifespan, which acts on the screen, the power settings and the
+pads of the machine it runs on.
 
 Never against the real install directory:
 

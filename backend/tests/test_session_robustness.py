@@ -27,6 +27,7 @@ from backend.services import session as xsession
 from backend.services import standby
 
 
+
 # ── #13 · standby ────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -82,6 +83,7 @@ def test_resume_after_restart_forces_the_screen_back_on(recorded_cmds):
 
 # ── #15 · the display probe must not block the loop ──────────────────────────
 
+@pytest.mark.linux_until_port(3)
 def test_the_display_probe_runs_once_not_per_launch(monkeypatch):
     probes = []
 
@@ -101,6 +103,7 @@ def test_the_display_probe_runs_once_not_per_launch(monkeypatch):
     assert len(probes) == 1, f"probed {len(probes)}x — it used to run on every launch and every standby transition"
 
 
+@pytest.mark.linux_until_port(3)
 def test_invalidating_the_cache_makes_the_next_call_probe_again(monkeypatch):
     probes = []
     monkeypatch.setattr(xsession, "_probe_display", lambda uid: probes.append(uid) or (":0", ""))
@@ -117,6 +120,7 @@ def test_invalidating_the_cache_makes_the_next_call_probe_again(monkeypatch):
     assert len(probes) == 2
 
 
+@pytest.mark.linux_until_port(3)
 def test_display_env_does_not_block_the_event_loop(monkeypatch):
     """A slow probe must not stall unrelated requests — it stalled them 4.7 s."""
     monkeypatch.delenv("DISPLAY", raising=False)
@@ -164,6 +168,7 @@ def _identity(pid: int) -> dict:
             "leader_start": process_identity.start_time(pid)}
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_restarted_backend_finds_the_running_game(session_file):
     proc = _spawn_sleeper()
     try:
@@ -200,6 +205,7 @@ def test_a_restarted_backend_finds_the_running_game(session_file):
         proc.wait(timeout=5)
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_adopted_game_can_still_be_killed(session_file):
     """The whole point: double-PS could no longer close an orphaned emulator."""
     proc = _spawn_sleeper()
@@ -219,6 +225,7 @@ def test_the_adopted_game_can_still_be_killed(session_file):
     assert not session_file.exists(), "the session file goes with it"
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_stale_session_file_is_discarded(session_file):
     proc = _spawn_sleeper()
     pgid = os.getpgid(proc.pid)
@@ -264,6 +271,7 @@ def client_with_ghost_system(monkeypatch):
         yield c
 
 
+@pytest.mark.linux_until_port(3)
 def test_missing_emulator_returns_503_and_says_which(client_with_ghost_system):
     r = client_with_ghost_system.post("/api/games/launch", json={"system_id": "ghost"})
     assert r.status_code == 503, r.text
@@ -271,6 +279,7 @@ def test_missing_emulator_returns_503_and_says_which(client_with_ghost_system):
     assert "ghost" in detail or "not-installed" in detail, detail
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_failed_launch_leaves_the_box_able_to_try_again(client_with_ghost_system):
     for _ in range(3):
         r = client_with_ghost_system.post("/api/games/launch", json={"system_id": "ghost"})
@@ -291,6 +300,7 @@ if __name__ == "__main__":
 # failure left the box unable to launch anything until the service was
 # restarted by hand.
 
+@pytest.mark.linux_until_port(3)
 def test_a_failed_probe_is_retried_not_latched(monkeypatch):
     """X not being up yet means 'ask again', never 'there is no display'."""
     attempts = []
@@ -317,6 +327,7 @@ def test_a_failed_probe_is_retried_not_latched(monkeypatch):
     assert len(attempts) == 3
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_successful_probe_is_still_latched(monkeypatch):
     """The retry must not cost a probe per call once X has answered."""
     attempts = []
@@ -332,6 +343,7 @@ def test_a_successful_probe_is_still_latched(monkeypatch):
     assert len(attempts) == 1
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_headless_box_does_not_probe_on_every_call(monkeypatch):
     """No X at all must not mean xdpyinfo's 5 s timeout on every standby tick."""
     attempts = []

@@ -51,6 +51,7 @@ def _adopt(session_file, entry: dict) -> pm.ProcessManager:
     return fresh
 
 
+@pytest.mark.linux_until_port(3)
 def test_the_group_we_started_is_adopted(session_file, sleeper):
     fresh = _adopt(session_file, _entry(
         sleeper.pid, boot_id=process_identity.boot_id(),
@@ -58,6 +59,7 @@ def test_the_group_we_started_is_adopted(session_file, sleeper):
     assert fresh.is_running
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_pgid_reused_after_a_reboot_is_not_adopted(session_file, sleeper,
                                                      monkeypatch):
     entry = _entry(sleeper.pid, boot_id="boot-before-the-power-cut",
@@ -68,6 +70,7 @@ def test_a_pgid_reused_after_a_reboot_is_not_adopted(session_file, sleeper,
     assert sleeper.poll() is None, "the unrelated process must be left alone"
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_pgid_reused_by_a_newer_process_is_not_adopted(session_file, sleeper):
     entry = _entry(sleeper.pid, boot_id=process_identity.boot_id(),
                    leader_start="1")
@@ -76,6 +79,7 @@ def test_a_pgid_reused_by_a_newer_process_is_not_adopted(session_file, sleeper):
     assert sleeper.poll() is None
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_session_file_without_identity_is_discarded(session_file, sleeper):
     """Written by an older build: there is no way to prove the group is ours."""
     fresh = _adopt(session_file, _entry(sleeper.pid))
@@ -84,6 +88,7 @@ def test_a_session_file_without_identity_is_discarded(session_file, sleeper):
     assert sleeper.poll() is None
 
 
+@pytest.mark.linux_until_port(3)
 def test_a_group_we_may_not_signal_is_not_ours(monkeypatch):
     def denied(pgid, sig):
         raise PermissionError

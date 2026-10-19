@@ -113,6 +113,7 @@ def _supply(root, name, capacity, input_keys=None):
     (supply / "device").symlink_to(dev)
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_mouse_battery_is_not_a_controller(tmp_path):
     """The MX Anywhere 3 showed up as a second "P2" pill in the top bar."""
     gamepad = "7fdb000000000000 0 0 0 0"          # BTN_SOUTH (0x130) and friends

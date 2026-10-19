@@ -40,6 +40,8 @@ import asyncio
 import httpx
 import pytest
 
+from backend.services.platform import filesystem
+
 
 def await_(coro):
     """Run one coroutine to completion from a sync test."""
@@ -166,8 +168,22 @@ def to_raw_2352(iso: bytes, mode: int = 2) -> bytes:
 
 # ── Fixture setup ────────────────────────────────────────────────────────────
 
+def _close_open_files():
+    """Windows cannot delete a file a handle holds: the playtime connection and
+    the log files an earlier test's lifespan opened would block the wipe below.
+    Both reopen on their next use."""
+    from backend import db
+    from backend.services import logs
+    if db._DB is not None:
+        asyncio.run(db._DB.close())
+        db._DB = None
+    for handler in logs._handlers():
+        handler.close()
+
+
 def setup_root():
     if ROOT.exists():
+        _close_open_files()
         shutil.rmtree(ROOT)
     (ROOT / "config").mkdir(parents=True)
 
@@ -181,7 +197,7 @@ def setup_root():
     # green for the wrong reason. Running this file on its own was the red one.
     link = ROOT / "catalog"
     if not link.exists():
-        link.symlink_to(REPO / "catalog")
+        filesystem.link_dir(link, REPO / "catalog")
 
     # PS3 game folder — named by serial, like real dumps
     ps3 = ROOT / "emu/rpcs3/BLUS30443"

@@ -7,6 +7,10 @@ import os
 import sys
 from pathlib import Path
 
+from backend.tests.linux_until_port import linux_until_port_module
+
+linux_until_port_module(7)  # inputdev imports fcntl: evdev and uinput
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "multiplayer"))
 

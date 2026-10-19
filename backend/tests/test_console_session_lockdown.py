@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+
 REPO = Path(__file__).resolve().parents[2]
 SESSION = REPO / "install" / "bin" / "gamecore-session"
 SELECT = REPO / "install" / "bin" / "gamecore-session-select"
@@ -98,6 +99,7 @@ def _wm_config_dir(session) -> Path:
     return session["runtime"] / "gamecore" / "wm"
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_window_manager_is_given_a_configuration_of_the_sessions_own(session):
     """Not the machine's defaults, which is where Alt+Tab comes from."""
     r = session["run"]()
@@ -111,6 +113,7 @@ def test_the_window_manager_is_given_a_configuration_of_the_sessions_own(session
     assert handed[0].endswith("/gamecore/wm"), handed
 
 
+@pytest.mark.linux_until_port(7)
 def test_alt_tab_and_the_meta_key_are_taken_away(session):
     """The two the owner reported by name. `none,none,` is the documented way
     to say "no key"; leaving the line out keeps the compiled-in default."""
@@ -128,6 +131,7 @@ def test_alt_tab_and_the_meta_key_are_taken_away(session):
     assert "Meta=" in kwinrc, "Meta on its own still opens a launcher"
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_window_manager_leaves_the_handovers_to_the_theme(session):
     """The interface is unmapped while a game runs and mapped again on suspend.
     KWin's defaults zoomed and faded it in for ~150 ms over the theme's own
@@ -140,6 +144,7 @@ def test_the_window_manager_leaves_the_handovers_to_the_theme(session):
         assert f"{effect}Enabled=false" in kwinrc, f"KWin still animates with {effect}"
 
 
+@pytest.mark.linux_until_port(7)
 def test_openbox_is_given_a_keyboard_with_nothing_on_it(session):
     """The fallback window manager keeps its bindings in its own file, so
     disabling KWin's shortcuts would not have reached it."""
@@ -149,6 +154,7 @@ def test_openbox_is_given_a_keyboard_with_nothing_on_it(session):
     assert "openbox_config" in rc
 
 
+@pytest.mark.linux_until_port(7)
 def test_openbox_is_told_which_file_to_read(session):
     """By path. Handing openbox a config directory and hoping is how it ends up
     reading the one in the player's home instead."""
@@ -170,6 +176,7 @@ def test_the_players_own_configuration_is_never_written_to(session):
         "the console session wrote into the player's ~/.config")
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_lockdown_is_reported_so_a_journal_can_show_it(session):
     r = session["run"]()
     assert "key bindings disabled" in r.stdout, r.stdout
@@ -220,6 +227,7 @@ def switch(tmp_path):
     return {"run": run, "sddm": sddm}
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_auto_login_drop_in_is_readable_without_root(switch):
     """`status` is documented as needing no root, and it is what somebody runs
     when the console will not come up. Under sudo's 077 umask the file it has
@@ -239,6 +247,7 @@ def test_the_auto_login_drop_in_is_readable_without_root(switch):
     assert "Session=gamecore" in conf.read_text()
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_file_it_cannot_read_is_said_out_loud_rather_than_skipped(switch):
     """The defect exactly: an unreadable file and a file with no [Autologin]
     in it were the same thing, so the answer was confident and wrong."""
@@ -256,6 +265,7 @@ def test_a_file_it_cannot_read_is_said_out_loud_rather_than_skipped(switch):
         hidden.chmod(0o644)
 
 
+@pytest.mark.linux_until_port(7)
 def test_status_still_answers_when_everything_is_readable(switch):
     switch["run"]("gamecore")
     r = switch["run"]("status")
@@ -266,6 +276,7 @@ def test_status_still_answers_when_everything_is_readable(switch):
 
 # ── the way back in ─────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_the_launcher_can_arm_the_console_session(tmp_path):
     """A box in desktop mode had no way back that did not involve knowing the
     name of a command. This is the one a player can click."""
@@ -286,6 +297,7 @@ def test_the_launcher_can_arm_the_console_session(tmp_path):
     assert r.returncode == 0, r.stdout
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_launcher_refuses_an_argument_it_does_not_know(tmp_path):
     r = subprocess.run(["bash", str(LAUNCHER), "--wat"],
                        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
@@ -303,6 +315,7 @@ def test_the_launcher_says_which_session_the_box_actually_boots():
     assert "Alt+Tab" in source, "the symptom the owner reports is not named"
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_return_path_is_granted_without_a_password(tmp_path):
     """`--session` runs `sudo -n`. Without the rule it asks for a password that
     a television has no keyboard to type."""

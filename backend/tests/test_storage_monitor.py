@@ -102,6 +102,7 @@ def running(monkeypatch, rom_path: str, game_key: str = "Zelda.iso"):
 
 # ── a disk arrives ───────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_a_disk_plugged_in_is_mounted_linked_and_announced(data_root, no_game):
     """The headline. Plugging a ROM disk in did literally nothing before."""
     ws = FakeWs()
@@ -116,6 +117,7 @@ def test_a_disk_plugged_in_is_mounted_linked_and_announced(data_root, no_game):
     assert live["/dev/sdb1"].mountpoint == "/run/media/gc/ROMS"
 
 
+@pytest.mark.linux_until_port(5)
 def test_the_mount_point_is_re_read_rather_than_guessed(data_root, no_game):
     """udisks picks the mount point, and guessing it is the exact mistake the
     stable link exists to undo — a second plug lands on `ROMS 1`."""
@@ -128,6 +130,7 @@ def test_the_mount_point_is_re_read_rather_than_guessed(data_root, no_game):
     assert ws.payload("storage:mounted")["mountpoint"] == "/run/media/gc/ROMS 1"
 
 
+@pytest.mark.linux_until_port(5)
 def test_a_disk_that_arrives_already_mounted_still_gets_its_link(data_root, no_game):
     """Mounted by hand from a file manager, or by a desktop automounter. It
     needs no udisksctl call and it still needs its stable path — treating only
@@ -263,6 +266,7 @@ def test_nothing_is_said_when_no_game_is_running(data_root, no_game):
 
 # ── the loop must survive everything ─────────────────────────────────────────
 
+@pytest.mark.linux_until_port(5)
 def test_a_websocket_that_throws_does_not_stop_disks_being_noticed(data_root, no_game):
     """A broadcast failure must not be able to stop the box seeing storage at
     all — the link is what makes the disk usable, the toast is decoration."""

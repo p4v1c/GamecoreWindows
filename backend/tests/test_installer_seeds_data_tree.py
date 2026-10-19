@@ -81,6 +81,7 @@ def _seed(src: Path, data: Path) -> subprocess.CompletedProcess:
 
 # ── The function ────────────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_a_fresh_split_install_gets_its_bezels_and_geometry(tmp_path):
     """The case that used to seed nothing: the data root exists, empty, because
     provision_userdata created it a few lines earlier."""
@@ -98,6 +99,7 @@ def test_a_fresh_split_install_gets_its_bezels_and_geometry(tmp_path):
     assert (data / "config/catalog.d/README.md").is_file()
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_seeded_tree_resolves_a_bezel(tmp_path, monkeypatch):
     """The proof that matters. Not "the file is there" — the launch answers."""
     src = _checkout(tmp_path)
@@ -121,6 +123,7 @@ def test_the_seeded_tree_resolves_a_bezel(tmp_path, monkeypatch):
         consoles.forget()
 
 
+@pytest.mark.linux_until_port(7)
 def test_a_populated_directory_is_the_players_and_is_left_alone(tmp_path):
     """A re-run must not put back a bezel somebody deleted on purpose, nor
     replace one they uploaded. Absent or empty is seeded; anything else is
@@ -141,6 +144,7 @@ def test_a_populated_directory_is_the_players_and_is_left_alone(tmp_path):
     assert (data / "assets/logos/README.md").is_file()
 
 
+@pytest.mark.linux_until_port(7)
 def test_the_old_layout_is_untouched_by_the_change(tmp_path):
     """Data inside the install, installed from a checkout elsewhere: seeded
     into the install exactly as the old loop did. And installed in place
@@ -165,6 +169,7 @@ def test_arch_sh_seeds_into_the_data_root_and_the_old_loop_is_gone():
     assert 'cp -a "$PROJECT_ROOT/$_keep" "$GAMECORE_PATH/$_keep"' not in text
 
 
+@pytest.mark.linux_until_port(7)
 def test_what_the_old_loop_did_on_a_split_box_which_is_nothing(tmp_path):
     """Kept as the record of the failure, run rather than remembered: the loop
     arch.sh used until this change, against the exact state provision_userdata
@@ -192,6 +197,7 @@ def test_what_the_old_loop_did_on_a_split_box_which_is_nothing(tmp_path):
 
 # ── The shortcut's icon ─────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(7)
 def test_the_shortcut_uses_the_shipped_logo_and_falls_back_to_the_theme_icon(tmp_path):
     install = tmp_path / "GameCore"
     (install / "frontend/src/assets").mkdir(parents=True)

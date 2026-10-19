@@ -48,6 +48,7 @@ def client():
 
 # ── #19 · one at a time ──────────────────────────────────────────────────────
 
+@pytest.mark.linux_until_port(8)
 def test_a_second_apply_is_refused_with_409(client, fake_script):
     """update/linux.sh wipes its work directory on entry and rsyncs from it.
 
@@ -69,6 +70,7 @@ def test_a_second_apply_is_refused_with_409(client, fake_script):
     assert "already running" in r.json()["detail"]
 
 
+@pytest.mark.linux_until_port(8)
 def test_apply_is_allowed_again_once_the_previous_run_finished(client, fake_script):
     fake_script("exit 0\n")
 
@@ -90,6 +92,7 @@ def test_a_missing_script_is_404_not_a_stuck_lock(client, fake_script):
 
 # ── #20 · the timeout has to take the children too ───────────────────────────
 
+@pytest.mark.linux_until_port(8)
 def test_killing_the_shell_takes_its_children_with_it(tmp_path):
     """The timeout killed bash only — rsync, pip and npm carried on writing
     into /opt/GameCore after the backend had told the UI it was aborted."""
