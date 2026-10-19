@@ -27,7 +27,6 @@ from backend.services.gamepad_devices import EV_ABS  # noqa: E402
 from backend.services import process_manager as pm    # noqa: E402
 
 
-
 @pytest.fixture
 def manager(monkeypatch):
     """The real manager, with its signals recorded and its disk untouched."""

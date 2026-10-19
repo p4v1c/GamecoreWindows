@@ -32,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from backend.services import process_manager as pm  # noqa: E402
 
 
-
 class FakeProcess:
     """A child that exits when the test says so."""
 
