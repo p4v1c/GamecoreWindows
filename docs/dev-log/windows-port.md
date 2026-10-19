@@ -10,7 +10,7 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 
 | Step (brief §3) | State | PR |
 |---|---|---|
-| 1. Repo, skills, docs read, dev log, CI skeleton | in review | `chore/windows-port-setup` |
+| 1. Repo, skills, docs read, dev log, CI skeleton | merged | #1 |
 | 2. Platform layer + paths, backend passes the ported suite | in review | `feat/platform-layer` |
 | 3. Process / session management (launch, suspend, resume, kill) | — | — |
 | 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds | — | — |
@@ -40,6 +40,7 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D13 | Boot identity = the registry `BootId` counter; process start time = `psutil` creation time (`platform/processes.py`) | `BootId` is exact and readable without admin; `psutil.boot_time()` is derived from the uptime and drifts by a second between calls, which would refuse to adopt a game the backend did start |
 | D14 | The backend and every Python tool run in **UTF-8 mode** (`PYTHONUTF8=1`): CI sets it, the installer and the logon task set it for the backend (step 7) | without it Python decodes a file read with no `encoding=` as the ANSI code page, cp1252 on the runner and on a French Windows: the themes, the README, the scripts' own output (`→`) fail. Hundreds of calls rely on the Linux default; UTF-8 mode is that default back, and Python's own future one (PEP 686) |
 | D15 | The content types the backend serves are pinned by `platform/media_types.py`, not read from the registry | CI served `.webp` as `application/octet-stream`; some PCs give `.js` as `text/plain`, which blanks the interface |
+| D16 | Tests of the Linux process code whose subject is bookkeeping (what is suspended, refused, broadcast) run on Windows through the `posix_boundary` test fixture (`os.killpg`, `os.getpgid`, `os.getuid`, the three signals, played by psutil) instead of carrying `linux_until_port` | the brief's "make the pure logic run": 109 more tests run today, and step 3 has a passing suite to move onto the Job Object code. Only tests that need a real POSIX tool or file system stay marked |
 
 ## Baseline on Windows (19/10/2026, before any port change)
 
@@ -62,15 +63,16 @@ Measured on the Windows 11 PC with the copied tree, Python 3.13:
 
 Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1` (D14),
 `pytest backend/tests catalog -m "not network"`; CI on `windows-latest`,
-Python 3.12, gives the same:
+Python 3.12, gives the same. The process-group tests run through the
+`posix_boundary` fixture (`docs/TESTING.md`), not marked:
 
 | | Test items |
 |---|---|
 | The tree as ported from Linux (all of them run on the Linux box) | 2 901, 4 of them network |
 | Windows before this step | 0: the suite could not be collected |
-| Windows after this step: passed | 2 424 |
-| skipped: Linux code a later step replaces (`linux_until_port`, D11) | 464 in 66 files ([list](windows-port-linux-tests.md)) |
-| skipped on missing data or tools, as on Linux (ImageMagick, a frontend build, a release tag, seeds with no controller block) | 54 |
+| Windows after this step: passed | 2 533 |
+| skipped: Linux code a later step replaces (`linux_until_port`, D11) | 355 in 54 files ([list](windows-port-linux-tests.md)): 222 marked tests + 133 in the 6 Linux pack files Windows cannot import |
+| skipped on missing data or tools, as on Linux (ImageMagick, a frontend build, a release tag, seeds with no controller block) | 54: `test_bezels.py` 27 (ImageMagick; on Linux they ran where it was installed, and bezels leave the port), `test_generator_contract.py` 18 and `test_catalog_consumers.py` 4 (data conditions, identical on Linux), `test_theme_versions.py` 5 (no release tag: D1 did not carry the tags; they run again once step 8 tags) |
 | deselected (network) | 4 |
 | deleted: their code left in step 1 (`release.yml`) or here (`/proc` parsing) | 4 |
 | added: platform layer, home isolation on Windows, Windows roots, the marker, media types | 49 |
@@ -118,8 +120,10 @@ Other checks, same day:
   `profile_save_paths.py`. `conftest.py` links `catalog/` with a junction and
   points HOME, USERPROFILE, APPDATA and LOCALAPPDATA into the throwaway root
   (on Windows `Path.home()` reads USERPROFILE: the HOME guard alone protected
-  nothing). The installer modules load on Windows (`pwd`/`grp` guarded), so 51
-  of their 73 tests run. `paths.py` documents the Windows roots;
+  nothing). The installer modules load on Windows (`pwd`/`grp` guarded), so 56
+  of their 73 tests run. Tests of the Linux process code (`process_manager`,
+  `session`, `rest_mode`, the guide gesture, Bluetooth) run through the
+  `posix_boundary` fixture instead of being marked. `paths.py` documents the Windows roots;
   `requirements.txt` makes evdev and python-xlib Linux-only and adds `psutil`;
   `ci.yml` gains the `backend` job.
 
@@ -130,9 +134,10 @@ Job Object launch (kill-on-close, terminate the job), suspend and resume of
 every process in the job (`NtSuspendProcess`/`NtResumeProcess`) and the
 console-user session check (WTS); asyncio on the Proactor loop.
 `process_manager.py`, `session.py`, `window_focus.py` and
-`fullscreen_enforcer.py` lose their Linux paths, and the 91 step-3 items of
+`fullscreen_enforcer.py` lose their Linux paths, and the 5 step-3 items of
 [`windows-port-linux-tests.md`](windows-port-linux-tests.md) are deleted or
-ported with them. Two traps found here: launch args are split with POSIX
+ported with them, and the 166 tests that run through the `posix_boundary`
+fixture move onto the Job Object code (the fixture goes). Two traps found here: launch args are split with POSIX
 `shlex`, which eats the backslashes of a bare Windows path
 (`test_launch_args_roots.py`); and `process_manager.py` is already over the
 size budget (933 lines), so it must shrink.
@@ -141,7 +146,7 @@ size budget (933 lines), so it must shrink.
 
 - D8 (session model) is confirmed or changed at step 3.
 - When do the Linux packs leave the tree? They are out of scope (brief §1);
-  their 282 Linux-only test items are marked step 7, where the Windows install
+  their 142 Linux-only test items are marked step 7, where the Windows install
   providers replace Flatpak. Removing them earlier, in a PR of their own, would
   shorten the list. Confirm, or pick the moment.
 - The overlay window (out of scope) is marked step 4, where the brief removes
