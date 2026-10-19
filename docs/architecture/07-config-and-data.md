@@ -35,6 +35,23 @@ may read the root variables from the environment. It works on the AST, not on
 a grep, because half these modules discuss `config/` and `emu/` at length in
 their docstrings.
 
+### On Windows
+
+| Root | Installed PC | A checkout (dev, tests, dev server) |
+|---|---|---|
+| `GAMECORE_ROOT` | `C:\Program Files\GameCore`, read-only for the console user | the repository |
+| `GAMECORE_DATA` | chosen at install: `Documents\GameCore` by default, or a folder on another NTFS volume (`D:\GameCoreData`) | unset: the repository too, as on Linux |
+
+- The installer sets both (port step 7). The code root is not writable by the
+  console user, so "unset" never happens on an installed PC; the default only
+  keeps a checkout self-contained ([dev log](../dev-log/windows-port.md), D9).
+- `pathlib` everywhere. Windows paths compare case-insensitively, as NTFS
+  names do: `C:\GameCore` and `c:/gamecore/` are one root, not a split.
+- A drive path in `systems.json` (`E:\Roms\psx`) is kept as written; a
+  relative one (`emu/duckstation/`, either slash) resolves under the data root.
+- Folder links (a profile's saves, the suite's `catalog/`) are NTFS
+  junctions, not symlinks: `services/platform/filesystem.py`.
+
 ### The two roots, drawn — including what is still ambiguous
 
 ```mermaid

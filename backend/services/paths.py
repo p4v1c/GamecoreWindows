@@ -1,15 +1,24 @@
-"""Where GameCore reads code, and where it writes the player's data.
+r"""Where GameCore reads code, and where it writes the player's data.
 
 Two roots, deliberately separate:
 
   ``GAMECORE_PATH``   the installation — backend, venv, frontend build,
                       catalogue, installers. Read-only once the box is up.
+                      `C:\Program Files\GameCore` on an installed PC.
   ``GAMECORE_DATA``   everything the player owns — ROMs, generated config,
                       covers, scraped media, overlays, playtime. Writable.
+                      Chosen at install: `Documents\GameCore` by default, or a
+                      folder on another NTFS volume such as `D:\GameCoreData`.
 
-`/opt/GameCore` mixes the two today, which is why the box cannot have an
-immutable image, cannot be backed up by copying one directory, and why every
-OTA has to tiptoe around `emu/` and `config/` with rsync excludes.
+On Windows the installer always sets both (port step 7); the code root is
+not writable by the console user, so the default below only ever serves a
+checkout: development, the test suite, the read-only dev server. Paths are
+`pathlib` throughout, and Windows paths compare case-insensitively, as NTFS
+names do (`is_split()` included).
+
+On the Linux box `/opt/GameCore` mixed the two, which is why it could not have
+an immutable image, could not be backed up by copying one directory, and why
+every OTA had to tiptoe around `emu/` and `config/` with rsync excludes.
 
 Why the default is "the same directory"
 ---------------------------------------
