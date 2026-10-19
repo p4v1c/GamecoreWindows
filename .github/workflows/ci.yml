@@ -63,6 +63,11 @@ jobs:
   # are skipped with that step named (linux_until_port, docs/TESTING.md).
   backend:
     runs-on: windows-latest
+    # UTF-8 mode, as the installed backend runs (dev log D14): without it a
+    # file read with no encoding is decoded as cp1252 and the themes, the
+    # README and every non-ASCII file fail to load.
+    env:
+      PYTHONUTF8: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -38,6 +38,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D11 | Tests of Linux code a later step replaces carry `linux_until_port(step)` and are skipped on Windows with the step named; the full list is [`windows-port-linux-tests.md`](windows-port-linux-tests.md), checked against the source by `test_linux_until_port.py`. A test whose code is already gone is deleted, not marked | D7 says the test goes with its code; the marker keeps the count visible until then, and a mark missing from the list fails the suite |
 | D12 | Folder links are NTFS **junctions** (`platform/filesystem.py`), never symlinks | a symlink needs admin or Developer Mode (`WinError 1314`); a junction needs neither and every program follows it. Limit: the target is a local absolute directory that exists |
 | D13 | Boot identity = the registry `BootId` counter; process start time = `psutil` creation time (`platform/processes.py`) | `BootId` is exact and readable without admin; `psutil.boot_time()` is derived from the uptime and drifts by a second between calls, which would refuse to adopt a game the backend did start |
+| D14 | The backend and every Python tool run in **UTF-8 mode** (`PYTHONUTF8=1`): CI sets it, the installer and the logon task set it for the backend (step 7) | without it Python decodes a file read with no `encoding=` as the ANSI code page, cp1252 on the runner and on a French Windows: the themes, the README, the scripts' own output (`→`) fail. Hundreds of calls rely on the Linux default; UTF-8 mode is that default back, and Python's own future one (PEP 686) |
+| D15 | The content types the backend serves are pinned by `platform/media_types.py`, not read from the registry | CI served `.webp` as `application/octet-stream`; some PCs give `.js` as `text/plain`, which blanks the interface |
 
 ## Baseline on Windows (19/10/2026, before any port change)
 
@@ -58,19 +60,20 @@ Measured on the Windows 11 PC with the copied tree, Python 3.13:
 
 ## After step 2 (19/10/2026)
 
-Measured on the Windows 11 PC, Python 3.13,
-`pytest backend/tests catalog -m "not network"`:
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1` (D14),
+`pytest backend/tests catalog -m "not network"`; CI on `windows-latest`,
+Python 3.12, gives the same:
 
 | | Test items |
 |---|---|
 | The tree as ported from Linux (all of them run on the Linux box) | 2 901, 4 of them network |
 | Windows before this step | 0: the suite could not be collected |
-| Windows after this step: passed | 2 402 |
+| Windows after this step: passed | 2 424 |
 | skipped: Linux code a later step replaces (`linux_until_port`, D11) | 464 in 66 files ([list](windows-port-linux-tests.md)) |
-| skipped on missing data or tools, as on Linux (ImageMagick, a frontend build, a release tag, seeds with no controller block) | 55 |
+| skipped on missing data or tools, as on Linux (ImageMagick, a frontend build, a release tag, seeds with no controller block) | 54 |
 | deselected (network) | 4 |
 | deleted: their code left in step 1 (`release.yml`) or here (`/proc` parsing) | 4 |
-| added: platform layer, home isolation on Windows, Windows roots, the marker | 28 |
+| added: platform layer, home isolation on Windows, Windows roots, the marker, media types | 49 |
 
 Deleted tests, and what the step that brings their code back checks again:
 
