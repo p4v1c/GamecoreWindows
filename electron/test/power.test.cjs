@@ -26,13 +26,13 @@ function fakeMonitor() {
   return { on: (ev, fn) => handlers.set(ev, fn), emit: (ev) => handlers.get(ev)?.() }
 }
 
-test('reboot and shutdown run the commands sudoers grants', () => {
+test('reboot and shutdown ask Windows, at once', () => {
   const ipc = new Map()
   const execs = []
   registerPowerIpc({ ipcMain: { on: (k, fn) => ipc.set(k, fn) }, exec: (c) => execs.push(c) })
   ipc.get('system:reboot')()
   ipc.get('system:shutdown')()
-  assert.deepEqual(execs, ['sudo systemctl reboot', 'sudo systemctl poweroff'])
+  assert.deepEqual(execs, ['shutdown /r /t 0', 'shutdown /s /t 0'])
 })
 
 test('a wake puts the interface back in fullscreen and focused', () => {

@@ -76,8 +76,8 @@ Every call is a one-way `ipcRenderer.send` except the `onResume` listener.
 
 | Channel | Handler |
 |---|---|
-| `system:reboot` | `exec('sudo systemctl reboot')` (`electron/power.js`) |
-| `system:shutdown` | `exec('sudo systemctl poweroff')` (`electron/power.js`) |
+| `system:reboot` | `exec('shutdown /r /t 0')` (`electron/power.js`) |
+| `system:shutdown` | `exec('shutdown /s /t 0')` (`electron/power.js`) |
 | `system:quit` | `app.quit()` |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |

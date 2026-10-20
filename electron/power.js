@@ -7,16 +7,19 @@
  * game before suspending, which the shell cannot see. After a wake, the
  * backend puts the screen, pads and display mode back and tells the renderer;
  * what is left here is this window. A suspend can leave a kiosk window
- * unfocused or out of fullscreen on X11, where the pad then drives nothing,
- * or showing the frame from before the sleep with parts of it gone black.
+ * unfocused or out of fullscreen, where the pad then drives nothing, or
+ * showing the frame from before the sleep with parts of it gone black.
  *
  * Dependencies are handed in, so the VM bench can load this without Electron.
  */
 
-/** reboot and shutdown, exactly as main.js ran them. */
+/** Windows' own shutdown.exe; the console user holds the shutdown right. */
+const REBOOT_COMMAND   = 'shutdown /r /t 0'
+const SHUTDOWN_COMMAND = 'shutdown /s /t 0'
+
 function registerPowerIpc({ ipcMain, exec }) {
-  ipcMain.on('system:reboot',   () => exec('sudo systemctl reboot'))
-  ipcMain.on('system:shutdown', () => exec('sudo systemctl poweroff'))
+  ipcMain.on('system:reboot',   () => exec(REBOOT_COMMAND))
+  ipcMain.on('system:shutdown', () => exec(SHUTDOWN_COMMAND))
 }
 
 /**
