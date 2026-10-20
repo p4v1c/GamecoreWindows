@@ -12,13 +12,13 @@ Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
 and 7. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 20/10/2026 (step 4): 349 test items in 50 files, by step:
+Measured on 20/10/2026 (step 4): 371 test items in 51 files, by step:
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
 | 5 | pads (SDL), battery, storage, Bluetooth | 22 | sysfs trees whose names hold `:`; `lsblk`/`udisksctl` and `/run/media` links; an interactive `bluetoothctl` |
 | 6 | Rest mode: sleep, wake by pad | 12 | bash helper over sysfs; sudoers and systemd units |
-| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 277 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
+| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 299 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
 | 8 | OTA updater and release workflow | 26 | `update/linux.sh` in bash, rsync, `systemctl` |
 | 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
@@ -58,6 +58,7 @@ rest of the file runs on Windows.
 | 7 | `backend/tests/test_readonly_root.py` | all (5) | rsync + POSIX modes; Program Files ACLs come with the installer |
 | 7 | `backend/tests/test_session_install.py` | `test_it_installs_the_session_the_entry_and_the_units`, `test_the_unit_carries_the_paths_the_operator_chose`, `test_running_it_twice_changes_nothing_the_second_time`, `test_a_missing_source_stops_rather_than_reporting_success`, `test_arming_the_console_session_points_the_autologin_at_it`, `test_going_back_to_the_desktop_names_a_session_that_exists`, `test_arming_a_box_that_was_never_migrated_refuses_and_says_how`, `test_leaving_with_no_desktop_installed_refuses_rather_than_stranding`, `test_arming_retires_the_legacy_kiosk_without_killing_the_current_session`, `test_preparation_installs_the_complete_ota_chain`, `test_preparation_keeps_a_file_by_file_undo`, `test_arming_without_a_window_manager_is_refused`, `test_arming_with_only_openbox_says_what_that_costs`, `test_leaving_returns_to_the_desktop_the_box_was_using`, `test_the_console_is_never_recorded_as_the_desktop_to_return_to`, `test_a_desktop_uninstalled_since_the_arming_is_not_used`, `test_a_box_whose_only_desktop_is_wayland_can_still_leave`, `test_the_backup_is_not_written_where_sddm_reads_it`, `test_a_stale_gamecore_file_that_would_win_is_retired`, `test_a_competing_file_we_may_not_touch_is_reported_and_fails`, `test_leaving_with_restart_dm_actually_restarts_the_display_manager`, `test_leaving_without_the_flag_still_restarts_nothing`, `test_a_switch_that_did_not_take_restarts_nothing`, `test_an_option_nobody_declared_is_refused`, `test_the_sudoers_rule_for_leaving_is_installed_by_the_update_step` | SDDM, X sessions, systemd |
 | 7 | `backend/tests/test_session_migrate_helper.py` | `test_the_installer_s_own_record_is_used_when_it_is_there`, `test_a_box_with_no_manifest_asks_the_installation_itself`, `test_neither_source_is_refused_with_the_command_to_run`, `test_a_path_that_holds_no_installation_is_refused`, `test_the_data_root_defaults_to_the_install_like_everywhere_else`, `test_check_resolves_and_does_nothing`, `test_the_restart_works_on_a_box_with_no_manifest`, `test_the_manifest_still_wins_when_it_is_there`, `test_no_user_anywhere_is_said_rather_than_guessed` | bash `gamecore-session-migrate`, sudoers |
+| 7 | `backend/tests/test_sudoers_rules_name_real_commands.py` | all (22) | sudoers rules `arch.sh` writes; the Electron `systemctl poweroff/reboot` grant is orphaned since the shell runs `shutdown.exe` |
 | 7 | `catalog/lutris/tests/test_defaults.py` | all (9) | Linux pack: `fcntl` |
 | 7 | `catalog/lutris/tests/test_fullscreen.py` | `test_the_lutris_tile_fullscreens_the_game_window` | Linux pack: X11 `WM_CLASS` matching; the Windows enforcer fullscreens the job's own window |
 | 7 | `catalog/lutris/tests/test_proton.py` | `test_a_verified_build_lands_in_runners_wine` | Linux pack: symlinks in a Wine tree |
