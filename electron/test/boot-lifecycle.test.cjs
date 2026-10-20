@@ -120,8 +120,7 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     hasSignal: (sig) => signals.has(sig),
     /** What the renderer sends when the player picks Settings → Mode bureau. */
     quit: () => ipc.get('system:quit')?.(),
-    // The overlay monitor is a legitimate child; only a second uvicorn is the
-    // defect this file is about.
+    // Only a second uvicorn is the defect this file is about.
     backends: () => spawned.filter(s => s.args.join(' ').includes('uvicorn')),
     start: () => { readyResolve(); return appReady },
     // The wait for a backend deliberately has no deadline — it slows down and

@@ -12,11 +12,11 @@ drawn.
 | # | Document | What you get |
 |---|---|---|
 | 1 | [Runtime topology](01-runtime-topology.md) | The four processes, ports, units, boot sequence, who talks to whom |
-| 2 | [Request flows](02-request-flows.md) | Sequence diagrams: launch, kill, covers, OTA, standby, auth, overlays |
+| 2 | [Request flows](02-request-flows.md) | Sequence diagrams: launch, kill, covers, OTA, standby, auth |
 | 3 | [Backend — routers](03-backend-routers.md) | Every HTTP endpoint, every function, file by file |
 | 4 | [Backend — services](04-backend-services.md) | Every service module, every function, file by file |
 | 5 | [Frontend](05-frontend.md) | Components, hooks, store, the gamepad event bus |
-| 6 | [Electron & overlays](06-electron-and-overlays.md) | Windows, IPC bridge, the overlay monitor subprocess protocol |
+| 6 | [Electron shell](06-electron-shell.md) | Windows, IPC bridge, boot sequence, HUD toasts |
 | 7 | [Config & data](07-config-and-data.md) | Every config file schema, the SQLite schema, the caches |
 | 8 | [Controller pipeline](08-controller-pipeline.md) | SDL, GUIDs, per-emulator config writers, snapshots, the mapping wizard |
 | 9 | [Gotchas](09-gotchas.md) | The invariants that are easy to break, and why they exist |
@@ -57,8 +57,7 @@ flowchart TB
             tasks["background tasks<br/>gamepad_monitor · battery · standby · prefetch"]
         end
         subgraph ui["gamecore-ui.service — system unit"]
-            main["Electron main<br/>kiosk window · overlay window · HUD toasts"]
-            mon["overlay_monitor.py<br/>subprocess, JSON-lines over stdio"]
+            main["Electron main<br/>kiosk window · HUD toasts"]
         end
         emu["the emulator<br/>own process group"]
         subgraph addons["addons — systemd user units"]
@@ -74,7 +73,6 @@ flowchart TB
     lan["LAN client (phone, PC)"]
 
     main -->|"http://localhost:8765"| api
-    main -->|spawn| mon
     main --> tv
     api -->|spawn, killpg| emu
     api -.->|WebSocket events| main

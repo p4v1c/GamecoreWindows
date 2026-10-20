@@ -24,6 +24,6 @@ module.exports = function rig(source = fs.readFileSync(path.join(__dirname, '../
     setTimeout: (fn, ms) => { const id = ++serial; timers.set(id, { fn, ms }); return id },
     clearTimeout: id => timers.delete(id),
   })
-  vm.runInContext(source.slice(source.indexOf('let hudToastWindow'), source.indexOf('// ── Overlay monitor')), context)
+  vm.runInContext(source.slice(source.indexOf('let hudToastWindow'), source.indexOf('let sessionOwnsScreen')), context)
   return { context, windows, ipc, timers }
 }

@@ -1,9 +1,9 @@
-"""The Electron shell's overlay lifecycle, exercised as JavaScript.
+"""The Electron shell, exercised as JavaScript.
 
-`electron/main.js` is the one file in this project that no Python test can
-reason about: the bezel window's geometry and the cancellation of a launch are
-decisions taken in JavaScript, against Electron's own API. So the bench next to
-it (`electron/test/`) runs the real module in a VM with Electron, the child
+`electron/` is the one part of this project that no Python test can reason
+about: the boot, the HUD toasts and the power commands are decisions taken in
+JavaScript, against Electron's own API. So the bench next to it
+(`electron/test/`) runs the real modules in a VM with Electron, the child
 processes and the network replaced, and this wrapper is what makes it part of
 `pytest backend/tests` rather than a file somebody has to remember to run.
 
@@ -23,7 +23,7 @@ BENCH = REPO / "electron" / "test"
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
-def test_the_electron_overlay_bench_passes():
+def test_the_electron_shell_bench_passes():
     assert BENCH.is_dir(), BENCH
     files = sorted(BENCH.glob("*.test.cjs"))
     assert files, "the bench is empty — that is not a pass"
