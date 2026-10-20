@@ -20,7 +20,7 @@ keyboard. On a controller-only kiosk the UI sounds would stay silent forever.
 | Window | Created by | Nature |
 |---|---|---|
 | main | `createWindow()` | kiosk, loads `BACKEND_URL` (or `DEV_URL` when `DEV`) |
-| HUD toast | `showHudToast()` (`electron/hud.js`) | transparent, always-on-top, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
+| HUD toast | `showHudToast()` (`electron/hud.js`) | transparent, click-through, `focusable: false`, created hidden and shown with `showInactive()` at the `screen-saver` level, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
 
 Both use `nodeIntegration: false`, `contextIsolation: true`. The renderer
 reaches Electron only through `preload.js`.
@@ -102,6 +102,13 @@ broadcasts — including `POST /api/addons/notify` (reachable by any addon) and
 | `safeColor(c)` | the accent lands inside `style=""`, so it is only ever accepted as a plain colour token |
 
 Never interpolate a broadcast string raw into that template.
+
+The toast never takes the foreground: `show()` would activate it, pull the game
+out of fullscreen and move the pad's input away from it. It is drawn over a
+**borderless** fullscreen game only; Windows composes nothing over an
+**exclusive** fullscreen DirectX or Vulkan surface, so packs must ask their
+emulator for borderless fullscreen. Windows toast notifications are not an
+option: Focus Assist hides them during games.
 
 ## Backend fallback
 

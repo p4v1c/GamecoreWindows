@@ -88,15 +88,21 @@ function createHud({ BrowserWindow, screen, timers = { setTimeout, clearTimeout 
       x: width - W - 24, y: themed ? 140 : 66, width: W, height: H,
       transparent: true, backgroundColor: '#00000000', frame: false,
       alwaysOnTop: true, skipTaskbar: true, focusable: false,
-      resizable: false, hasShadow: false,
+      resizable: false, hasShadow: false, show: false,
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     })
+    // Above a borderless fullscreen game. Nothing is drawn over an exclusive
+    // fullscreen one: packs must ask their emulator for borderless.
+    hudToastWindow.setAlwaysOnTop(true, 'screen-saver')
     hudToastWindow.setIgnoreMouseEvents(true)
     hudToastWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-    // Raised once loaded: a game window raised since stacks above an older
-    // always-on-top window of the same level.
-    hudToastWindow.webContents.once('did-finish-load', () => {
-      hudToastWindow?.moveTop()
+    // showInactive(), never show(): taking the foreground pulls the game out
+    // of fullscreen and moves the pad's input away from it.
+    const win = hudToastWindow
+    win.once('ready-to-show', () => {
+      if (hudToastWindow !== win) return
+      win.showInactive()
+      win.moveTop()
     })
     hudToastWindow.on('closed', () => { hudToastWindow = null })
 
