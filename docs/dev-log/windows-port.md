@@ -13,7 +13,7 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 1. Repo, skills, docs read, dev log, CI skeleton | merged | #1 |
 | 2. Platform layer + paths, backend passes the ported suite | merged | #3 |
 | 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
-| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | in review | `feat/windows-electron-frontend` |
+| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | in review | #5 |
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | — | — |
 | 6. Rest mode (sleep, wake by pad, splash after wake) | — | — |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
