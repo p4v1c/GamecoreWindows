@@ -1,6 +1,6 @@
 # 6 — Electron shell
 
-`electron/`: `main.js`, `power.js`, `preload.js`, `boot/boot.html`,
+`electron/`: `main.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
 `start-ui.sh`. It owns two windows: the kiosk window and the HUD toast.
 
 
@@ -20,7 +20,7 @@ keyboard. On a controller-only kiosk the UI sounds would stay silent forever.
 | Window | Created by | Nature |
 |---|---|---|
 | main | `createWindow()` | kiosk, loads `BACKEND_URL` (or `DEV_URL` when `DEV`) |
-| HUD toast | `showHudToast()` | transparent, always-on-top, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
+| HUD toast | `showHudToast()` (`electron/hud.js`) | transparent, always-on-top, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
 
 Both use `nodeIntegration: false`, `contextIsolation: true`. The renderer
 reaches Electron only through `preload.js`.
@@ -72,15 +72,15 @@ onResume(cb)
 Typed for the UI in `frontend/src/gamecore.d.ts` (`GamecoreAPI`).
 Every call is a one-way `ipcRenderer.send` except the `onResume` listener.
 
-## IPC handlers in `main.js`
+## IPC handlers
 
 | Channel | Handler |
 |---|---|
 | `system:reboot` | `exec('sudo systemctl reboot')` (`electron/power.js`) |
 | `system:shutdown` | `exec('sudo systemctl poweroff')` (`electron/power.js`) |
 | `system:quit` | `app.quit()` |
-| `notify:battery` | `showBatteryToast(data)` |
-| `notify:controller` | `showHudToast(...)` |
+| `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
+| `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
 
 `powerMonitor` `resume` (`electron/power.js`, `watchResume`, registered with the IPC by `register()` and subscribed once the app is ready): unless a session
 owns the screen, the main window is set fullscreen again, shown and focused,
@@ -91,7 +91,7 @@ Rest mode itself is the backend's (`POST /api/power/rest`), not an IPC.
 
 ## HUD toasts and untrusted text
 
-`showHudToast({icon, title, body, accent})` builds an HTML string for a
+`electron/hud.js` (`createHud()`, registered by `main.js`). `showHudToast({icon, title, body, accent})` builds an HTML string for a
 `data:` URL. Its inputs come from the renderer, which got them from WebSocket
 broadcasts — including `POST /api/addons/notify` (reachable by any addon) and
 **Bluetooth device names**. Two guards exist for that reason:

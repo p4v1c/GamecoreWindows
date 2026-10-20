@@ -100,8 +100,8 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
   const queue = answers.slice()
   const signals = new Map()
   const context = vm.createContext({
-    require: (id) => id === './hud-tokens.json' ? require('../hud-tokens.json')
-      : id === './power.js' ? require('../power.js') : stubs[id],
+    // The shell's own modules load for real; Electron and Node are doubles.
+    require: (id) => id.startsWith('./') ? require(path.join('..', id)) : stubs[id],
     __dirname: path.dirname(MAIN),
     process: { env, on: (sig, fn) => signals.set(sig, fn) },
     console: { log: () => {}, warn: () => {}, error: () => {} },
