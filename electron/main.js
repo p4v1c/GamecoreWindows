@@ -262,22 +262,17 @@ function backendReady() {
 /**
  * Who owns the backend process.
  *
- * On an installed box, systemd does — `gamecore-backend.service`, with its own
- * restart policy, its own environment and its own journal. Electron spawning a
- * second uvicorn on the same port produced an EADDRINUSE crash loop next to a
- * working backend, and the guard against it was a race: "nothing answered in
- * the last 1.5 s" is true of a backend that is merely still starting.
+ * On an installed box, the logon task does (port step 7), with its own
+ * watchdog and environment. Electron spawning a second uvicorn on the same
+ * port produced an EADDRINUSE crash loop next to a working backend, and the
+ * guard against it was a race: "nothing answered in the last 1.5 s" is true
+ * of a backend that is merely still starting.
  *
- * systemd sets INVOCATION_ID in every service it runs, and start-ui.sh is the
- * unit's ExecStart, so Electron inherits it. That is the signal — no installer
- * change, and it cannot drift out of sync with reality. GAMECORE_MANAGED
- * overrides it either way, for a sandbox or a test.
+ * The task that starts the interface sets GAMECORE_MANAGED=1. Unset, this is
+ * a checkout run by hand, which may start its own backend.
  */
 function backendIsManaged() {
-  const explicit = process.env.GAMECORE_MANAGED
-  if (explicit === '1') return true
-  if (explicit === '0') return false
-  return !!process.env.INVOCATION_ID
+  return process.env.GAMECORE_MANAGED === '1'
 }
 
 async function startBackend() {
@@ -290,15 +285,17 @@ async function startBackend() {
   if (backendIsManaged()) return
 
   const root   = path.join(__dirname, '..')
-  const venv   = path.join(root, '.venv', 'bin', 'python')
-  const python = fs.existsSync(venv) ? venv : 'python3'
+  const venv   = path.join(root, '.venv', 'Scripts', 'python.exe')
+  const python = fs.existsSync(venv) ? venv : 'python'
 
   console.log('[boot] no managed backend — starting one from', root)
   backendProcess = spawn(
     python, ['-m', 'uvicorn', 'backend.main:app',
              '--host', '127.0.0.1', '--port', BACKEND_PORT,
              '--log-level', DEBUG ? 'debug' : 'warning'],
-    { cwd: root, detached: false, stdio: 'ignore' }
+    // UTF-8 mode, as the installed backend runs (dev log D14).
+    { cwd: root, detached: false, stdio: 'ignore',
+      env: { ...process.env, PYTHONUTF8: '1' } }
   )
 }
 

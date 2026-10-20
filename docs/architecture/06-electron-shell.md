@@ -122,10 +122,16 @@ option: Focus Assist hides them during games.
 | Function | Role |
 |---|---|
 | `backendReady()` | asks `GET /api/ready` |
-| `startBackend()` | spawns uvicorn **only if nothing answers** |
+| `backendIsManaged()` | `GAMECORE_MANAGED=1`: the backend belongs to someone else, never start one |
+| `startBackend()` | spawns uvicorn from `.venv\Scripts\python.exe` (else `python`), with `PYTHONUTF8=1`, **only if unmanaged and nothing answers** |
 
-On a real box the systemd unit owns the backend and this never fires. It
-exists so `npx electron .` works on a dev machine with nothing else running.
+On an installed PC the logon task owns the backend and must start the
+interface with `GAMECORE_MANAGED=1` (port step 7); this then never fires. It
+exists so `npx electron .` works in a checkout with nothing else running. The
+fallback runs the backend's real lifespan, which changes this PC's power plan
+and display settings: for a look at the interface, point the shell at the
+read-only dev server instead (`GAMECORE_BACKEND_PORT=8766`, `GAMECORE_MANAGED=1`).
+Linux used systemd's `INVOCATION_ID` as the signal; it means nothing here.
 
 ## `start-ui.sh`
 
