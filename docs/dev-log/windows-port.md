@@ -109,7 +109,7 @@ Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`,
 
 | | Before (main at `e9094a7`) | After |
 |---|---|---|
-| passed | 2 532 | 2 566 |
+| passed | 2 532 | 2 567 |
 | skipped | 283 | 280 |
 | deselected (network) | 4 | 4 |
 | `linux_until_port` items ([list](windows-port-linux-tests.md)) | 355 in 54 files | 352 in 52 files (−5 step 3, +2: the lutris test below) |
