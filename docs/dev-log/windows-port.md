@@ -158,7 +158,7 @@ and 7). New: `test_platform_jobs.py`, `test_platform_window_control.py`,
 
 - Step 3: games in Job Objects (`platform/jobs.py`), the console session
   (`platform/console_session.py`), windows (`platform/window_control.py`);
-  `process_manager.py` 933 → 629 lines (`game_session.py`,
+  `process_manager.py` 933 → 597 lines (`game_session.py`,
   `command_line.py` extracted); `session.py`, `window_focus.py`,
   `fullscreen_enforcer.py` rewritten for Win32; `launch.py` without the udev
   step; `rest_mode.close_everything()` on jobs. The X11/pgid code went with it.
