@@ -36,6 +36,7 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
   const asked = []
   const execs = []          // every shell command the shell asked for, in order
   const quits = []
+  const appHandlers = new Map()
   let readyResolve
   const appReady = new Promise((r) => { readyResolve = r })
 
@@ -58,7 +59,8 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     loadFile(p) { this.loaded.push({ kind: 'file', at: p }) }
     loadURL(u) { this.loaded.push({ kind: 'url', at: u }) }
     once(event, fn) { this.handlers.set(event, fn) }
-    on() {} close() {} hide() {} isVisible() { return true }
+    on(event, fn) { (this.listeners ||= new Map()).set(event, fn) }
+    close() {} hide() {} isVisible() { return true }
     show() { this.shown = true }
     /** What Electron does once the first document can be painted. */
     readyToShow() { this.handlers.get('ready-to-show')?.() }
@@ -73,7 +75,7 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     app: {
       commandLine: { appendSwitch: (...a) => { switches.push(a.join('=')) } },
       whenReady: () => appReady,
-      on: () => {}, quit: () => { quits.push(Date.now()) },
+      on: (event, fn) => appHandlers.set(event, fn), quit: () => { quits.push(Date.now()) },
     },
     BrowserWindow: Window,
     ipcMain: { on: (key, fn) => ipc.set(key, fn) },
@@ -123,6 +125,8 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     /** What systemd sends on `systemctl stop`. */
     signal: (sig = 'SIGTERM') => signals.get(sig)?.(),
     hasSignal: (sig) => signals.has(sig),
+    /** What Electron does when the last window has closed. */
+    allClosed: () => appHandlers.get('window-all-closed')?.(),
     /** What the renderer sends when the player picks Settings → Mode bureau. */
     quit: () => ipc.get('system:quit')?.(),
     // Only a second uvicorn is the defect this file is about.
@@ -453,4 +457,15 @@ test('Windows display scaling does not zoom the interface a second time', async 
     `the device scale is left to Windows; flags were ${JSON.stringify(r.switches)}`)
   assert.ok(!r.switches.includes('enable-transparent-visuals'),
     'an X11-only switch is still set')
+})
+
+test('a Windows sign-out is a teardown, not a window to rebuild', async () => {
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
+  r.start()
+  await settle(60)
+  r.stop()
+  const before = r.windows.length
+  r.windows[0].listeners.get('session-end')()
+  r.allClosed()
+  assert.equal(r.windows.length, before, 'it built a new window while Windows was signing out')
 })

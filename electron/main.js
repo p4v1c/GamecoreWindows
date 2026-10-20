@@ -55,8 +55,8 @@ let backendProcess = null
 // the window list is a fault, and window-all-closed rebuilds instead of dying.
 let quitting = false
 // Timestamps of recent rebuilds. A kiosk must never exit on its own, but it
-// must not spin either: if the window cannot stay up, stop and let systemd and
-// the desktop launcher deal with it.
+// must not spin either: if the window cannot stay up, stop and let the
+// watchdog that started it decide.
 let rebuilds = []
 const REBUILD_LIMIT  = 3
 const REBUILD_WINDOW = 10_000
@@ -162,7 +162,7 @@ function createWindow() {
     console.error('[boot] the renderer is gone:', details.reason)
     rebuilds = rebuilds.filter(t => Date.now() - t < REBUILD_WINDOW)
     if (rebuilds.length >= REBUILD_LIMIT) {
-      console.error('[boot] too many renderer failures — stopping, systemd will decide')
+      console.error('[boot] too many renderer failures — stopping, the watchdog will decide')
       app.quit()
       return
     }
@@ -173,6 +173,9 @@ function createWindow() {
   if (DEBUG) mainWindow.webContents.openDevTools({ mode: 'detach' })
 
   mainWindow.on('closed', () => { mainWindow = null })
+  // Windows is signing out or shutting down: the windows closing next are a
+  // teardown, not a fault to rebuild from.
+  mainWindow.on('session-end', () => { quitting = true })
 }
 
 /**
@@ -225,9 +228,9 @@ let sessionOwnsScreen = false
 /**
  * Who has the screen: the session, or the interface.
  *
- * `show()` is followed by `focus()`: on X11 a window that is mapped but not
- * focused still leaves the pad pointing at whatever had focus before, which is
- * the emulator that was just suspended.
+ * `show()` is followed by `focus()`, which Windows honours only when this
+ * process may take the foreground. The backend raises this window itself when
+ * it suspends a game (`window_focus`, dev log D19); this is the second try.
  */
 ipcMain.on('shell:session-screen', (_, { owned }) => {
   sessionOwnsScreen = !!owned
@@ -457,8 +460,8 @@ app.on('window-all-closed', () => {
   createWindow()
 })
 
-// Any real shutdown passes through here first — Settings → Desktop, but also
-// the SIGTERM systemd sends on `systemctl stop`. Without it, windows closing
+// Any real shutdown passes through here first — Settings → Desktop, a signal,
+// or Windows ending the session. Without it, windows closing
 // during teardown would look like the fault above and rebuild a window while
 // the app is on its way out.
 app.on('before-quit', () => { quitting = true })
@@ -480,7 +483,9 @@ app.on('before-quit', () => { quitting = true })
  *
  * So the signal says what it means. `quitting` first, `app.quit()` second —
  * in that order, because the quit closes the windows and the flag is what
- * `window-all-closed` reads to let them stay closed.
+ * `window-all-closed` reads to let them stay closed. On Windows Node only
+ * delivers SIGINT (Ctrl+C) and SIGHUP (console closed); a sign-out arrives as
+ * `session-end` instead (createWindow).
  */
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(signal, () => {
