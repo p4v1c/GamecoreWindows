@@ -3,7 +3,6 @@ const { app, BrowserWindow, ipcMain, powerMonitor, screen } = require('electron'
 const { exec, execFile, spawn } = require('child_process')
 const path = require('path')
 const fs   = require('fs')
-const os   = require('os')
 const { leaveToDesktop } = require('./desktop.js')
 
 // Settings → Display → Scale is the interface's only zoom. Windows' own
