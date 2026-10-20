@@ -338,7 +338,7 @@ GameCore is designed for full gamepad control — no mouse or keyboard needed.
 | D-pad / Left stick | Navigate menus |
 | A / Cross | Confirm / Launch game |
 | B / Circle | Back |
-| Start / Options | Open Settings; on a game in the library, open that game's options (bezel) |
+| Start / Options | Open Settings; on a game in the library, open that game's options (per-game emulator settings) |
 | Guide / PS, twice | In a game: suspend it and return to GameCore. In the menu: manage suspended games |
 | Select / Share | Open Power menu, which also lists suspended games |
 
@@ -422,7 +422,7 @@ Five themes ship with the box. Same screens, same pad controls, different looks.
 | ![Jelly theme consoles](docs/img/themes/jelly-home.webp) |
 | ![Jelly theme controller screen](docs/img/themes/jelly-controller.webp) |
 
-In Jelly, focus a game in Collection and press **Options** to choose its overlay. On Play and Consoles, Options opens Settings. The game options menu is also available in a console's library.
+In Jelly, focus a game in Collection and press **Options** to open its game options. On Play and Consoles, Options opens Settings. The game options menu is also available in a console's library.
 
 Picking a theme swaps the frontend. Drop a folder in `config/themes/`, select it
 in **Settings → Themes**, and the launcher is redrawn — boot animation,

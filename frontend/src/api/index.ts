@@ -108,31 +108,6 @@ export interface GameMeta {
   requirements?: { os?: string; cpu?: string; ram?: string; gpu?: string; disk?: string }
 }
 
-/** A bezel that exists on this box and may therefore be offered. */
-export interface OverlayOption {
-  /** The filename, and what `choose()` takes back. */
-  id: string
-  label: string
-  /** `console` exists only for a pack that runs several — mgba, dolphin. */
-  level: 'game' | 'console' | 'system'
-  asset: string
-  /** The console id, on a `console` row only. */
-  console?: string
-}
-
-export interface ResolvedOverlay {
-  system_id: string
-  /** 'game' | 'console' | 'system' | 'chosen' | 'declared' | 'off' | 'none'. `off` and
-   *  `none` draw the same thing and are different problems: one the player
-   *  asked for, the other means no artwork was found. */
-  source: string
-  asset: string | null
-  hole: { x: number; y: number; w: number; h: number } | null
-  frame: { w: number; h: number } | null
-  /** Which console of a multi-console pack, `null` for the other eleven. */
-  console?: string | null
-}
-
 /** What a shipped profile is doing for this game, if anything.
  *
  *  `available` false covers both "no profile for this title" and "this system
@@ -164,15 +139,6 @@ export interface PerGameState {
   source?: 'player' | 'profile'
   profile: PerGameProfile
   canOpenSettings: boolean
-}
-
-export interface OverlayChoices {
-  system_id: string
-  rom: string | null
-  /** null = automatic. Not the same as 'off'. */
-  current: string | null
-  resolved: ResolvedOverlay
-  options: OverlayOption[]
 }
 
 /** One artwork a game has. The file itself is at `api.media.url(...)`. */
@@ -319,21 +285,6 @@ export const api = {
   metadata: {
     get: (systemId: string, filename: string) =>
       get<GameMeta>(`/metadata/${encodeURIComponent(systemId)}/${encodeURIComponent(filename)}`),
-  },
-  /**
-   * Which bezel a game gets, and the player's say in it.
-   *
-   * `choices()` is what the options panel needs: what exists on this box, and
-   * what is set today. `null` for `current` means automatic — the cascade
-   * decides — which is deliberately not the same value as `"off"`.
-   */
-  overlays: {
-    choices: (systemId: string, rom: string) =>
-      get<OverlayChoices>(`/overlays/choices/${encodeURIComponent(systemId)}`
-                          + `?rom=${encodeURIComponent(rom)}`),
-    choose: (systemId: string, rom: string, choice: string | null) =>
-      put<{ ok: boolean; current: string | null; resolved: ResolvedOverlay }>(
-        `/overlays/choices/${encodeURIComponent(systemId)}`, { rom, choice }),
   },
   /**
    * One game's own settings, and the shipped profile that may be behind them.

@@ -4,41 +4,31 @@ import './fonts.css'
 import './tokens.css'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
-import OverlayScreen from './components/OverlayScreen'
 import { api } from './api'
 import { installErrorReports } from './lib/reportErrors'
 
 installErrorReports()
 
-const isOverlay = window.location.pathname === '/overlay'
-if (isOverlay) {
-  document.documentElement.classList.add('overlay-mode')
-  document.body.classList.add('overlay-mode')
-} else {
-  // Settings → Display → Scale, put back at every start. Never on the bezel
-  // page: it is drawn in window pixels and a zoom would move its hole.
-  api.display.scale().then((r) => window.gamecore?.setUiScale?.(r.scale)).catch(() => {})
-}
+// Settings → Display → Scale, put back at every start.
+api.display.scale().then((r) => window.gamecore?.setUiScale?.(r.scale)).catch(() => {})
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {isOverlay ? <OverlayScreen /> : (
-      /* Last net. Anything that escapes a surface boundary lands here rather
-         than on a white screen the user cannot recover from without a mouse. */
-      <ErrorBoundary fallback={
-        <div style={{
-          width: '100%', height: '100%', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', flexDirection: 'column', gap: 10,
-          fontFamily: 'var(--gc-font-ui)', color: '#fff', textAlign: 'center', padding: 40,
-        }}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>GameCore could not start the interface</div>
-          <div style={{ fontSize: 15, color: 'var(--gc-ink-2)' }}>
-            Hold L1 + R1 for 2 seconds to force the default theme, then restart.
-          </div>
+    {/* Last net. Anything that escapes a surface boundary lands here rather
+       than on a white screen the user cannot recover from without a mouse. */}
+    <ErrorBoundary fallback={
+      <div style={{
+        width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', flexDirection: 'column', gap: 10,
+        fontFamily: 'var(--gc-font-ui)', color: '#fff', textAlign: 'center', padding: 40,
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>GameCore could not start the interface</div>
+        <div style={{ fontSize: 15, color: 'var(--gc-ink-2)' }}>
+          Hold L1 + R1 for 2 seconds to force the default theme, then restart.
         </div>
-      }>
-        <App />
-      </ErrorBoundary>
-    )}
+      </div>
+    }>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 )

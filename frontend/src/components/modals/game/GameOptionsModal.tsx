@@ -1,17 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Overlay, OverlayLabel } from '../../ui'
-import { api, type OverlayChoices, type PerGameState } from '../../../api'
+import { api, type PerGameState } from '../../../api'
 import { onGp } from '../../../hooks/useGamepad'
 
 /**
- * Per-game options (Options in the library): which bezel this game gets, and its
- * per-game emulator settings.
- *
- * Bezel, three states:
- *  · Automatic — stored as the ABSENCE of a preference, so a pack installed
- *    later still changes the answer;
- *  · Off — draw nothing (distinct from "no bezel found", and labelled so);
- *  · a named bezel — only ones present on this box; the backend refuses others.
+ * Per-game options (Options in the library): this game's emulator settings.
  *
  * Settings: no sliders (one vocabulary per emulator would never stay current).
  * The panel reports the catalogue's known-good profile and lets the player
@@ -36,7 +29,6 @@ type Row = {
 export default function GameOptionsModal({ systemId, rom, title, onClose }: {
   systemId: string; rom: string; title: string; onClose: () => void
 }) {
-  const [state, setState] = useState<OverlayChoices | null>(null)
   const [perGame, setPerGame] = useState<PerGameState | null>(null)
   const [failed, setFailed] = useState(false)
   const [focus, setFocus] = useState(0)
@@ -48,28 +40,11 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
   const focusRef = useRef(0)
   useEffect(() => { focusRef.current = focus }, [focus])
 
-  const refresh = useCallback(() => api.overlays.choices(systemId, rom)
-    .then(s => { setState(s); setFailed(false) })
-    .catch(() => setFailed(true)), [systemId, rom])
-
-  // Separate from the overlay fetch, and allowed to fail on its own. The two
-  // sections answer different questions, and a backend that cannot read one
-  // must not blank the other — the overlay choice still works on a box whose
-  // per-game records are unreadable, and saying "everything is broken" when
-  // half of it is not sends the owner looking in the wrong place.
   const refreshPerGame = useCallback(() => api.perGame.state(systemId, rom)
-    .then(setPerGame)
-    .catch(() => setPerGame(null)), [systemId, rom])
+    .then(p => { setPerGame(p); setFailed(false) })
+    .catch(() => { setPerGame(null); setFailed(true) }), [systemId, rom])
 
-  useEffect(() => { refresh(); refreshPerGame() }, [refresh, refreshPerGame])
-
-  const choose = useCallback((id: string | null) => {
-    setSaving(true)
-    api.overlays.choose(systemId, rom, id)
-      .then(refresh)
-      .catch(() => setFailed(true))
-      .finally(() => setSaving(false))
-  }, [systemId, rom, refresh])
+  useEffect(() => { refreshPerGame() }, [refreshPerGame])
 
   const actOnProfile = useCallback((action: 'remove' | 'restore') => {
     setSaving(true)
@@ -89,28 +64,6 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
       .catch(() => refreshPerGame())
       .finally(() => setSaving(false))
   }, [systemId, rom, onClose, refreshPerGame])
-
-  const current = state ? (state.current ?? null) : null
-
-  const overlayRows: Row[] = [
-    { key: 'auto', label: 'Automatic', hint: describeAuto(state),
-      selected: current === null, run: () => choose(null) },
-    ...(state?.options ?? []).map(o => ({
-      key: o.id,
-      // `o.label` carries the console's own name for a `console` row — "Game
-      // Boy Advance" — so the row says which machine rather than repeating the
-      // emulator. Labelling it "System bezel" would be a lie on the one screen
-      // where the distinction is the whole point.
-      label: o.level === 'game' ? 'This game’s bezel'
-           : o.level === 'console' ? 'This console’s bezel'
-           : 'System bezel',
-      hint: o.label,
-      selected: current === o.id,
-      run: () => choose(o.id),
-    })),
-    { key: 'off', label: 'No overlay', hint: 'Nothing is drawn over the game',
-      selected: current === 'off', run: () => choose('off') },
-  ]
 
   const gameRows: Row[] = []
   const profile = perGame?.profile
@@ -145,7 +98,7 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
     })
   }
 
-  const rows = [...overlayRows, ...gameRows]
+  const rows = gameRows
   rowsRef.current = rows
 
   useEffect(() => {
@@ -166,11 +119,10 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
     <Overlay onClose={onClose} width={520}>
       <OverlayLabel text="Game options" />
       <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 4 }}>{title}</div>
-      <div style={{ fontSize: 14, color: DIM, marginBottom: 22 }}>Overlay</div>
 
       {failed && (
-        <div style={{ fontSize: 15.5, color: WARN, marginBottom: 16 }}>
-          The overlay settings could not be read. The game still launches.
+        <div style={{ fontSize: 15.5, color: WARN, margin: '16px 0' }}>
+          The game options could not be read. The game still launches.
         </div>
       )}
 
@@ -178,7 +130,7 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
         const focused = focus === i
         return (
           <div key={row.key}>
-            {row.key === gameRows[0]?.key && (
+            {i === 0 && (
               <div style={{ fontSize: 14, color: DIM, margin: '20px 0 10px' }}>
                 This game
               </div>
@@ -229,27 +181,8 @@ export default function GameOptionsModal({ systemId, rom, title, onClose }: {
       )}
 
       <div style={{ fontSize: 14.5, color: DIM, marginTop: 18, lineHeight: 1.5 }}>
-        Applies at the next launch. Overlays need an X11 session; on Wayland
-        they are skipped.
+        Applies at the next launch.
       </div>
     </Overlay>
   )
-}
-
-/** What "Automatic" would actually do right now, said out loud.
- *
- *  Otherwise the default row is the only one whose effect the player cannot
- *  see — and for the five 16:9 systems the honest answer is "nothing", which
- *  is worth knowing before hunting for a bezel that was never needed.
- */
-function describeAuto(state: OverlayChoices | null): string {
-  if (!state) return 'Reading…'
-  switch (state.resolved.source) {
-    case 'game':     return 'A bezel matching this game was found'
-    case 'console':  return 'No bezel for this game. Using the console’s.'
-    case 'system':   return 'No bezel for this game. Using the system’s.'
-    case 'declared': return 'No artwork installed. Drawing the configured frame.'
-    case 'chosen':   return 'Currently overridden below'
-    default:         return 'No overlay is available for this system'
-  }
 }

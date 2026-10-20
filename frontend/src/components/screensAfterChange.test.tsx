@@ -1,7 +1,7 @@
 /**
- * Three screens that kept showing what they were told once.
+ * Two screens that kept showing what they were told once.
  *
- * Findings 10, 14 and 15 of the 2026-09-04 complementary audit. Different
+ * Findings 10 and 14 of the 2026-09-04 complementary audit. Different
  * files, same shape: a value held from an earlier event, still on screen after
  * the thing it described had changed.
  *
@@ -9,13 +9,10 @@
  *     that had just become null, and took the theme into its error boundary.
  *   · The dashboard is mounted behind the settings, so installing a pack from
  *     the catalogue page changed nothing on it until a restart.
- *   · A bezel already loaded was hidden again by the next measurement of the
- *     same picture, and the drawn black bars took over from real artwork.
  */
 import React from 'react'
-import { render, act, cleanup, fireEvent } from '@testing-library/react'
+import { render, act, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import OverlayScreen from './OverlayScreen'
 import HomeScreen from './HomeScreen'
 import { api } from '../api'
 import { useStore } from '../store'
@@ -40,47 +37,6 @@ const flush = () => act(async () => { await new Promise(r => setTimeout(r, 0)) }
 afterEach(() => {
   cleanup(); vi.restoreAllMocks(); listeners.clear()
   delete (window as { gamecore?: unknown }).gamecore
-})
-
-describe('the bezel and the measurements that follow it', () => {
-  it('keeps a loaded frame through a new measurement of the same picture', () => {
-    let show!: (d: unknown) => void
-    ;(window as unknown as { gamecore: unknown }).gamecore = {
-      onOverlayShow: (cb: typeof show) => { show = cb },
-      onOverlayHide: () => {}, onOverlayWaiting: () => {},
-    }
-    const r = render(<OverlayScreen />)
-    const first = {
-      system_id: 'azahar', asset: '/assets/overlays/test.png',
-      rect: { x: 100, y: 0, w: 1700, h: 1080 },
-    }
-    act(() => show(first))
-    const img = r.container.querySelector('img')!
-    fireEvent.load(img)
-    expect(img.style.opacity).toBe('1')
-
-    // The geometry moved; the picture did not. Nothing here has anything to
-    // load, so nothing may hide it.
-    act(() => show({ ...first, rect: { ...first.rect, x: 120 } }))
-    expect(r.container.querySelector('img')).toBe(img)
-    expect(img.style.opacity).toBe('1')
-    // and no drawn stand-in bars over the artwork
-    expect(r.container.querySelector('div')!.querySelectorAll('div').length).toBe(0)
-  })
-
-  it('starts again when the bezel itself changes', () => {
-    let show!: (d: unknown) => void
-    ;(window as unknown as { gamecore: unknown }).gamecore = {
-      onOverlayShow: (cb: typeof show) => { show = cb },
-      onOverlayHide: () => {}, onOverlayWaiting: () => {},
-    }
-    const r = render(<OverlayScreen />)
-    const rect = { x: 100, y: 0, w: 1700, h: 1080 }
-    act(() => show({ system_id: 'azahar', asset: '/assets/overlays/a.png', rect }))
-    fireEvent.load(r.container.querySelector('img')!)
-    act(() => show({ system_id: 'melonds', asset: '/assets/overlays/b.png', rect }))
-    expect(r.container.querySelector('img')!.style.opacity).toBe('0')
-  })
 })
 
 describe('the dashboard after a pack is installed', () => {

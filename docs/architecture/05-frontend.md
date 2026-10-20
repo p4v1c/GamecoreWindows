@@ -32,7 +32,7 @@ keep a theme from breaking the launcher:
 
 | Layer | File | What lives there |
 |---|---|---|
-| **Kernel** | `App.tsx` | the input bus, the WebSocket, `gp:guide` (reserved with `gp:menu` and `gp:power`, [themes §6a](../themes/README.md#6a-the-hosts-buttons-and-the-themes)), the Electron overlay handshake, the splash slot and its watchdog, the error boundaries. A theme cannot take any of it. |
+| **Kernel** | `App.tsx` | the input bus, the WebSocket, `gp:guide` (reserved with `gp:menu` and `gp:power`, [themes §6a](../themes/README.md#6a-the-hosts-buttons-and-the-themes)), the session-screen claim to Electron (`hooks/useSessionScreen.ts`), the splash slot and its watchdog, the error boundaries. A theme cannot take any of it. |
 | **Shell** | `components/DefaultShell.tsx` | the whole frontend body: stacking, the modal stack, which button opens which screen. A theme renders *one* of these — the default one with parts overridden, or its own tree. |
 | **Views** | `HomeScreen/DefaultHomeView.tsx`, `LibraryScreen/DefaultLibraryView.tsx` | markup only. |
 
@@ -148,8 +148,8 @@ and returns an unsubscribe.
 
 | Event | Emitted by | Payload | UI effect |
 |---|---|---|---|
-| `game:started` | `process_manager.launch()` | `game_key`, `system_id`, `session` | Electron shows the bezel overlay |
-| `game:finished` | `process_manager._watch()` | + `elapsed`, `session` | removes that run and hides the overlay when foreground |
+| `game:started` | `process_manager.launch()` | `game_key`, `system_id`, `session` | the session takes the screen; Electron hides its window |
+| `game:finished` | `process_manager._watch()` | + `elapsed`, `session` | removes that run; Electron shows its window again when it was foreground |
 | `game:running` | `ws.connect()` | foreground plus `background[]` | late-joining client catches up |
 | `game:backgrounded` / `game:foregrounded` | `process_manager` | transition plus complete state snapshot | atomically moves the run between screen and session bar |
 | `game:failed` | `services/launch.py` | `game_key`, `system_id`, `detail` | launch refused (catalogue, BIOS, exec) — shows the reason |
@@ -175,7 +175,7 @@ and returns an unsubscribe.
 
 | File | Lines | Role |
 |---|---|---|
-| `App.tsx` | 108 | the kernel: splash slot + `SPLASH_WATCHDOG_MS`, `gp:guide`, overlay handshake |
+| `App.tsx` | 108 | the kernel: splash slot + `SPLASH_WATCHDOG_MS`, `gp:guide`, session-screen claim |
 | `components/DefaultShell.tsx` | 190 | the default frontend as one component; `ShellParts`, `ModalScope`, `CONTROLLER_CLOSE_MS` |
 | `components/ThemeSurface.tsx` | 44 | `ThemeProvider` + `Shell` — one themed tree, behind a boundary |
 | `components/defaults.tsx` | 89 | what a theme may reuse: `Shell`, `DefaultSettingsPages`, `launchApp`, … |
@@ -194,7 +194,7 @@ and returns an unsubscribe.
 | `components/CrtStandby/index.tsx` | — | the CRT standby (`sdk.defaults.CrtStandby`, SDK 11): stage, playlist (`api.standby.videos`), fallbacks video → stills → snow. Orbit and Shelf opt in; see [CRT standby](#crt-standby) |
 | `hooks/useLocalWake.ts` | — | mouse move / key press ends standby; shared by both standby screens |
 | `hooks/useWakeSplash.ts` | — | `App.tsx`'s "splash done" flag, derived per `wakeCount`: the store write that lifts the black layer after a wake renders the splash in the same frame (an effect-based reset showed one frame of Home first) |
-| `components/OverlayScreen/index.tsx` | 109 | what the transparent Electron overlay window renders |
+| `hooks/useSessionScreen.ts` | — | tells Electron (`window.gamecore.sessionScreen`) whether a session owns the screen, from `sessionGameKey`; a resumed game maps no new window, so the shell must hide itself |
 | `components/modals/SettingsModal.tsx` | 85 | menu; pages live in `settings/`. **Every id in `ITEMS` needs a matching `page === …` line** — `themes` was missing one and the button was silently dead. |
 | `components/modals/PowerModal.tsx` | — | **flow**: Rest mode (cursor opens on it), Turn off, Restart, Return to desktop (led by In the background), two-press confirm, ↑↓ and ←→ both move, `POWER_FAILSAFE_MS = 10000`, `REST_FAILSAFE_MS = 35000`; Rest mode is `api.power.rest()`, a refusal shows in the row's subtitle |
 | `components/modals/power/DefaultPowerView.tsx` | 68 | **markup** of the default power menu |

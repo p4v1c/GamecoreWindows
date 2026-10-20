@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { useWebSocket, applyIfStillCurrent } from './hooks/useWebSocket'
 import { useGamepad, onGp } from './hooks/useGamepad'
-import { useEmulatorOverlay } from './hooks/useEmulatorOverlay'
+import { useSessionScreen } from './hooks/useSessionScreen'
 import { useWakeSplash } from './hooks/useWakeSplash'
 import { useStore } from './store'
 import { api } from './api'
@@ -125,10 +125,8 @@ export default function App() {
     return () => clearTimeout(t)
   }, [ready])
 
-  // The bezel, following the session that is actually on screen rather than
-  // raw start/finish events — see hooks/useEmulatorOverlay.ts for why suspending
-  // made the old version leave the interface hidden behind a frozen bezel.
-  useEmulatorOverlay()
+  // The shell hides itself while a session owns the screen.
+  useSessionScreen()
 
   /**
    * The one binding no theme may own: leaving a running game.
