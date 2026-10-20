@@ -7,13 +7,20 @@
 ## Chromium switches, set before anything
 
 ```js
-app.commandLine.appendSwitch('enable-transparent-visuals')          // X11 per-pixel alpha
+app.commandLine.appendSwitch('high-dpi-support', '1')
+app.commandLine.appendSwitch('force-device-scale-factor', '1')
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+app.commandLine.appendSwitch('no-proxy-server')
 ```
 
-The second one is not cosmetic. Chromium keeps WebAudio suspended until a
-"user gesture", and **gamepad buttons do not count** — only mouse and
-keyboard. On a controller-only kiosk the UI sounds would stay silent forever.
+| Switch | Why |
+|---|---|
+| `force-device-scale-factor=1` | Settings → Display → Scale (a page zoom, `setUiScale`) is the interface's only zoom. Windows runs a 4K TV at 150 % or more and would scale the interface a second time |
+| `autoplay-policy` | Chromium keeps WebAudio suspended until a "user gesture", and **gamepad buttons do not count**. On a controller-only kiosk the UI sounds would stay silent forever |
+| `no-proxy-server` | the window only talks to the loopback backend; a proxy lookup stalled the first request until the network was up |
+
+The Linux `enable-transparent-visuals` switch is gone: it is X11-only, and
+Windows composes transparent windows (the HUD) without it.
 
 ## The two windows
 

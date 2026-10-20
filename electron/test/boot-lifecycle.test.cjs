@@ -464,3 +464,13 @@ test('and it does not look for a proxy to reach its own loopback', async () => {
   assert.ok(r.switches.includes('no-proxy-server'),
     `the shell did not switch the proxy lookup off; flags were ${JSON.stringify(r.switches)}`)
 })
+
+test('Windows display scaling does not zoom the interface a second time', async () => {
+  // Settings → Display → Scale is a page zoom. A 4K television runs Windows at
+  // 150 % or more, and the interface would otherwise be scaled by both.
+  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  assert.ok(r.switches.includes('force-device-scale-factor=1'),
+    `the device scale is left to Windows; flags were ${JSON.stringify(r.switches)}`)
+  assert.ok(!r.switches.includes('enable-transparent-visuals'),
+    'an X11-only switch is still set')
+})

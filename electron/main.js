@@ -5,8 +5,10 @@ const path = require('path')
 const fs   = require('fs')
 const os   = require('os')
 
-// Required on Linux X11 for per-pixel transparency in BrowserWindow
-app.commandLine.appendSwitch('enable-transparent-visuals')
+// Settings → Display → Scale is the interface's only zoom. Windows' own
+// display scaling (150 % on most 4K TVs) would multiply it a second time.
+app.commandLine.appendSwitch('high-dpi-support', '1')
+app.commandLine.appendSwitch('force-device-scale-factor', '1')
 
 // Chromium keeps WebAudio suspended until a "user gesture" — and gamepad
 // buttons don't count as one (only mouse/keyboard do). On a controller-only
