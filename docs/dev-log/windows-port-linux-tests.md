@@ -12,14 +12,13 @@ Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
 and 7. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 20/10/2026 (step 3): 352 test items in 52 files, by step:
+Measured on 20/10/2026 (step 4): 349 test items in 50 files, by step:
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
-| 4 | the overlay window and its backend leave the port | 2 | X11; a file symlink |
 | 5 | pads (SDL), battery, storage, Bluetooth | 22 | sysfs trees whose names hold `:`; `lsblk`/`udisksctl` and `/run/media` links; an interactive `bluetoothctl` |
 | 6 | Rest mode: sleep, wake by pad | 12 | bash helper over sysfs; sudoers and systemd units |
-| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 278 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
+| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 277 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
 | 8 | OTA updater and release workflow | 26 | `update/linux.sh` in bash, rsync, `systemctl` |
 | 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
@@ -30,8 +29,6 @@ rest of the file runs on Windows.
 
 | Step | File | Marked tests | Linux mechanism |
 |---|---|---|---|
-| 4 | `backend/tests/test_overlay_monitor.py` | `test_without_python_xlib_it_also_constructs` | X11 overlay window (overlays leave the port) |
-| 4 | `backend/tests/test_overlays_router.py` | `test_a_symlink_in_a_pack_is_not_followed` | file symlink in a pack (overlays leave the port) |
 | 5 | `backend/tests/test_battery.py` | `test_a_mouse_battery_is_not_a_controller` | sysfs `power_supply` names hold `:` |
 | 5 | `backend/tests/test_bluetooth_router.py` | `test_pairing_registers_an_agent_and_confirms_the_passkey` | pairing drives an interactive `bluetoothctl` session |
 | 5 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink |
@@ -55,7 +52,7 @@ rest of the file runs on Windows.
 | 7 | `backend/tests/test_installer_manifest.py` | all (2) | `arch.sh` manifest |
 | 7 | `backend/tests/test_installer_providers.py` | `test_the_emulator_policy_is_the_default`, `test_the_sandbox_is_told_where_the_data_is_when_it_has_moved` | Flatpak sandbox flags |
 | 7 | `backend/tests/test_installer_secrets.py` | all (1) | systemd drop-in quoting |
-| 7 | `backend/tests/test_installer_seeds_data_tree.py` | `test_a_fresh_split_install_gets_its_bezels_and_geometry`, `test_the_seeded_tree_resolves_a_bezel`, `test_a_populated_directory_is_the_players_and_is_left_alone`, `test_the_old_layout_is_untouched_by_the_change`, `test_what_the_old_loop_did_on_a_split_box_which_is_nothing`, `test_the_shortcut_uses_the_shipped_logo_and_falls_back_to_the_theme_icon` | `arch.sh` functions run in bash |
+| 7 | `backend/tests/test_installer_seeds_data_tree.py` | `test_a_fresh_split_install_gets_its_bezels_and_geometry`, `test_a_populated_directory_is_the_players_and_is_left_alone`, `test_the_old_layout_is_untouched_by_the_change`, `test_what_the_old_loop_did_on_a_split_box_which_is_nothing`, `test_the_shortcut_uses_the_shipped_logo_and_falls_back_to_the_theme_icon` | `arch.sh` functions run in bash |
 | 7 | `backend/tests/test_layout_packs.py` | `test_pack_installs_daemon_service_and_seed`, `test_provider_uses_named_users_home_not_roots`, `test_start_services_does_not_reinstall_the_emulator`, `test_service_restart_reloads_the_gaming_users_manager`, `test_ui_install_starts_each_daemon_after_its_configuration`, `test_general_installer_collects_emulator_services` | systemd user manager, `pwd`, bash |
 | 7 | `backend/tests/test_newcomer_survives.py` | `test_the_installer_bridge_installs_the_newcomer` | `gamecore-provider.py` imports `pwd` |
 | 7 | `backend/tests/test_readonly_root.py` | all (5) | rsync + POSIX modes; Program Files ACLs come with the installer |

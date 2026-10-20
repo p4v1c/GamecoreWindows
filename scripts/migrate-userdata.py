@@ -50,7 +50,7 @@ from backend.services.paths import _LAYOUT  # noqa: E402
 # Read out of paths._LAYOUT rather than retyped — that table is what the
 # backend resolves against, and a migration that disagreed with it would put
 # the data somewhere the box does not look.
-_SECTIONS = ["config", "roms", "overlays", "logos", "addons"]
+_SECTIONS = ["config", "roms", "logos", "addons"]
 
 
 def _human(n: int) -> str:
@@ -342,7 +342,7 @@ def switch_over(src_root: Path, dest_root: Path) -> str:
          systemctl show gamecore-backend -p Environment --value | tr ' ' '\\n' | grep GAMECORE_DATA
          grep GAMECORE_DATA ~/.config/systemd/user/gamecore-addon-*.service
          flatpak override --user --show net.rpcs3.RPCS3 | grep filesystems
-       All must name {d}. Then the library, the settings, the overlays, an
+       All must name {d}. Then the library, the settings, an
        upload from ROM Manager, and ONE GAME PER EMULATOR, on the TV.
 
     7. Only then, and only by hand, delete the old copies under

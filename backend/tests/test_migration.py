@@ -44,7 +44,6 @@ def _old_install(root: Path) -> dict[str, str]:
         "emu/duckstation/Crash Bandicoot.cue": 'FILE "Crash Bandicoot.bin" BINARY\n',
         "emu/covers/duckstation/Crash Bandicoot.png": "cover art",
         "emu/gamemedia/duckstation/crash/game.json": '{"id": 1}',
-        "assets/overlays/duckstation.png": "a bezel",
         "assets/logos/duckstation.png": "a logo",
     }
     for rel, content in tree.items():
@@ -81,12 +80,12 @@ def test_the_plan_names_every_section_with_its_size_and_count(box):
     what would move, how much of it, and where from."""
     old, _, new = box
     out = _run("--from", str(old), "--to", str(new)).stdout
-    for section in ("config", "roms", "overlays", "logos"):
+    for section in ("config", "roms", "logos"):
         assert section in out
     assert str(old / "emu") in out, "the plan must name the source directories"
     assert "TOTAL" in out
-    # 10 files were planted; the plan must account for all of them.
-    assert "10" in out
+    # 9 files were planted; the plan must account for all of them.
+    assert "9" in out
 
 
 def test_it_copies_everything_and_deletes_nothing(box):

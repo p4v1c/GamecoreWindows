@@ -10,7 +10,7 @@ Run by hand, as the box's user, with every game closed. Nothing calls it: not
 its old tiles, which go on launching as before.
 
 Every change is a rename on the same disk: ROMs, their `.sav` and other files
-sharing their name, covers, metadata, scraped media, per-game bezels and
+sharing their name, covers, metadata, scraped media and per-game
 settings. Nothing is copied, deleted or overwritten. The dry run lists each
 file and where it would go; back the data root up before `--apply`
 (docs/architecture/07-config-and-data.md, "Splitting a system").

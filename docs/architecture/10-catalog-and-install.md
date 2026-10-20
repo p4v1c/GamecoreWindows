@@ -34,8 +34,8 @@ It is read at **four moments**, by four different readers:
    ([13-release-and-ota.md](13-release-and-ota.md)).
 4. **Runtime** — the backend reads the pack tree on the box on every boot and
    every launch: `configgen` imports each pack's `generator.py`, `bios.py`
-   answers from the `bios` block, `pergame`, `local_media` and the bezel
-   cascade's declared frames all read their blocks live (§2).
+   answers from the `bios` block, `pergame` and `local_media` all read their
+   blocks live (§2).
 
 So editing a pack is never "too late": the change reaches installed boxes at
 the next update, through moment 3.
@@ -91,7 +91,7 @@ by `scripts/check-catalog.py`, which CI runs before anything else. Required:
 | `roms` | the backend, `arch.sh` | ROM directory and extensions; `showExtension: false` sends an empty `ext` for entries whose extension means nothing to a player (`.lutris` stubs, `services/pack_library.py`). `roms.consoles` declares the DISTINCT MACHINES one emulator runs (mGBA: Game Boy, Color, Advance) with per-console extensions and an optional `ratio` (what the machine draws, `3:2`) — it feeds the per-console bezel cascade, the drift-correction cache keys and the overlay slots' expected ratio; see [06-electron-and-overlays](06-electron-shell.md). Declared, never derived: `.zip` says nothing and `.rvz` holds two consoles |
 | `config` | `install-emu-configs.sh` | where `seed/` is deployed. A seed may carry `@HOME@`, `@GAMECORE_PATH@` and `@GAMECORE_DATA@`, replaced at deploy time (`backend/services/configgen/seed.py`) |
 | `controllers` | `backend/services/configgen/` | which binding strategy `generator.py` implements |
-| `scraper` `overlay` | covers, bezel identification | metadata. `scraper.steamStore: true` (PC packs only) adds the minimum spec from the Steam store, see [gamemedia](04-backend-services.md#gamemedia--screenscraper--launchbox) |
+| `scraper` `overlay` | covers; `overlay` is read by nothing in the Windows edition (the Linux bezel window left the port) and stays only for the Linux packs | metadata. `scraper.steamStore: true` (PC packs only) adds the minimum spec from the Steam store, see [gamemedia](04-backend-services.md#gamemedia--screenscraper--launchbox) |
 | `bios` | `backend/services/bios.py` | which system files the OWNER must supply, so the UI can answer "absent / wrong md5 / conforming" instead of a black screen |
 | `perGame` | `backend/services/pergame.py` | whether per-game settings are supported, and the strategy |
 | `profileSaves` | `backend/services/profile_saves.py` | how each profile's saves are kept apart; absent = shared by every profile ([below](#profilesaves--saves-per-profile)) |
@@ -742,8 +742,7 @@ Minimum viable pack:
 Optional, and none of it needs a line anywhere else: `seed/` for a curated
 config (`config.dest` says where it lands), `generator.py` + `controllers` for
 gamepad bindings, `sandbox` if the emulator needs different Flatpak permissions,
-`packages` for a system dependency, `overlay` and `scraper` for bezels and
-covers.
+`packages` for a system dependency, `scraper` for covers.
 
 Not comfortable writing the JSON by hand? §10 carries ready-to-paste prompts
 that let **any** AI chatbot — including free-tier ones — draft it, with

@@ -10,7 +10,7 @@ where anything lives. There are **two roots**:
 | Root | Env | Holds | Writable |
 |---|---|---|---|
 | `GAMECORE_ROOT` | `$GAMECORE_PATH` or the repo root | backend, venv, frontend build, catalogue, installers | no (that is the goal) |
-| `GAMECORE_DATA` | `$GAMECORE_DATA`, **defaulting to `GAMECORE_ROOT`** | ROMs, generated config, covers, scraped media, overlays, playtime | yes |
+| `GAMECORE_DATA` | `$GAMECORE_DATA`, **defaulting to `GAMECORE_ROOT`** | ROMs, generated config, covers, scraped media, playtime | yes |
 
 **The default is the whole safety property, not a placeholder.** The release
 that introduced the split reaches production boxes over OTA with nobody in
@@ -24,8 +24,8 @@ location it did before. Moving the bytes is a separate, human-typed operation
 (`scripts/migrate-userdata.py`), deliberately unreachable from the updater.
 
 `paths._LAYOUT` is the table of writable locations, and it deliberately keeps
-today's names (`emu/`, `config/`, `assets/overlays/`) rather than the eventual
-`roms/ overlays/ media/`. Renaming there either moves bytes on every installed
+today's names (`emu/`, `config/`, `assets/logos/`) rather than the eventual
+`roms/ logos/ media/`. Renaming there either moves bytes on every installed
 box or ships a second layout no test and no real box has exercised. The rename
 is one edit to that table, and it belongs with the move.
 
@@ -68,7 +68,7 @@ flowchart TB
         direction LR
         d1["config/<br/>systems.json · playtime.db<br/>auth · catalog.d/ · themes/"]
         d2["emu/<br/>ROMs · covers · scraped media"]
-        d3["assets/overlays/<br/>assets/logos/"]
+        d3["assets/logos/"]
         d4["addons/ · volumes/<br/>config/per-game/"]
     end
 
@@ -112,7 +112,6 @@ excludes all have to move together, and a migration has to carry existing saves.
 | `APPS_FILE` | `<DATA>/config/apps.json` |
 | `PLAYTIME_DB` | `<DATA>/config/playtime.db` |
 | `COVERS_DIR` | `<DATA>/emu/covers` |
-| `OVERLAYS_DIR` | `<DATA>/assets/overlays` |
 | `LOGOS_DIR` | `<DATA>/assets/logos` |
 | `art_dir()` | `<DATA>/assets/art` — `<id>/<name>.webp\|png\|jpg\|svg` replaces that pack picture; excluded from updates like `assets/logos` |
 | `ASSETS_DIR` | `<ROOT>/assets/` — the shipped tree |
@@ -152,7 +151,7 @@ each was wrong on the day the two trees first differed:
 | who | reads the root from | what goes wrong if it is missed |
 |---|---|---|
 | the backend | `gamecore-backend.service` (drop-in `userdata.conf`) | the whole point; nothing else matters until this is set |
-| Electron | `gamecore-ui.service` (same drop-in) — `loadOverlayConfig()` joins `config/overlays.json` onto it | reads the abandoned copy; window from one file, hole from another |
+| Electron | `gamecore-ui.service` (same drop-in) — `bootBackground()` joins `config/theme.json` onto it | reads the abandoned copy; boots to the old theme's colour |
 | `update/linux.sh` | inherited from the backend that spawns it (the Settings button); **the backend's unit** when typed at a shell, which has none | the catalogue merge went into `$GAMECORE_PATH/config/systems.json` — the abandoned copy — so the live grid never gained a new emulator, a repaired launcher or a console list again. Fixed: the merge is handed both roots |
 | `gamecore-addon` | **the backend's unit**, when the caller's shell has none | typed at a shell, and the shell has no `GAMECORE_DATA`. It used to fall straight back to the install: the first `update` after the move would have handed every addon's `install.sh` the old root and baked it into their units. ROM uploads into the tree the box no longer reads |
 | each addon's unit | rewritten by `gamecore-addon update` from what the CLI knows | stays on the old root until `update` is run again |
@@ -174,16 +173,16 @@ reference box: 321 GiB copied, nothing written — so the copy is instant and th
 old side frees nothing when deleted until the new side diverges.
 
 **The N64 slot is keyed `gopher64` and runs Rosalie's Mupen GUI.** That
-mismatch is deliberate. gopher64 sets no `WM_CLASS` on its window, so
-`overlay_monitor` could never find it and the bezel never drew; RMG reports
-`"RMG", "Rosalie's Mupen GUI"`, which `config/overlays.json` already listed.
+mismatch is deliberate (a Linux pack, kept until the packs are rewritten for
+Windows): gopher64 set no `WM_CLASS` on its window, which the Linux bezel
+overlay needed.
 
 The id was not renamed because `config/` is excluded from the OTA. A renamed id
 reaches new installs only, and leaves every existing box pointing at an
 emulator the installer no longer installs — the same failure mode as the PS1
 `*.cue` extension. It is also the key for `emu/gopher64/`, the covers, the
-metadata cache, the playtime rows and the overlay entry, so renaming it means a
-five-store migration for no user-visible gain: the label reads "Nintendo 64"
+metadata cache and the playtime rows, so renaming it means a
+four-store migration for no user-visible gain: the label reads "Nintendo 64"
 either way.
 
 `update/linux.sh` reports a box whose N64 entry still launches gopher64, with
@@ -347,7 +346,6 @@ is why. See also the open decision on Flatpak saves below.
 |---|---|---|---|
 | `systems.json` | installer, from `install/generated/systems.json.dist` | `routers/systems.py` | **yes** |
 | `apps.json` | installer, from `install/generated/apps.json.dist` | `routers/systems.py` | **yes** |
-| `overlays.json` | by hand | `routers/overlays.py`, `electron/main.js`, `overlay_monitor.py` | **yes** |
 | `themes/` | shipped + `update/linux.sh` (adds only what is missing) | `services/themes.py` | **yes** |
 | `theme.json` | `services/themes.set_active()`, atomically | `services/themes.get_active()` | no |
 | `addons.json` | `gamecore-addon` CLI | `routers/addons.py` | no |
@@ -361,7 +359,7 @@ is why. See also the open decision on Flatpak saves below.
 all of it, and the distinction matters when deciding whether overwriting a file
 is data loss:
 
-- The **catalogues** (`systems.json`, `apps.json`, `overlays.json`, and the
+- The **catalogues** (`systems.json`, `apps.json`, and the
   bundled themes) are versioned. `install/arch.sh` regenerates the first two from
   `install/generated/*.dist` on **every** run, so editing them in place is not durable —
   edit the `.dist` files.
@@ -400,7 +398,7 @@ An array. One entry per emulator:
 
 | Key | Consumed by |
 |---|---|
-| `id` | everything — `list_all()` lookups, cover cache paths, overlay config |
+| `id` | everything — `list_all()` lookups, cover cache paths, per-game config |
 | `path` + `args` | `process_manager.launch()`; `args` goes through `shlex.split`, the ROM path is appended |
 | `romsPath` | `list_games()`, **and the containment check in `launch_game()`** |
 | `extensions` | `rom_scanner.matches_ext` (glob patterns) |
@@ -438,10 +436,9 @@ an overwrite):
 |---|---|
 | the ROM, plus every file sharing its name (`.sav`, save states) | `emu/<system>/`; the dry run lists each `.sav` |
 | covers, metadata, scraped media | `emu/covers|metadata|gamemedia/<system>/` |
-| per-game bezels, per-game settings | `assets/overlays/<system>/`, `config/per-game/<system>/` |
-| `assets/overlays/mgba.<gb|gbc|gba>.png` | `assets/overlays/<system>.png` |
+| per-game settings | `config/per-game/<system>/` |
 | playtime rows (and `dolphin:settings`) | same row, new `system_id` |
-| `bezel-choices`, `bezel-corrections`, `overlays.json`, `controller-autoconfig.json` keys | the new ids; a choice naming `mgba.png` is dropped (no Game Boy system offers it) |
+| `controller-autoconfig.json` keys | the new ids |
 | the old tile in `systems.json` | replaced in place by the new tiles, in catalogue order |
 
 Which system a dump belongs to: its extension when only one successor claims
@@ -468,29 +465,6 @@ Same shape, minus the ROM keys, plus `"kind": "app"`:
 
 `list_all()` concatenates systems + apps. `list_games()` returns `[]` for
 anything with `kind == "app"` or `type == "application"`.
-
-## `config/overlays.json`
-
-Keyed by system id:
-
-```jsonc
-"melonds": {
-  "label": "Nintendo DS",
-  "wm_class": { "linux": ["melonds", "melonDS", "net.kuribo64.melonDS", "AppRun.wrapped"] },
-  "window_rect": { "x": 0, "y": 0, "w": 1920, "h": 1080 },
-  "overlay_asset": "assets/overlays/melonds.png",
-  "hole": { "x": 600, "y": 0, "w": 720, "h": 1080 },
-  "watch_timeout_s": 60
-}
-```
-
-| Key | Used by |
-|---|---|
-| `wm_class.linux` | `X11Manager.find_window()` — several spellings because Flatpak wrappers rename the class (note `AppRun.wrapped`) |
-| `window_rect` | `force_rect()` target geometry |
-| `overlay_asset` | the PNG the overlay window displays |
-| `hole` | the transparent zone — **must match the PNG**; it is the fallback frame drawn when the PNG is missing |
-| `watch_timeout_s` | how long the monitor waits for the window before giving up |
 
 ## `config/addons.json`
 
@@ -770,7 +744,6 @@ were before the split, which is the status quo and not a regression.
 | Path | Contents |
 |---|---|
 | `assets/logos/` | system tiles — **excluded from OTA**, users add their own |
-| `assets/overlays/` | bezel PNGs — excluded from OTA |
 | `backend/data/gamecontrollerdb.txt` | vendored SDL_GameControllerDB, exported as `SDL_GAMECONTROLLERCONFIG_FILE` |
 | `emu/<system>/` | ROMs — excluded from OTA |
 | `emu/profile-saves/<profile id>/<system>/` | saves of a profile other than the primary, for packs with `profileSaves` (`paths.profile_saves_dir()`, `services/profile_saves.py`); created on demand, never moved or deleted by GameCore, kept when the profile is deleted. `emu/profile-saves/.primary.json`: the emulator options a profile replaced, put back for the primary (`profile_save_paths.py`). A folder swapped for a link waits beside it as `<name>.gamecore-primary` while another profile plays. Under `emu/` on purpose: outside git, the OTA rsync **and** the update's `.prev` snapshot, whose restore would roll a save back |

@@ -141,7 +141,7 @@ error breaks the API on the very next request.
 
 **`config/` is the box's identity.**
 Never touched by OTA. Not all of it is out of git, though — `systems.json`,
-`apps.json`, `overlays.json` and the bundled themes *are* versioned, and the
+`apps.json` and the bundled themes *are* versioned, and the
 installer regenerates the first two from `install/generated/*.dist` on every run. What is
 never in git is the **state**: `auth.json` and `auth_secret`, `addons.json`,
 `standby.json`, `theme.json`, `session.json`, `playtime.db`. Overwriting one of
@@ -196,10 +196,10 @@ That was learned the hard way: the L1+R1 theme rescue subscribed to frames and
 reset the theme. L1+R1 held for two seconds is ordinary play input — Dolphin's
 triggers, PS3 and PSP shoulders — so the box reset its own theme mid-game.
 
-It looked random because it depended on the bezel. A system **with** an overlay
-hides `mainWindow` at `window:ready`, which suspends `requestAnimationFrame` and
-stops the poll dead; a system **without** one leaves the window sitting behind
-the emulator, still polling. So it happened on dolphin, rpcs3, ryujinx, cemu,
+It looked random because it depended on the (since removed) Linux bezel. A
+system **with** an overlay hid `mainWindow`, which suspends
+`requestAnimationFrame` and stops the poll dead; a system **without** one left
+the window sitting behind the emulator, still polling. So it happened on dolphin, rpcs3, ryujinx, cemu,
 ppsspp, xenia and shadps4, and never on melonds, azahar, mgba, gopher64,
 duckstation or pcsx2.
 
@@ -226,17 +226,6 @@ as an alias (`own_switch`). The reference box set `ryujinx: false` only while
 Ryujinx was uninstalled: turn the Switch back on in Settings.
 
 ## Display
-
-**Overlays are X11-only.**
-`_WAYLAND_SESSION` disables the feature when `WAYLAND_DISPLAY` is set —
-silently, by design. A dev machine on Wayland will never reproduce an overlay
-bug.
-
-**Leave fullscreen with a ClientMessage, not a property write.**
-EWMH reserves `_NET_WM_STATE` for the window manager once a window is mapped.
-Writing it directly does clear fullscreen on some WMs, but it clears **every**
-state at once (`_NET_WM_STATE_ABOVE` included) and desyncs the WM: the window
-then ignores later state requests. `force_rect()` sends the ClientMessage.
 
 **Gamepad buttons are not a "user gesture".**
 Chromium keeps WebAudio suspended until mouse or keyboard input. On a
@@ -267,11 +256,6 @@ empty tuple, so an entry id of `"."` passed both the `is_absolute()` and the
 `".."` checks in the save-manager addon, resolved to the collection directory
 itself, and `DELETE` then `rmtree`'d the whole collection. Guard `not rel.parts`
 alongside the other two, and refuse `target == root` outright.
-
-**Overlay uploads are checked by magic bytes.**
-`_looks_like_image(head)` — the client's `Content-Type` proves nothing. Check the
-byte count too: an **empty** upload never enters the read loop, so it never meets
-the magic-byte test, and it used to `os.replace` a working bezel with zero bytes.
 
 **The core is never LAN-exposed.**
 `/api/*` is 403 through Caddy. The TV reaches it over loopback only. If you

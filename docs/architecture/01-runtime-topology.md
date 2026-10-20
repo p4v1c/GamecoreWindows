@@ -2,13 +2,12 @@
 
 What runs, where it listens, who starts it, and in what order.
 
-## The four processes
+## The three processes
 
 | Process | Started by | Listens | Owns |
 |---|---|---|---|
 | **Backend** | `gamecore-backend.service` (system unit); on Windows a logon task in the console session ([below](#on-windows-the-backend-runs-in-the-console-users-session)) | `127.0.0.1:8765` | the emulator process, playtime DB, covers, standby, evdev |
-| **Electron** | `gamecore-ui.service` (system unit) | — | the kiosk window, the bezel overlay, HUD toasts |
-| **overlay_monitor** | Electron, `spawn()` | — | one X11 window watch, JSON-lines on stdio |
+| **Electron** | `gamecore-ui.service` (system unit) | — | the kiosk window, HUD toasts |
 | **The emulator** | Backend, `platform/jobs.py` `spawn()` | — | its own Job Object (the whole process tree) |
 
 Plus, out of band:
@@ -34,8 +33,7 @@ flowchart TB
     subgraph box["the box"]
         subgraph host["host processes — all bound to 127.0.0.1"]
             be["<b>backend</b> :8765<br/>gamecore-backend.service<br/>REST · WebSocket · serves frontend/dist"]
-            el["<b>Electron</b><br/>gamecore-ui.service<br/>kiosk window · overlay · HUD"]
-            mon["overlay_monitor.py<br/>JSON-lines on stdio"]
+            el["<b>Electron</b><br/>gamecore-ui.service<br/>kiosk window · HUD"]
             addons["addons :8770-8773<br/><i>systemd user units</i>"]
             caddy["<b>Caddy</b> :8443<br/>TLS + shared password<br/><i>the only LAN-facing port</i>"]
         end
@@ -46,7 +44,6 @@ flowchart TB
     end
 
     el -->|"http://localhost:8765"| be
-    el -->|spawn| mon
     el --> tv
     be -->|"spawn · killpg"| emu
     be -.->|"WebSocket events"| el
@@ -140,15 +137,12 @@ flowchart LR
     main["Electron main"]
     api["Backend /api"]
     ws["Backend /ws"]
-    mon["overlay_monitor"]
     emu["emulator"]
     ev["/dev/input/event*"]
 
     ui -->|fetch| api
     ws -->|broadcast| ui
     ui -->|contextBridge IPC| pre --> main
-    main -->|stdin JSON| mon
-    mon -->|stdout JSON| main
     api -->|spawn| emu
     ev -->|evdev| api
     api -->|"POST /api/games/kill"| emu
@@ -160,8 +154,8 @@ Three separate channels, deliberately:
 2. **WebSocket `/ws`** — backend-initiated push (game started/finished,
    battery, standby, addon notifications).
 3. **IPC over `contextBridge`** — UI → Electron only, for things the browser
-   cannot do (reboot, show an overlay window). `preload.js` exposes exactly
-   ten methods and nothing else; `nodeIntegration` is off.
+   cannot do (reboot, shut down, hide the window while a game plays).
+   `preload.js` exposes a fixed set of methods and nothing else; `nodeIntegration` is off.
 
 ## Systemd units
 
@@ -180,7 +174,7 @@ On a box with a separate data root — what the ISO produces — the installer a
 a second drop-in, `10-data.conf`, with `Environment=GAMECORE_DATA=/userdata`.
 That one variable is the split: `GAMECORE_PATH` is code (root-owned, replaced
 wholesale by an OTA), `GAMECORE_DATA` is everything the player accumulates
-(`config/`, `emu/`, `assets/overlays/`, `assets/logos/`, `addons/`). When the
+(`config/`, `emu/`, `assets/logos/`, `addons/`). When the
 drop-in is absent, `backend/services/paths.py` falls back to `GAMECORE_PATH` — the
 pre-split single-root layout every older box still runs. The unit drop-in is
 the **source of truth** for the data root: `gamecore-ui.service` gets the same
@@ -239,7 +233,7 @@ that is off still lists its output.
 
 SDDM auto-logs the gaming user into **the machine's own X11 desktop session**,
 and `gamecore-ui.service` draws the kiosk over it. The whole stack is X11-only —
-the bezel overlays, the fullscreen enforcer, `gamecore-xsetup`'s 1080p pin and
+the (since removed) bezel overlays, the fullscreen enforcer, `gamecore-xsetup`'s 1080p pin and
 the gamepad→keyboard bridge's window detection all speak X11 — so a Wayland
 session is not a supported target.
 

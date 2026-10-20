@@ -11,7 +11,7 @@ drawn.
 
 | # | Document | What you get |
 |---|---|---|
-| 1 | [Runtime topology](01-runtime-topology.md) | The four processes, ports, units, boot sequence, who talks to whom |
+| 1 | [Runtime topology](01-runtime-topology.md) | The three processes, ports, units, boot sequence, who talks to whom |
 | 2 | [Request flows](02-request-flows.md) | Sequence diagrams: launch, kill, covers, OTA, standby, auth |
 | 3 | [Backend — routers](03-backend-routers.md) | Every HTTP endpoint, every function, file by file |
 | 4 | [Backend — services](04-backend-services.md) | Every service module, every function, file by file |

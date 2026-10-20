@@ -336,18 +336,16 @@ cover tests assert on.
 Three things live here precisely because they used to exist in several copies:
 
 - **`SYSTEM_ID_RE`** — the alphabet a system id must match before it is joined
-  onto any served root (`overlays.py` and `pergame.py` routers both import it;
-  each used to carry its own identical compile).
+  onto any served root (the `pergame.py` router imports it; two routers once
+  carried their own identical compile).
 - **`atomic_write(path, text)` / `atomic_write_bytes(path, data)` / `atomic_write_json(path, data, **dumps_kwargs)`**
   — write through a temp file in the same directory, then `os.replace()`, with
   `encoding="utf-8"` spelled out. `write_text()` truncates first and writes
   second, and much of what the backend writes happens at startup or at a launch
   — the exact moments someone can cut the power at the wall. This implementation
-  existed six times (configgen `helpers/base.py`, `pergame`, `bezels` ×2,
-  `bezel_capture`, `merge` ×2, `ota` ×2) before converging; the dumps kwargs
-  pass through unchanged so every caller keeps its exact on-disk shape. The
-  overlay upload route deliberately does NOT use it — concurrent uploads need
-  unique temp names (`mkstemp`), a different problem from a power cut.
+  existed six times (configgen `helpers/base.py`, `pergame`, two bezel
+  modules since removed, `merge` ×2, `ota` ×2) before converging; the dumps
+  kwargs pass through unchanged so every caller keeps its exact on-disk shape.
 - **`fmt_size(n)`** — 1024-based, and since v1.2.15 the labels say so
   (KiB/MiB/GiB); the arithmetic always divided by 1024 while the labels claimed
   decimal units. The rom-manager addon carries its own deliberate copy
@@ -677,7 +675,8 @@ split pack's tile (`dolphin`, `mgba`) to one tile per system. `plan(packs)`
 reads only; `edit_configs()` and `edit_grid()` are pure and return the new file
 contents, so the dry run prints exactly what `apply()` writes. `apply()` only
 renames, never overwrites, and keeps the old tile while a game is left in its
-folder. Nothing calls it but the script: the procedure and its guarantees are in
+folder. Bezel files and their config are not moved: the overlay left the
+Windows edition. Nothing calls it but the script: the procedure and its guarantees are in
 [07](07-config-and-data.md#splitting-a-system-scriptssplit-systemspy).
 
 ## `prefetch.py`
@@ -739,46 +738,6 @@ games nobody had opened yet, each one costing a round trip behind the scraper's
 1.2 s spacing the moment someone did.
 
 ---
-
-## `overlay_monitor.py` — X11 watcher, runs as a subprocess
-
-Not imported by the backend: Electron spawns it and speaks JSON-lines over
-stdio.
-
-```
-stdin  ← {"cmd":"watch","system_id":"dolphin","config":{…}}  |  {"cmd":"stop"}
-stdout → {"event":"window:ready","system_id":…,"rect":{x,y,w,h}}
-       → {"event":"window:waiting"|"window:closed"|"error", …}
-```
-
-| Symbol | Role |
-|---|---|
-| `emit(obj)` / `emit_error(msg)` | one JSON object per line on stdout, flushed |
-| `X11Manager._client_windows()` | top-level windows via `_NET_CLIENT_LIST`, with a recursive fallback |
-| `X11Manager.find_window(wm_classes)` | first window whose `WM_CLASS` matches |
-| `X11Manager.count_main_windows(wm_classes)` | matching windows, dialogs (`WM_TRANSIENT_FOR`) excluded |
-| `X11Manager.dump_windows()` | debug helper — all `WM_CLASS` values |
-| `X11Manager.force_rect(wid, x, y, w, h)` | leaves fullscreen, removes decorations (Motif hints), moves and resizes |
-| `X11Manager.get_rect(wid)` | geometry translated to root coordinates |
-| `X11Manager.window_exists(wid)` | liveness |
-| `OverlayMonitor.watch(system_id, cfg)` | starts the watch thread |
-| `OverlayMonitor.stop()` / `_run()` | lifecycle |
-| `main()` | the stdio loop |
-
-`force_rect()` leaves fullscreen with a `_NET_WM_STATE` **ClientMessage to the
-root window**, as EWMH requires for a mapped window. Writing the property
-directly (what it used to do) clears *every* state at once —
-`_NET_WM_STATE_ABOVE` included — and desyncs the WM's bookkeeping.
-
-A bezel frames one window. `count_main_windows()` is checked before the first
-`force_rect()` (on a resume every window exists already) and then once a
-second; more than one (melonDS local multiplayer opens one per player and
-screen) ends the watch with `window:closed` / `several-windows`, because
-forcing one window into the bezel rect undoes the launcher's layout.
-
-`window_focus.py` keeps the same rule on resume: several windows are raised as they are.
-
-`_WAYLAND_SESSION` disables the whole module when `WAYLAND_DISPLAY` is set.
 
 ## `fullscreen_enforcer.py`
 
@@ -988,57 +947,6 @@ in **where it is read from**:
 | `filename` | the normalised name — nothing else was available |
 
 Pluggable per system, because an N64 cartridge dump carries no serial at all.
-
-### `bezels.py` — which bezel, and where its window is
-
-Resolves **off → game → console → system → declared → nothing**, like Batocera
-plus one level: a pack that runs several distinct machines (mGBA: Game Boy 10:9,
-Game Boy Color 10:9, Game Boy Advance 3:2) resolves `<system>.<console>.png`
-between the per-game pack and the system PNG. Which console a ROM belongs to is
-answered by `consoles.py` (below); a pack that declares none takes exactly the
-old path. `slots()` lists every bezel a system *can* have — filled or not, with
-the measured `ratio` and the pack-declared `expected_ratio` — which is what the
-ROM Manager's deposit screen needs and `available()` (options for one game)
-cannot answer.
-
-The interesting half is **why the hole is measured rather than read**: `config/`
-and `assets/overlays/` are both excluded from the OTA rsync, deliberately,
-because they are the player's. The consequence is that a wrong `hole` in a
-shipped `overlays.json` can *never* be corrected on a box that already exists —
-the release carries the fix and the rsync drops it on the floor. `hole_of()` is
-the uncached variant, for validating an upload while it is still a temp file.
-`MAX_BEZEL_BYTES` (10 MB) is the one cap for a bezel wherever it enters — the
-upload route reads the same constant.
-
-### `consoles.py` — which console inside a pack a ROM belongs to
-
-Reads `roms.consoles` out of the box's `systems.json` (mtime-cached). Declared,
-never derived — `.zip` says nothing about its contents, `.iso` serves GameCube
-and Wii alike, and `.rvz` is Dolphin's own container holding either; the scraper
-already paid for guessing (`gamemedia/registry.py`). An extension no console
-claims resolves to `None` and the cascade stays at the system level, which is
-the pre-console behaviour. Not `libretroSystems` either: that is libretro's
-naming (melonDS declares two entries for one machine) and would rename under us.
-
-### `bezel_capture.py` — when the emulator disagrees with itself
-
-A hole is cut for the ratio a system is *supposed* to render at, and the emulator
-does not always oblige (an aspect setting left on stretch, a core letterboxing 4:3
-inside 16:9, a widescreen hack). The overlay is then perfectly correct about a
-picture that is not there, with nothing on screen to suggest which of the two is
-wrong. The only witness is the screen: a frame is captured a second into the game,
-the drawn region measured, and a disagreement corrects the hole and is remembered
-— keyed `<system>@<ratio>` for a mono-console pack (byte-identical to what every
-installed box already carries) and `<system>/<console>@<ratio>` for one that
-declares consoles, so the first console played can no longer freeze its rectangle
-onto the other two.
-
-**Measuring only happens when it can be seen** (`for_launch` sets
-`measure: false` the moment an asset resolves): with a PNG on screen the overlay
-draws the artwork edge to edge and the hole only decides the fallback bars drawn
-when there is no image. The reference box spent weeks re-carrying an `mgba@1:1`
-correction no frame ever displayed. Delete the PNG and the declared frame — the
-thing a correction actually moves — turns measuring back on by itself.
 
 ### `controller_capture.py` — the mapping wizard's engine
 

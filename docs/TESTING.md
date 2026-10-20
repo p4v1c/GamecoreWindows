@@ -17,7 +17,7 @@ run at low priority (`Start-Process -Priority BelowNormal`).
 
 The tree holds about 2 950 tests, 4 of which need the network. On Windows
 355 are Linux-only for now (next section) and 54 skip on missing data or tools:
-ImageMagick for the bezel tests, seeds with no controller block, maps already
+seeds with no controller block, maps already
 gone, and a release tag (the Windows repository has none until step 8).
 
 ## Linux code the port has not replaced yet — `linux_until_port`

@@ -36,9 +36,6 @@ _HEADER_AT = {b"RVZ\x01": 0x58, b"WIA\x01": 0x58, b"CISO": 0x8000}
 _COVER_SUFFIXES = (".png", ".jpg", ".webp", ".miss")
 # The config files this may edit, each written back in the shape its owner writes.
 _CONFIG_FORMAT = {
-    "bezel-choices.json": {"indent": 2, "sort_keys": True},       # bezels.set_preference
-    "bezel-corrections.json": {"indent": 2, "sort_keys": True},   # bezel_capture
-    "overlays.json": {"indent": 2, "ensure_ascii": False},
     "controller-autoconfig.json": {"indent": 2},
 }
 
@@ -47,7 +44,7 @@ _CONFIG_FORMAT = {
 class Move:
     src: Path
     dst: Path
-    what: str                      # "rom", "save", "cover", "bezel"…
+    what: str                      # "rom", "save", "cover", "media"…
 
 
 @dataclass
@@ -131,10 +128,6 @@ def _game_files(old: str, new: str, rom: Path, pack) -> list[Move]:
                       paths.metadata_dir() / new / f"{stem}.json", "metadata"))
     moves.append(Move(media_helpers.entry_dir(old, name),
                       media_helpers.entry_dir(new, name), "media"))
-    key = gameid.from_filename(name)
-    for png in sorted((paths.overlays_dir() / old).glob("*.png")):
-        if gameid.from_filename(png.name) == key:
-            moves.append(Move(png, paths.overlays_dir() / new / png.name, "bezel"))
     strategy = (pack.data.get("perGame") or {}).get("key")
     if strategy and (gid := gameid.identify(strategy, rom)):
         moves.append(Move(paths.pergame_dir() / old / f"{gid}.json",
@@ -209,14 +202,6 @@ def plan(packs: dict) -> list[Split]:
         new = [s for s in pack.superseded_by if s in packs]
         split = Split(tile["id"], new, pack.emulator_owner)
         _plan_folder(split, tile, packs)
-        for sid in new:                        # bezels per console → per system
-            src = paths.overlays_dir() / f"{split.old}.{sid}.png"
-            if src.is_file():
-                dst = paths.overlays_dir() / f"{sid}.png"
-                if dst.exists():
-                    split.kept.append((src, f"{dst.name} already exists"))
-                else:
-                    split.moves.append(Move(src, dst, "bezel"))
         _plan_playtime(split, _unique_extensions(packs, new))
         splits.append(split)
     return splits
@@ -234,44 +219,10 @@ def _read_json(name: str) -> dict:
 
 def edit_configs(splits: list[Split], packs: dict) -> tuple[dict[str, dict], list[str]]:
     """{file name: new content} for the files that change, and what changes."""
-    from .bezels import hole_of              # imports the bezel stack; only needed here
     files = {name: _read_json(name) for name in _CONFIG_FORMAT}
     notes: list[str] = []
-    choices, corrections = files["bezel-choices.json"], files["bezel-corrections.json"]
-    overlays, autoconfig = files["overlays.json"], files["controller-autoconfig.json"]
+    autoconfig = files["controller-autoconfig.json"]
     for s in splits:
-        mine = choices.get(s.old) or {}
-        for name, sid in s.games.items():
-            key = gameid.from_filename(name)
-            if key not in mine or key in choices.get(sid, {}):
-                continue
-            picked = mine.pop(key)
-            if picked.startswith(f"{s.old}."):
-                # The old system's own frame, which the new system cannot offer:
-                # the game falls back to its new system's bezel.
-                notes.append(f"bezel-choices.json: {s.old}/{key} dropped — "
-                             f"{picked} is not a {sid} bezel")
-            else:
-                choices.setdefault(sid, {})[key] = picked
-                notes.append(f"bezel-choices.json: {s.old}/{key} -> {sid}")
-        if s.old in choices and not choices[s.old]:
-            del choices[s.old]
-        for key in [k for k in corrections if k.startswith(f"{s.old}/")]:
-            sid, _, ratio = key[len(s.old) + 1:].partition("@")
-            if sid in s.new and f"{sid}@{ratio}" not in corrections:
-                corrections[f"{sid}@{ratio}"] = corrections.pop(key)
-                notes.append(f"bezel-corrections.json: {key} -> {sid}@{ratio}")
-        for sid in s.new if s.old in overlays else ():
-            asset = (packs[sid].data.get("overlay") or {}).get("asset")
-            if sid in overlays or not asset:
-                continue
-            entry = dict(overlays[s.old], label=packs[sid].data["label"],
-                         overlay_asset=f"assets/overlays/{asset}")
-            png = paths.overlays_dir() / asset          # exists once the bezels are moved
-            if png.is_file() and (hole := hole_of(png)):
-                entry["hole"] = {k: hole[k] for k in ("x", "y", "w", "h")}
-            overlays[sid] = entry
-            notes.append(f"overlays.json: {sid} added from {s.old}")
         switches = autoconfig.get("packs") or {}
         if s.old in switches and s.owner not in switches:
             switches[s.owner] = switches.pop(s.old)

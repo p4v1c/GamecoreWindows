@@ -38,12 +38,10 @@ same rule read the other way: `localMedia` means icons and titles and online
 lookups, none of which this adds for the Wii U. A format in that enum with two
 of its three readers missing would be a promise the file does not keep.
 
-Two consumers, one implementation
----------------------------------
-The per-game configs are the first caller. `bezels.rom_key()` is the second and
-was the first to exist — it already computed the `filename` identity, and now
-delegates here so that a game cannot be one thing to its overlay and another to
-its settings.
+One implementation
+------------------
+The per-game configs and the system split (`system_split.py`) both ask here,
+so a game cannot be one thing to its settings and another to its move.
 """
 from __future__ import annotations
 

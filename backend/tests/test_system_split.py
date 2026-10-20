@@ -65,17 +65,11 @@ def box(tmp_path, monkeypatch):
     (emu / "metadata" / "mgba" / "Emerald.json").write_text("{}")
     (cfg / "per-game" / "dolphin").mkdir(parents=True)
     (cfg / "per-game" / "dolphin" / "RMCP01.json").write_text("{}")
-    (data / "assets" / "overlays").mkdir(parents=True)
-    (data / "assets" / "overlays" / "mgba.gb.png").write_bytes(b"png")
     (cfg / "systems.json").write_text(json.dumps([
         _tile("azahar", ["*.3ds"]),
         _tile("dolphin", ["*.iso", "*.rvz", "*.wbfs"]),
         _tile("mgba", ["*.gb", "*.gbc", "*.gba", "*.zip"]),
     ], indent=2))
-    (cfg / "bezel-choices.json").write_text(json.dumps(
-        {"mgba": {"red": "mgba.png", "emerald": "Emerald (Border).png"}}))
-    (cfg / "bezel-corrections.json").write_text(json.dumps(
-        {"mgba/gb@299:270": {"x": 1, "y": 0, "w": 2, "h": 3}}))
     (cfg / "controller-autoconfig.json").write_text(json.dumps(
         {"enabled": True, "packs": {"dolphin": False}}))
     with sqlite3.connect(cfg / "playtime.db") as con:
@@ -149,7 +143,6 @@ def test_apply_moves_the_games_and_what_is_filed_under_them(box, packs):
     assert (emu / "covers" / "gamecube" / "Wind Waker.webp").is_file()
     assert (emu / "metadata" / "gba" / "Emerald.json").is_file()
     assert (box / "config" / "per-game" / "wii" / "RMCP01.json").is_file()
-    assert (box / "assets" / "overlays" / "gb.png").is_file()
     assert [p.name for p in (emu / "dolphin").iterdir()] == [".gitkeep"]
 
 
@@ -167,18 +160,8 @@ def test_apply_carries_the_hours_and_the_switches(box, packs):
                     ("gb", "Red.gb", 4044), ("gba", "Gone.gba", 60)}
     assert sessions == {("gb", "Red.gb")}
     cfg = box / "config"
-    assert json.loads((cfg / "bezel-corrections.json").read_text()) == \
-        {"gb@299:270": {"x": 1, "y": 0, "w": 2, "h": 3}}
     assert json.loads((cfg / "controller-autoconfig.json").read_text())["packs"] == \
         {"gamecube": False}
-
-
-def test_a_bezel_choice_follows_its_game_unless_it_named_the_old_frame(box, packs):
-    system_split.apply(system_split.plan(packs), packs)
-    # `mgba.png` is the old pack-wide frame: gb cannot offer it, so Red falls
-    # back to the Game Boy bezel instead of naming a file its system never lists.
-    assert json.loads((box / "config" / "bezel-choices.json").read_text()) == \
-        {"gba": {"emerald": "Emerald (Border).png"}}
 
 
 def test_a_second_run_changes_nothing(box, packs):

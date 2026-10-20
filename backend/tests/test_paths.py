@@ -56,7 +56,7 @@ _CODE_ROOTS = {"GAMECORE_ROOT", "ASSETS_DIR", "REPO", "ROOT"}
 
 # First path segment of every writable location. Joining one of these onto a
 # code root is the mistake — `GAMECORE_ROOT / "catalog"` is fine, it is code.
-_WRITABLE_SEGMENTS = {"config", "emu", "overlays", "logos", "addons"}
+_WRITABLE_SEGMENTS = {"config", "emu", "logos", "addons"}
 
 
 def _sources() -> list[Path]:
@@ -173,7 +173,6 @@ _LEGACY = {
     "media":    "emu/gamemedia",
     "index":    "emu/gamescrape",
     "metadata": "emu/metadata",
-    "overlays": "assets/overlays",
     "logos":    "assets/logos",
     "themes":   "config/themes",
 }
@@ -279,16 +278,15 @@ def test_the_data_root_comes_from_the_environment():
 def test_electron_reads_the_players_files_from_the_data_root():
     """`electron/main.js` cannot be imported outside Electron, so this reads it.
 
-    It joins `config/overlays.json` onto a root, and that root used to be
-    `path.join(__dirname, '..')` — the install. Correct while the data lives
-    there; afterwards it is the abandoned copy, and a launch would take its
-    window from Electron's overlays.json and its hole from the backend's — two
-    files, identical on the day of the move, drifting from the first edit.
+    It reads the active theme from `config/` under a root. A root of
+    `path.join(__dirname, '..')`, the install, is the abandoned copy once the
+    data lives elsewhere: the shell and the backend would then read two
+    different theme files.
 
     The rule: any `path.join(<root>, 'config' | 'emu' | 'assets', …)` must use
     a root whose nearest preceding assignment reads GAMECORE_DATA. The code
-    roots (the venv, the monitor script) are joined onto `'.venv'` and
-    `'backend'`, which this deliberately does not match.
+    roots (the venv) are joined onto `'.venv'`, which this deliberately does
+    not match.
     """
     offenders = []
     for js in sorted((REPO / "electron").glob("*.js")):

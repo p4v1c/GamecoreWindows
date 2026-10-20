@@ -34,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
 from . import ws
-from .routers import systems, games, playtime, covers, media, metadata, sysinfo, update, overlays, addons, catalog
+from .routers import systems, games, playtime, covers, media, metadata, sysinfo, update, addons, catalog
 from .routers import auth as auth_routes
 from .routers import bios as bios_router
 from .routers import pergame as pergame_router
@@ -53,8 +53,7 @@ from .services import (battery, boot, bt_wake, desktop_power, gamepad_monitor, h
 from .services.errors import ServiceError
 from .services.process_manager import process_manager
 from .config import BACKEND_PORT
-from .services.paths import (backend_data_dir, covers_dir, frontend_dist_dir,
-                            overlays_dir, themes_dir)
+from .services.paths import backend_data_dir, covers_dir, frontend_dist_dir, themes_dir
 from .services.platform.media_types import pin_media_types
 
 log = logging.getLogger(__name__)
@@ -293,7 +292,6 @@ app.include_router(sysinfo.router, prefix="/api")
 # Asked in a loop by the shell while the box starts — see routers/ready.py.
 app.include_router(ready_router.router, prefix="/api")
 app.include_router(update.router, prefix="/api")
-app.include_router(overlays.router, prefix="/api")
 app.include_router(pergame_router.router, prefix="/api")
 app.include_router(addons.router, prefix="/api")
 # The pack catalogue: what this box could run, and installing it without
@@ -316,14 +314,6 @@ app.include_router(auth_routes.router, prefix="/api")
 # ── Web managers ─────────────────────────────────────────────────────────────
 # The ROM manager moved to the rom-manager addon (port 8770) —
 # see https://github.com/p4v1c/gamecore-addons
-
-@app.get("/overlay", include_in_schema=False)
-def overlay_page():
-    # Same file as the shell, and therefore the same rule: it names the bundle
-    # without being named by it, so keeping it is how an OTA stays invisible.
-    return FileResponse(str(frontend_dist / "index.html"), media_type="text/html",
-                        headers={"Cache-Control": http_cache.NEVER})
-
 
 @app.get("/gc/addons", include_in_schema=False)
 def gc_addons():
@@ -355,9 +345,8 @@ app.include_router(systems.public_router)
 class _RevalidatedStatic(StaticFiles):
     """Static content the browser keeps but must ask about before reusing.
 
-    Covers, overlays and the data directory are all files whose URL stays put
-    while their bytes may be replaced — a re-scraped jacket, a corrected
-    overlay. `no-cache` keeps them on disk and lets the ETag answer 304, so a
+    Covers and the data directory are files whose URL stays put while their
+    bytes may be replaced, a re-scraped jacket for one. `no-cache` keeps them on disk and lets the ETag answer 304, so a
     second boot transfers nothing and a replacement is still seen at once.
     """
 
@@ -369,7 +358,6 @@ class _RevalidatedStatic(StaticFiles):
 
 for _dir, _route, _name in (
     (covers_dir(), "/covers", "covers"),
-    (overlays_dir(), "/assets/overlays", "overlays"),
     (backend_data_dir(), "/data", "data"),
 ):
     _dir.mkdir(parents=True, exist_ok=True)

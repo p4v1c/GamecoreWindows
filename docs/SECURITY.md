@@ -297,7 +297,7 @@ systemctl enable --now avahi-daemon.service
 ## Operational notes
 
 - **OTA**: `update/linux.sh` excludes `config/`, `emu/`, `emu-configs/` and
-  `assets/logos|overlays/`, so the box's local state (library, auth, addon
+  `assets/logos|overlays/` (the Linux bezels), so the box's local state (library, auth, addon
   registry) survives updates. OTA touches neither `/etc/systemd/*` nor
   `/etc/caddy/*`.
 - **`/etc/caddy/Caddyfile` is not updated by OTA.** It is written only by
