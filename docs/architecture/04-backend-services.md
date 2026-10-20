@@ -10,59 +10,95 @@ own document.
 
 ## process_manager.py
 
-Module-level singleton: `process_manager = ProcessManager()`.
+Module-level singleton: `process_manager = ProcessManager()`. A session's
+process tree lives in a Windows **Job Object** (`platform/jobs.py`); the job is
+what is suspended, resumed and killed, never one process. What describes a
+session is `game_session.py`'s `Session`.
 
-State: `_proc`, `_launching`, `_game_key`, `_system_id`, `_start_time`,
-`_exec_path`, `_launch_args`, `_orphan_pgid`.
+State: `_sessions` (every resident `Session`, launch order), `_launching`,
+`_switching` (an `asyncio.Lock`), `_seq` (the run number), `_pending_key` /
+`_pending_system`.
 
 | Member | Role |
 |---|---|
-| `session._display_env()` | (in `services/session.py`) rebuilds a GUI environment for a systemd child — see [1](01-runtime-topology.md#environment-reconstruction). **Synchronous**; memoised |
-| `session.display_env()` | the `async` wrapper every event-loop caller must use |
-| `session.invalidate_display_cache()` | forget the probed display — called by `services/launch.py` after a failed launch |
-| `kill_process_group(proc)` | module-level: SIGKILL a process **and its children**. Shared with `routers/update.py` |
-| `is_running` | `_launching or (_proc alive) or (_orphan_pgid alive)` |
-| `current_game` | `{game_key, system_id}` or `None` |
-| `launch(...)` | builds argv (`shlex.split` + ROM), spawns with its output in `logs.launch_output()`, records the session, broadcasts `game:started`, starts `_watch()` |
-| `_save_session()` / `_clear_session()` | write/remove `config/session.json` atomically |
-| `adopt_orphan()` | at startup, re-attach to a game a previous backend left running — only if boot id and leader start time match (`process_identity.py`) |
-| `kill()` | orphan → `_kill_orphan()`; otherwise `_flatpak_kill()` then `_proc_kill()` |
-| `_flatpak_kill()` | finds the app-id (token after `run`) and runs `flatpak kill <app-id>`, 1 s timeout |
-| `_proc_kill()` | delegates to `kill_process_group()` |
-| `_watch()` | awaits exit, clears the session file, records playtime if > 5 s, broadcasts `game:finished` |
+| `kill_process_group(proc)` | module-level: kill a child started **without** a job and every process it started (`processes.kill_tree`). Used by `routers/update.py` |
+| `_resident_cap()` / `MAX_SESSIONS` | 3 resident sessions with 16 GiB of RAM installed (`processes.physical_memory()`), else 2 |
+| `is_running` / `is_foreground` | a session exists / one is on the screen (`_launching` counts as both) |
+| `foreground_session`, `background_sessions`, `background_session`, `current_game`, `session_state()` | what the box runs, in the shapes the routers and the WS send |
+| `_reap()` | drops sessions whose job is empty; announces `game:finished` for an adopted one (no watcher awaits it) |
+| `launch(...)` | `_refuse_launch()` (foreground, one resident game, cap, `session.launch_blocker()`), claims `_launching`, builds argv (`command_line.launch_argv`), spawns with `jobs.spawn()` into `logs.launch_output()`, records the session, broadcasts `game:started`, starts `_watch()` |
+| `background()` | `_freeze()`: the interface to the front (`window_focus.hide`), **then** `job.suspend()`; a failed suspend gives the screen back to the game |
+| `foreground(session_id)` | freezes whatever holds the screen the same way, `job.resume()`, `window_focus.activate()`; `_undo_swap()` when the resume fails |
+| `_save_state()` / `_clear_session()` | write/remove `config/session.json` atomically ([7](07-config-and-data.md#configsessionjson)) |
+| `adopt_orphan()` / `_adopt_row()` | at startup, re-open a job a previous backend left: only when `jobs.open_job(name)` succeeds, the job is not empty and its first process matches the boot id and start time on record (`process_identity.py`) |
+| `kill(session_id)` | `job.terminate()`: the whole tree, frozen processes included; adopted: `_kill_orphan()` |
+| `_watch(session)` | polls `job.alive()` every `WATCH_POLL_SECS`, then releases saves, clears the slot it owns, closes the job, records playtime if > 5 s, broadcasts `game:finished` |
 
 Decisions that look odd until you know why:
 
 1. **`_launching` is claimed synchronously**, before the first `await`. Two
-   concurrent `launch()` calls would otherwise both pass the `is_running`
-   check while the first was still awaiting the spawn.
-2. **`start_new_session=True`** puts the child in its own process group. Without
-   it, `killpg` would reach the backend itself.
-3. **SIGKILL, no SIGTERM.** Several emulators answer SIGTERM with a
-   confirmation dialog that cannot be clicked from a gamepad.
-4. **The display probe is memoised.** Under systemd neither `DISPLAY` nor
-   `XAUTHORITY` is set, so `_probe_display()` ran on *every* launch and *every*
-   standby transition — with synchronous `subprocess.run(timeout=5)` calls, on
-   the event loop. When X was slow to answer (cold boot, stale xauth cookie, the
-   TV resyncing HDMI), an unrelated `GET /api/systems` measured **4.7 s**. The
-   display does not move mid-session, so it is probed once; the first probe runs
-   off-thread via `display_env()`, and the cache is dropped only when a launch
-   fails.
-5. **The pgid is persisted, and the game is never killed at shutdown.** See
+   concurrent `launch()` calls would otherwise both pass the checks.
+2. **The game starts suspended** (`CREATE_SUSPENDED`), joins its job, then
+   runs: nothing it starts can be born outside the job.
+3. **Terminate, no polite close.** Several emulators answer a close request
+   with a confirmation dialog that cannot be clicked from a gamepad.
+4. **No `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.** A backend restart (update,
+   crash) closes its handles; the game must survive to be adopted. The job's
+   first process holds a duplicate of the job handle, so the job's name lives
+   as long as it does: that is what `open_job()` finds after a restart.
+5. **A session ends when its job is empty**, not when its first process
+   exits: a launcher that starts the game and quits leaves the game running.
+6. **The interface goes in front before the freeze**, never after: a frozen
+   window that has the foreground never answers the activation messages, and
+   Windows then refuses to put it behind (measured on the real PC).
+   Suspends and resumes are serialised by `_switching` for the same reason:
+   each awaits a window move before it freezes.
+7. **The job is persisted, and the game is never killed at shutdown.** See
    `config/session.json` in [7](07-config-and-data.md). Killing it in the
-   lifespan would take unsaved progress with it on every OTA, and would do
-   nothing for the case that actually strands the player — a crash, where the
-   lifespan never runs.
+   lifespan would take unsaved progress with it on every update, and would do
+   nothing for a crash, where the lifespan never runs.
 
-`services/launch.py:_spawn` catches `FileNotFoundError` and
-`PermissionError` and answers **503** naming the system and the binary, plus a
-`game:failed` broadcast the UI turns into a toast. It used to escape as a bare
-500 with an empty body: the launch silently did not happen and nothing said why.
+`services/launch.py:_spawn` catches `OSError` (missing binary, no rights, an
+executable that asks for elevation) and answers **503** naming the system and
+the binary, plus a `game:failed` broadcast the UI turns into a toast.
 
-The module header also records a real bug: an earlier revision exported
-`SDL_GAMECONTROLLERDB`, a variable SDL has never read, so the vendored mapping
-database was silently ignored. The correct name is
-`SDL_GAMECONTROLLERCONFIG_FILE`.
+### `game_session.py` — one session
+
+`Session`: the job, `adopted`, identity (`game_key`, `system_id`, `rom_path`,
+`exec_path`, `launch_args`), `session_id`, `state`, and the time it spent
+frozen (`bg_since`, `bg_total`). `alive()` is `job.alive()`; `played_secs()`
+is wall time minus frozen time; `describe()` is the WS/API shape; `to_disk()`
+the `session.json` row. `from_disk(row, job, session_id)` rebuilds an adopted
+one.
+
+### `command_line.py` — a launcher's args to argv
+
+`split_args(text)`: shell-style quotes group words and are removed, a
+backslash is an ordinary character (POSIX `shlex.split` ate the separators of
+`C:\Games\x.iso`). `launch_argv(exec_path, exec_args, rom_path)` appends the
+ROM as one word.
+
+### `session.py` — the desktop games appear on
+
+`launch_blocker()` says why a game started now would not reach the TV (nobody
+logged on to the console, the backend in another session), `desktop()` names
+the session, user and primary display, `display_env()` is the environment a
+game starts with (the backend's own plus `SDL_GAMECONTROLLERCONFIG_FILE`).
+See [1](01-runtime-topology.md#on-windows-the-backend-runs-in-the-console-users-session).
+`wayland_env()` / `kscreen_available()` are Linux helpers `display.py`,
+`standby.py` and `desktop_power.py` still call (steps 5 and 7).
+
+### `window_focus.py` — who is in front
+
+| Function | Does |
+|---|---|
+| `present(system_id, job)` | waits (`PRESENT_TIMEOUT_SECS`) for the new game's first window and brings it to the front: Windows keeps the foreground for the interface, which received the last input |
+| `hide(system_id)` | brings the interface's largest window (`SHELL_EXECUTABLES`: `GameCore.exe`, dev `electron.exe`) to the front, before a freeze |
+| `activate(system_id, job)` | brings every window of a resumed game to the front, topmost last; the layout of several windows is kept |
+| `game_windows(job)`, `wait_for_window(job, timeout)` | the job's app windows; shared with `fullscreen_enforcer.py` |
+
+All best effort: a window left behind is one press away, and an exception
+would report a suspend or a resume that happened as failed.
 
 ---
 
@@ -246,9 +282,8 @@ Hence both halves: `resume_after_restart()` in the lifespan repairs a box alread
 in that state, and `exit_standby()` no longer short-circuits on
 `_state == "active"` — asking to wake up is never a no-op.
 
-`_run_cmd` awaits `display_env()` rather than calling `_display_env()` inline:
-the probe behind it can block for seconds on the first call, and this runs on
-every standby transition.
+`_run_cmd` awaits `session.display_env()` for the environment of the tools it
+runs (on Linux a display probe that could block for seconds stood behind it).
 
 ---
 
@@ -741,21 +776,20 @@ second; more than one (melonDS local multiplayer opens one per player and
 screen) ends the watch with `window:closed` / `several-windows`, because
 forcing one window into the bezel rect undoes the launcher's layout.
 
-`window_focus.py` follows the same rule on resume: one game window is raised
-and put back in fullscreen; several are raised as they are, since fullscreen
-on one of them covered the screen with a single DS screen.
+`window_focus.py` keeps the same rule on resume: several windows are raised as they are.
 
 `_WAYLAND_SESSION` disables the whole module when `WAYLAND_DISPLAY` is set.
 
 ## `fullscreen_enforcer.py`
 
-The same EWMH toolbox pointed the other way, for apps with no fullscreen CLI
-flag (`"fullscreen"` key on a system entry).
-
-`_iter_client_windows`, `_find_window(disp, wm_classes)`, `_is_fullscreen`,
-`_request_fullscreen` (adds `_NET_WM_STATE_FULLSCREEN` by client message),
-`_enforce_sync(system_id, wm_classes, timeout_s)`, and the async
-fire-and-forget `enforce(system_id, cfg)`.
+For apps with no fullscreen command-line flag (`"fullscreen"` key on a system
+entry). `enforce(system_id, cfg, job)` (fire-and-forget, from `launch.py`)
+waits for the job's first window (`window_focus.wait_for_window`), makes it
+borderless fullscreen (`window_control.make_borderless_fullscreen`) until it
+covers its monitor (`ATTEMPTS` x `RETRY_SECS`: an app that resizes itself once
+loaded undoes the first try), then brings it to the front. Borderless, not
+exclusive: the HUD alerts are a topmost window exclusive fullscreen hides.
+`cfg["wm_class"]` (Linux) is accepted and unused; `timeout_s` is read.
 
 ---
 
@@ -807,8 +841,9 @@ signatures. The docstrings carry the rest.
 check → ROM path inside `romsPath` → resume-or-refuse (one resident game) →
 catalogue args → BIOS gate → USB notice → `standby.exit_standby()` → wait for
 pad profiles → release stale slots → profile saves → per-game config → pack
-`prepare_launch` → pack `launch_command` → `process_manager.launch()` → udev
-re-fire / fullscreen tasks. Refusals raise `LaunchRefused(status, detail)`; the router maps them.
+`prepare_launch` → pack `launch_command` → `process_manager.launch()` →
+the window task (`start_window_task()`: `window_focus.present` or
+`fullscreen_enforcer.enforce`; the per-game settings window gets it too). Refusals raise `LaunchRefused(status, detail)`; the router maps them.
 The foreground check also claims a module-level `_launching` flag, held until
 the spawn returns: a second launch arriving meanwhile is refused (409) before
 any preparation. Without it, the refused launch re-placed and then released the
@@ -883,9 +918,20 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `link_target(path)` | where it points, without the `\\?\` prefix | `os.readlink` |
 | `processes.py` | `boot_id()` | `BootId` under `HKLM\...\Memory Management\PrefetchParameters`, incremented every boot; `""` when unreadable | `/proc/sys/kernel/random/boot_id` |
 | | `start_time(pid)` | creation time from `psutil`, ms precision, as a string; `""` for no such process | field 22 of `/proc/<pid>/stat` |
+| | `kill_tree(pid)` | kills a process and its descendants (`psutil`); for a child with no job (the update script) | `os.killpg` |
+| | `physical_memory()` | installed RAM in bytes, 0 when unknown | `os.sysconf` (absent on Windows: the resident cap silently stayed at 2) |
+| `jobs.py` | `spawn(cmd, env, stdout)` | starts `cmd` suspended, assigns it to a new named Job Object (`Local\GameCore-<uuid>`), gives the first process a duplicate of the job handle, resumes it; returns a `GameJob` | `start_new_session=True` + `create_subprocess_exec` |
+| | `GameJob.alive()`, `.pids()` | any process left (`JobObjectBasicAccountingInformation`), every pid (`JobObjectBasicProcessIdList`) | `os.killpg(pgid, 0)`, `/proc` scan |
+| | `.suspend()`, `.resume()` | `NtSuspendProcess` / `NtResumeProcess` on every process; suspend is all or nothing | `SIGSTOP` / `SIGCONT` to the group |
+| | `.terminate()`, `.close()` | `TerminateJobObject` (exit code 137); let go of the handle, processes untouched | `SIGKILL` to the group |
+| | `open_job(name, leader_pid)` | re-open a job a previous backend started; only `Local\GameCore-` names | the saved pgid |
+| `console_session.py` | `own_session_id()`, `console_session_id()`, `session_user(id)`, `primary_display()` | `ProcessIdToSessionId`, `WTSGetActiveConsoleSessionId`, `WTSQuerySessionInformationW`, `EnumDisplayDevicesW` | `DISPLAY` / `XAUTHORITY` probing |
+| `window_control.py` | `top_level_windows(pids)`, `windows_of_executables(names)` | `EnumWindows` by owner pid / by process image, visible unowned app windows | `_NET_CLIENT_LIST` + `_NET_WM_PID` / `WM_CLASS` |
+| | `bring_to_front(hwnd)` | `SetForegroundWindow`; when refused, again with `AttachThreadInput` to the foreground thread, never to a frozen one (`SendMessageTimeoutW` probe) | `_NET_ACTIVE_WINDOW` |
+| | `make_borderless_fullscreen(hwnd)`, `covers_its_monitor(hwnd)` | frame styles off (`SetWindowLongPtrW`), `SetWindowPos` over the monitor (`SWP_ASYNCWINDOWPOS`), in per-monitor DPI | `_NET_WM_STATE_FULLSCREEN` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
-Callers: `process_identity.py` (both of `processes.py`), `profile_save_paths.py`
+Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
 (the junction a profile's save folder becomes), `main.py` (`pin_media_types`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).

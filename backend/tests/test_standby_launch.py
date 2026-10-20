@@ -27,9 +27,6 @@ import pytest
 
 from backend.services import standby
 
-pytestmark = pytest.mark.usefixtures("posix_boundary")
-
-
 @pytest.fixture
 def screen_calls(monkeypatch):
     """Swallow xset/cpupower and record what standby tried to run."""
@@ -52,7 +49,7 @@ def launcher(monkeypatch, screen_calls):
     # An emulator that is not there: the launch fails at the last step, which is
     # after everything this file is about. The wake must already have happened.
     ghost = {"id": "ghost", "label": "Ghost", "kind": "emulator",
-             "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
+             "path": r"C:\definitely\not-installed.exe", "args": "", "romsPath": ""}
     monkeypatch.setattr(systems_service, "list_all", lambda: [ghost])
     with TestClient(main.app) as c:
         yield c

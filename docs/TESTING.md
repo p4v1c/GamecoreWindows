@@ -27,7 +27,7 @@ replacement ([dev log](dev-log/windows-port.md), D7). Until then its tests
 stay, marked with that step, and are skipped on Windows with the step named:
 
 ```python
-@pytest.mark.linux_until_port(3)                 # one test
+@pytest.mark.linux_until_port(5)                 # one test
 pytestmark = pytest.mark.linux_until_port(7)     # every test in the module
 linux_until_port_module(7)                       # a module Windows cannot import (pwd, fcntl):
                                                  # call it before those imports
@@ -37,14 +37,9 @@ linux_until_port_module(7)                       # a module Windows cannot impor
   fails the collection.
 - Mark the test that needs Linux, not its file, when the rest of the file runs
   on Windows. Pure logic in a Linux service is made to run, not marked: fake
-  the OS boundary. For process groups and uids that is the `posix_boundary`
-  fixture (`backend/tests/posix_boundary.py`): `os.killpg`, `os.getpgid`,
-  `os.getuid`, `os.geteuid` and `SIGKILL`/`SIGSTOP`/`SIGCONT`, played by
-  psutil on the process tree, for the tests of `process_manager`, `session`,
-  `rest_mode` and the guide gesture (`pytestmark =
-  pytest.mark.usefixtures("posix_boundary")`). A test that records the calls
-  patches its own fakes over them. Step 3 replaces both the code and this
-  fixture.
+  the OS boundary. For uids that is the `posix_boundary` fixture
+  (`backend/tests/posix_boundary.py`: `os.getuid`, `os.geteuid`), used by the
+  Bluetooth, audio and installer tests until steps 5 and 7.
 - Every use is listed in
   [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
   `test_linux_until_port.py` fails when the list and the source disagree.
@@ -53,6 +48,20 @@ linux_until_port_module(7)                       # a module Windows cannot impor
 A Windows replacement gets its own tests in the same PR
 (`test_platform_*.py`): the pure part with fakes, the Win32 call for real on
 the runner.
+
+### Games, jobs and windows
+
+- Tests of `process_manager` and its callers never start a game: the
+  `spawner` fixture (`backend/tests/fake_jobs.py`) replaces `jobs.spawn`,
+  passes `session.launch_blocker()` and hands out `FakeJob`s, which record
+  every `suspend`, `resume` and `terminate` as `(pid, call)`; `job.exit()` is
+  the game ending on its own. `quiet_manager()` is a manager that writes no
+  session file, broadcasts nowhere and moves no window.
+- `test_platform_jobs.py`, `test_session_robustness.py` and
+  `test_session_adoption_identity.py` run real process trees in real Job
+  Objects (Python children); `test_platform_window_control.py` opens real Tk
+  windows and moves the foreground. They need the interactive desktop the PC
+  and the `windows-latest` runner both have, and terminate every job they start.
 
 ## The home, on Windows
 

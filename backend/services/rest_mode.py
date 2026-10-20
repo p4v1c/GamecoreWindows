@@ -3,20 +3,19 @@
 The order is the feature. A box that sleeps with a game alive wakes into it,
 and a frozen emulator holding the GPU across a suspend is the case most likely
 to come back broken. So nothing sleeps until every session, suspended ones
-included, is gone: killed, waited for, and SIGKILLed again if it lingers.
+included, is gone: killed, waited for, and its job terminated again if it
+lingers.
 
 Launches are refused from the first step to the wake (`launch.close_gate`),
 so a launch racing the menu cannot start a game after the sweep.
 """
 import asyncio
 import logging
-import os
-import signal
 import time
 
 from . import launch
-from . import process_manager as pm
 from .errors import ServiceError
+from .game_session import Session
 from .process_manager import process_manager
 
 log = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ log = logging.getLogger(__name__)
 LAUNCH_SETTLE_SECS = 15.0
 #: How long killed sessions may take to disappear before they are forced.
 EXIT_WAIT_SECS = 8.0
-#: The grace after the forced SIGKILL, before sleeping anyway.
+#: The grace after the forced kill, before sleeping anyway.
 FORCE_WAIT_SECS = 2.0
 POLL_SECS = 0.1
 #: Granted by /etc/sudoers.d/gamecore-rest (install/steps/setup-rest-mode.sh).
@@ -52,24 +51,19 @@ def is_resting() -> bool:
     return _resting
 
 
-def _resident() -> list[pm.Session]:
+def _resident() -> list[Session]:
     """Every live session: the one on screen and the frozen ones."""
     fg = process_manager.foreground_session
     return ([fg] if fg else []) + process_manager.background_sessions
 
 
-def _alive(pgid: int) -> bool:
-    # The group, not the leader: an emulator's children outlive a dead wrapper.
-    return pm._pgid_alive(pgid)
-
-
-async def _wait_gone(pgids: list[int], budget: float) -> list[int]:
-    """Poll until no group is alive or `budget` runs out. Returns survivors."""
+async def _wait_gone(sessions: list[Session], budget: float) -> list[Session]:
+    """Poll until no session's job is alive or `budget` runs out. Returns survivors."""
     deadline = time.monotonic() + budget
-    alive = [p for p in pgids if _alive(p)]
+    alive = [s for s in sessions if s.alive()]
     while alive and time.monotonic() < deadline:
         await asyncio.sleep(POLL_SECS)
-        alive = [p for p in alive if _alive(p)]
+        alive = [s for s in alive if s.alive()]
     return alive
 
 
@@ -83,45 +77,42 @@ async def _settle_launch() -> None:
                     LAUNCH_SETTLE_SECS)
 
 
-def _force_kill(pgids: list[int]) -> None:
-    own = os.getpgid(0)
-    for pgid in pgids:
-        if pgid <= 1 or pgid == own:
-            continue
+def _force_kill(sessions: list[Session]) -> None:
+    for s in sessions:
         try:
-            os.killpg(pgid, signal.SIGKILL)
+            s.job.terminate()
         except OSError:
             pass
 
 
 async def close_everything(exit_wait: float | None = None,
                            force_wait: float | None = None) -> list[int]:
-    """Kill every session and wait for each group to be gone.
+    """Kill every session and wait for each job to be empty.
 
     The waits default to Rest mode's; a sleep from elsewhere passes shorter
-    ones (services/sleep_guard.py). Returns the groups that outlived the forced
-    kill (normally none).
+    ones (services/sleep_guard.py). Returns the first pids of the sessions
+    that outlived the forced kill (normally none).
     """
     exit_wait = EXIT_WAIT_SECS if exit_wait is None else exit_wait
     force_wait = FORCE_WAIT_SECS if force_wait is None else force_wait
-    sessions = _resident()
-    pgids = [s.pgid for s in sessions if s.pgid]
+    sessions = [s for s in _resident() if s.job is not None]
     for s in sessions:
         log.info("rest: closing %s (%s)", s.game_key or "?", s.system_id)
         try:
             await process_manager.kill(s.session_id)
         except Exception:
             log.exception("rest: could not close %s", s.game_key or "?")
-    survivors = await _wait_gone(pgids, exit_wait)
+    survivors = await _wait_gone(sessions, exit_wait)
     if not survivors:
         return []
-    log.warning("rest: %d group(s) still alive after %ss, forcing: %s",
-                len(survivors), exit_wait, survivors)
+    log.warning("rest: %d session(s) still alive after %ss, forcing: %s",
+                len(survivors), exit_wait, [s.pid for s in survivors])
     _force_kill(survivors)
     survivors = await _wait_gone(survivors, force_wait)
     if survivors:
-        log.error("rest: groups %s survived SIGKILL; sleeping anyway", survivors)
-    return survivors
+        log.error("rest: sessions %s survived the forced kill; sleeping anyway",
+                  [s.pid for s in survivors])
+    return [s.pid for s in survivors]
 
 
 async def _suspend() -> tuple[bool, str]:

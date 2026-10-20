@@ -13,8 +13,7 @@ places: state that outlives the thing it describes.
     it.
 
 Nothing here starts a process, opens a socket or touches a real database: the
-children are fakes with a `wait()` this file resolves by hand, and the database
-is `:memory:`.
+jobs are `FakeJob`s this file ends by hand, and the database is `:memory:`.
 """
 import asyncio
 import sys
@@ -29,22 +28,18 @@ import aiosqlite
 from backend import db
 from backend import ws
 from backend.services import process_manager as pm
+from backend.services.game_session import Session
+from backend.tests.fake_jobs import FakeJob
 
 
-class FakeProcess:
-    """A child that exits when the test says so."""
-
-    def __init__(self):
-        self.returncode = None
-        self.done = asyncio.Event()
-
-    async def wait(self):
-        await self.done.wait()
-        return self.returncode
+async def _turns(n: int = 3) -> None:
+    """Let every watcher look at its job again (WATCH_POLL_SECS is 0 here)."""
+    for _ in range(n):
+        await asyncio.sleep(0)
 
 
 def _silence(monkeypatch, manager=None):
-    monkeypatch.setattr(pm, "display_env", AsyncMock(return_value={}))
+    monkeypatch.setattr(pm, "WATCH_POLL_SECS", 0)
     monkeypatch.setattr(pm.ws, "broadcast", AsyncMock())
     monkeypatch.setattr(pm.ws, "set_current_game", lambda data: None)
     if manager is not None:
@@ -54,50 +49,46 @@ def _silence(monkeypatch, manager=None):
 
 # ── the watcher and the game it is watching ──────────────────────────────────
 
-def test_an_old_watcher_does_not_clear_the_game_that_replaced_it(monkeypatch):
+def test_an_old_watcher_does_not_clear_the_game_that_replaced_it(monkeypatch, spawner):
     """The race is narrow and its result is a box that cannot be rescued.
 
-    `is_running` frees the slot as soon as the child has a return code, which
-    happens before the watcher's `await` resumes. A second launch can therefore
+    `is_running` frees the slot as soon as the job is empty, which happens
+    before the watcher's next look. A second launch can therefore
     complete inside that window — and the first watcher then woke up holding
     the manager's fields, which by now described the second game.
     """
     async def scenario():
         manager = pm.ProcessManager()
-        first, second = FakeProcess(), FakeProcess()
+        first, second = spawner.job(), spawner.job()
         _silence(monkeypatch, manager)
-        monkeypatch.setattr(pm.asyncio, "create_subprocess_exec",
-                            AsyncMock(side_effect=[first, second]))
 
         await manager.launch("fake", "", game_key="old.rom", system_id="gc")
-        await asyncio.sleep(0)          # the watcher is inside first.wait()
-        first.returncode = 0            # the child is gone; the watcher is not
+        await asyncio.sleep(0)          # the watcher is waiting on first
+        first.exit()                    # the game is gone; the watcher has not looked
         await manager.launch("fake", "", game_key="new.rom", system_id="ps2")
-        first.done.set()
-        await asyncio.sleep(0)
+        await _turns()
 
         assert manager._fg is not None, "the old watcher cleared the new session"
-        assert manager._fg.proc is second, "the old watcher cleared the new process"
+        assert manager._fg.job is second, "the old watcher cleared the new process"
         assert manager.is_running
         assert manager._fg.game_key == "new.rom"
 
     asyncio.run(scenario())
 
 
-def test_each_launch_is_announced_under_its_own_number(monkeypatch):
+def test_each_launch_is_announced_under_its_own_number(monkeypatch, spawner):
     """The number is what lets a client refuse a finish it has moved on from."""
     async def scenario():
         manager = pm.ProcessManager()
-        first, second = FakeProcess(), FakeProcess()
+        first = spawner.job()
+        spawner.job()
         broadcast = AsyncMock()
         _silence(monkeypatch, manager)
         monkeypatch.setattr(pm.ws, "broadcast", broadcast)
-        monkeypatch.setattr(pm.asyncio, "create_subprocess_exec",
-                            AsyncMock(side_effect=[first, second]))
 
         await manager.launch("fake", "", game_key="old.rom", system_id="gc")
         await asyncio.sleep(0)
-        first.returncode = 0
+        first.exit()
         await manager.launch("fake", "", game_key="new.rom", system_id="ps2")
 
         started = [c.args[1] for c in broadcast.await_args_list if c.args[0] == "game:started"]
@@ -106,8 +97,7 @@ def test_each_launch_is_announced_under_its_own_number(monkeypatch):
         assert manager.current_game["session"] == started[1]["session"]
 
         # And the finish of the first run carries the first run's number.
-        first.done.set()
-        await asyncio.sleep(0)
+        await _turns()
         finished = [c.args[1] for c in broadcast.await_args_list if c.args[0] == "game:finished"]
         assert finished and finished[0]["session"] == started[0]["session"]
 
@@ -127,11 +117,10 @@ async def _memory_db(monkeypatch):
 async def _play(monkeypatch, manager_system: str, game_key: str, seconds: int) -> None:
     """One finished session of `seconds`, recorded the way _watch() records it."""
     manager = pm.ProcessManager()
-    proc = FakeProcess()
-    proc.returncode = 0
-    proc.done.set()
-    session = pm.Session(proc=proc, game_key=game_key, system_id=manager_system,
-                         start_time=time.time() - seconds, session_id=1)
+    job = FakeJob()
+    job.exit()
+    session = Session(job=job, game_key=game_key, system_id=manager_system,
+                      start_time=time.time() - seconds, session_id=1)
     manager._sessions.append(session)
     monkeypatch.setattr(manager, "_save_state", lambda: None)
     monkeypatch.setattr(manager, "_clear_session", lambda: None)

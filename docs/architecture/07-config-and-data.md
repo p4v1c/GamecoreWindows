@@ -413,8 +413,8 @@ use:
 
 | Key | Effect |
 |---|---|
-| `"gamepadTrigger": true` | `_gamepad_trigger()` runs `sudo udevadm trigger` ×3 after launch, for Flatpak apps that only see a pad after a udev re-fire. Needs a sudoers rule. |
-| `"fullscreen": {…}` | `fullscreen_enforcer.enforce()` forces the window fullscreen over EWMH, for apps with no fullscreen flag |
+| `"gamepadTrigger": true` | ignored on Windows (it re-fired udev for Flatpak apps); kept so a Linux tile still loads |
+| `"fullscreen": {…}` | `fullscreen_enforcer.enforce()` makes the launched job's window borderless fullscreen, for apps with no fullscreen flag |
 
 ### Splitting a system — `scripts/split-systems.py`
 
@@ -584,33 +584,39 @@ unnamed. Schema and checks:
 
 ## `config/session.json`
 
-The current writer stores `{sessions: [...]}` plus the first session's legacy
-flat fields. Each row contains `pgid`, game/system identity, executable and
-arguments, start time, foreground/background state, suspended-time counters,
-and the group's identity: `boot_id` (`/proc/sys/kernel/random/boot_id`) and
-`leader_start` (field 22 of `/proc/<pgid>/stat`).
-It is written atomically whenever a session launches, suspends, resumes or
-exits; the file disappears when no session remains.
+`{"sessions": [...]}`, one row per resident session: `job` (the Job Object's
+name, `Local\GameCore-<uuid>`), `pid` (the job's first process), game/system
+identity, executable and arguments, start time, foreground/background state,
+suspended-time counters, and the first process's identity: `boot_id` (the
+registry `BootId` counter) and `leader_start` (its creation time,
+`platform/processes.py`). It is written atomically whenever a session
+launches, suspends, resumes or exits; the file disappears when no session
+remains.
 
 It exists so a **restarted backend can still reach a game it did not start**.
-Without it the new process came up with `_proc = None`, so `is_running` was
+Without it the new process came up with no session, so `is_running` was
 false, `kill()` returned at its first line, and the emulator stayed fullscreen
-and unkillable — the double-PS shortcut could never close it again. The UI is a
-separate service and does not restart with the backend, so it kept asking and
+and unkillable: the double-PS shortcut could never close it again. The UI is a
+separate process and does not restart with the backend, so it kept asking and
 nothing answered.
 
-`adopt_orphan()` runs in the lifespan: if the pgid is still alive, signalable by
-us, and both identity fields match (`backend/services/process_identity.py`), the
-session is adopted (reported by `/api/games/session`, killable via
-`POST /api/games/kill`); if not, the file is discarded. A row without the
-identity fields (an older build) is discarded too: after a power cut the kernel
-reuses pgids, and adopting one SIGKILLed an unrelated group on double-PS. This was chosen over killing the game on shutdown,
-which would take unsaved progress with it on every OTA **and** would still leave
-a crash — where no shutdown code runs at all — stranding the player.
+`adopt_orphan()` runs in the lifespan: a row is adopted (reported by
+`/api/games/session`, killable via `POST /api/games/kill`) only when its job
+opens again by name, still holds a process, and both identity fields match
+(`backend/services/process_identity.py`); otherwise the row is dropped. A job
+name dies with the job and with the boot, and a PID is reused after a power
+cut: adopting a stranger's processes would kill them on double-PS. The job's
+name outlives the backend because the game's first process holds a handle to
+its own job (`platform/jobs.py`): a game whose first process has exited (a
+launcher that quit) is not adopted, as on Linux. This was chosen over killing
+the game on shutdown, which would take unsaved progress with it on every
+update **and** would still leave a crash, where no shutdown code runs at all,
+stranding the player.
 
-Legacy flat files are still read. Recovery may therefore encounter an older
-multi-game state, but new launches enforce one resident game: selecting the
-same suspended identity resumes it and selecting another is refused by name.
+Rows written by the Linux build (`pgid`, legacy flat fields) are not read:
+no Windows box ever wrote one. New launches enforce one resident game:
+selecting the same suspended identity resumes it and selecting another is
+refused by name.
 
 ---
 

@@ -20,9 +20,9 @@ from . import (
     gamepad_monitor,
     pergame,
     profile_saves,
-    session,
     standby,
     usb_devices,
+    window_focus,
 )
 from .catalog import launch as catalog_launch
 from .errors import ServiceError
@@ -60,25 +60,6 @@ async def _broadcast(event: str, game_key: str, system_id: str, detail: str) -> 
         })
     except Exception:
         log.exception("launch: failed to broadcast %s", event)
-
-
-async def _gamepad_trigger(rounds: int = 3, delay: float = 3.0) -> None:
-    """Re-fire udev a few times so a sandboxed app sees devices plugged in late.
-
-    Runs for `launch.gamepadTrigger` and for any pack declaring `usb`.
-    """
-    for i in range(rounds):
-        await asyncio.sleep(delay)
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "sudo", "udevadm", "trigger",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.wait()
-            log.info("gamepad_trigger: round %d/%d done", i + 1, rounds)
-        except Exception:
-            log.warning("gamepad_trigger: round %d failed", i + 1, exc_info=True)
 
 
 async def _await_controller_profiles(system_id: str, game_key: str) -> None:
@@ -349,25 +330,29 @@ async def _spawn(system: dict, system_id: str, rom_path: str, exec_path: str,
         # The resident cap; the manager's message names what to close.
         log.info("launch refused — %s", e)
         raise LaunchRefused(409, str(e)) from e
-    except (FileNotFoundError, PermissionError) as e:
-        detail = (f"{system['id']}: cannot start {exec_path!r} — "
-                  + ("not installed" if isinstance(e, FileNotFoundError) else "not executable"))
+    except OSError as e:
+        # Missing binary, no rights, or one that asks for elevation (WinError 740).
+        reason = ("not installed" if isinstance(e, FileNotFoundError)
+                  else "not executable" if isinstance(e, PermissionError)
+                  else e.strerror or str(e))
+        detail = f"{system['id']}: cannot start {exec_path!r} — {reason}"
         log.warning("launch failed — %s", detail)
-        # X may have moved; force the next launch to re-probe the display.
-        session.invalidate_display_cache()
         await _broadcast("game:failed", game_key, system_id, detail)
         raise LaunchRefused(503, detail)
 
 
-def _start_background_tasks(system: dict, system_id: str) -> None:
-    # One trigger loop, not two: `or`.
-    if system.get("gamepadTrigger") or system.get("usb"):
-        task = asyncio.create_task(_gamepad_trigger())
-        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+def start_window_task(system: dict, system_id: str) -> None:
+    """Bring the new game's window to the front, fullscreen first if the tile
+    asks: its window opens behind the interface otherwise (window_focus.present)."""
+    started = process_manager.foreground_session
+    if started is None:
+        return
     fs_cfg = system.get("fullscreen")
     if fs_cfg:
-        fs_task = asyncio.create_task(fullscreen_enforcer.enforce(system_id, fs_cfg))
-        fs_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        task = asyncio.create_task(fullscreen_enforcer.enforce(system_id, fs_cfg, started.job))
+    else:
+        task = asyncio.create_task(window_focus.present(system_id, started.job))
+    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
 _launching = False
@@ -430,5 +415,6 @@ async def _launch(system: dict, system_id: str, rom_path: str, game_key: str) ->
         # profile's folder for the emulator started outside GameCore.
         await asyncio.to_thread(_release_profile_saves, system_id)
         raise
-    _start_background_tasks(system, system_id)
+    if not resumed_flag:
+        start_window_task(system, system_id)
     return {"ok": True, "game_key": game_key, "resumed": resumed_flag}

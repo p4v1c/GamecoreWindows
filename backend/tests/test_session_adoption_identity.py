@@ -1,13 +1,14 @@
-"""A saved pgid is adopted only if it is still the group we started.
+"""A saved session is adopted only if it is still the game we started.
 
-session.json lives in config/ and survives a power cut. After a reboot the
-kernel hands the same pgid to an unrelated process, and adopting it made the
-box say "a game is already running" and SIGKILL the wrong group on double-PS.
+session.json lives in config/ and survives a power cut. After a reboot
+Windows hands the same PID to an unrelated process, and adopting it would make
+the box say "a game is already running" and kill the wrong tree on double-PS.
+Two locks: the job must open again by its name (a name dies with the job, and
+with the boot), and its first process must carry the boot id and start time on
+record. Real jobs and processes throughout.
 """
 import asyncio
 import json
-import os
-import signal
 import subprocess
 import sys
 
@@ -15,8 +16,9 @@ import pytest
 
 from backend.services import process_identity
 from backend.services import process_manager as pm
-
-pytestmark = pytest.mark.usefixtures("posix_boundary")
+from backend.services.game_session import Session
+from backend.services.platform import jobs
+from backend.tests.fake_jobs import FakeJob
 
 
 @pytest.fixture
@@ -28,21 +30,21 @@ def session_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def sleeper():
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
-                            start_new_session=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    yield proc
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except OSError:
-        pass
-    proc.wait(timeout=5)
+def game():
+    """A real game left by a previous backend: its job, handle closed."""
+    started = jobs.spawn([sys.executable, "-c", "import time; time.sleep(120)"],
+                         env=None, stdout=subprocess.DEVNULL)
+    started.close()
+    yield started
+    survivor = jobs.open_job(started.name, started.leader_pid)
+    if survivor is not None:
+        survivor.terminate()
+        survivor.close()
 
 
-def _entry(pgid: int, **identity) -> dict:
-    return {"pgid": pgid, "game_key": "Melee.iso", "system_id": "dolphin",
-            "exec_path": "/usr/bin/dolphin-emu", "launch_args": [],
+def _entry(game, **identity) -> dict:
+    return {"job": game.name, "pid": game.leader_pid, "game_key": "Melee.iso",
+            "system_id": "dolphin", "exec_path": "Dolphin.exe", "launch_args": [],
             "rom_path": "", "started_at": 1.0, **identity}
 
 
@@ -53,53 +55,69 @@ def _adopt(session_file, entry: dict) -> pm.ProcessManager:
     return fresh
 
 
-def test_the_group_we_started_is_adopted(session_file, sleeper):
+def _still_running(game) -> bool:
+    job = jobs.open_job(game.name, game.leader_pid)
+    try:
+        return job is not None and job.alive()
+    finally:
+        if job is not None:
+            job.close()
+
+
+def test_the_game_we_started_is_adopted(session_file, game):
     fresh = _adopt(session_file, _entry(
-        sleeper.pid, boot_id=process_identity.boot_id(),
-        leader_start=process_identity.start_time(sleeper.pid)))
+        game, boot_id=process_identity.boot_id(),
+        leader_start=process_identity.start_time(game.leader_pid)))
     assert fresh.is_running
 
 
-def test_a_pgid_reused_after_a_reboot_is_not_adopted(session_file, sleeper,
-                                                     monkeypatch):
-    entry = _entry(sleeper.pid, boot_id="boot-before-the-power-cut",
-                   leader_start=process_identity.start_time(sleeper.pid))
+def test_a_pid_from_before_a_reboot_is_not_adopted(session_file, game):
+    entry = _entry(game, boot_id="boot-before-the-power-cut",
+                   leader_start=process_identity.start_time(game.leader_pid))
     fresh = _adopt(session_file, entry)
-    assert not fresh.is_running, "a reboot means the saved group is gone"
+    assert not fresh.is_running, "a reboot means the saved game is gone"
     assert not session_file.exists()
-    assert sleeper.poll() is None, "the unrelated process must be left alone"
+    assert _still_running(game), "the unrelated process must be left alone"
 
 
-def test_a_pgid_reused_by_a_newer_process_is_not_adopted(session_file, sleeper):
-    entry = _entry(sleeper.pid, boot_id=process_identity.boot_id(),
-                   leader_start="1")
+def test_a_pid_reused_by_a_newer_process_is_not_adopted(session_file, game):
+    entry = _entry(game, boot_id=process_identity.boot_id(), leader_start="1")
     fresh = _adopt(session_file, entry)
     assert not fresh.is_running
-    assert sleeper.poll() is None
+    assert _still_running(game)
 
 
-def test_a_session_file_without_identity_is_discarded(session_file, sleeper):
-    """Written by an older build: there is no way to prove the group is ours."""
-    fresh = _adopt(session_file, _entry(sleeper.pid))
+def test_a_session_file_without_identity_is_discarded(session_file, game):
+    """No way to prove the process is ours."""
+    fresh = _adopt(session_file, _entry(game))
     assert not fresh.is_running
     assert not session_file.exists()
-    assert sleeper.poll() is None
+    assert _still_running(game)
 
 
-def test_a_group_we_may_not_signal_is_not_ours(monkeypatch):
-    def denied(pgid, sig):
-        raise PermissionError
-    monkeypatch.setattr(pm.os, "killpg", denied)
-    assert not pm._pgid_alive(4242)
+def test_a_job_name_that_no_longer_opens_is_not_adopted(session_file, game):
+    """The right pid and start time, but not our job: never adopted."""
+    entry = _entry(game, boot_id=process_identity.boot_id(),
+                   leader_start=process_identity.start_time(game.leader_pid))
+    entry["job"] = "Local\\GameCore-0000000000000000000000000000dead"
+    fresh = _adopt(session_file, entry)
+    assert not fresh.is_running
+    assert _still_running(game)
+
+
+def test_only_gamecore_jobs_are_opened():
+    """A name from a tampered session.json cannot reach another program's job."""
+    assert jobs.open_job("Global\\SomeoneElsesJob", 4) is None
 
 
 def test_the_saved_session_carries_the_identity(session_file, monkeypatch):
     monkeypatch.setattr(process_identity, "boot_id", lambda: "boot-a")
     monkeypatch.setattr(process_identity, "start_time", lambda pid: f"t{pid}")
     m = pm.ProcessManager()
-    m._sessions.append(pm.Session(orphan_pgid=4242, game_key="g"))
+    m._sessions.append(Session(job=FakeJob(4242), adopted=True, game_key="g"))
     m._save_state()
     saved = json.loads(session_file.read_text())["sessions"][0]
     assert saved["boot_id"] == "boot-a"
     assert saved["leader_start"] == "t4242"
-
+    assert saved["job"] == "Local\\GameCore-fake4242"
+    assert saved["pid"] == 4242

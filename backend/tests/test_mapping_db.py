@@ -14,6 +14,8 @@ than discovered on a controller.
 """
 from __future__ import annotations
 
+import asyncio
+
 import glob
 import os
 import subprocess
@@ -310,7 +312,6 @@ def test_nothing_is_served_when_there_is_nothing_to_serve(db, monkeypatch):
     assert mapping_db.served() is None
 
 
-@pytest.mark.usefixtures("posix_boundary")
 def test_the_launcher_hands_emulators_the_served_file(db, monkeypatch):
     """The end of the chain, and the step that makes the rest matter: a capture
     that never reaches SDL_GAMECONTROLLERCONFIG_FILE is a file on disk nothing
@@ -320,7 +321,7 @@ def test_the_launcher_hands_emulators_the_served_file(db, monkeypatch):
     mapping_db.upsert(USER_LINE)
     monkeypatch.delenv("SDL_GAMECONTROLLERCONFIG_FILE", raising=False)
 
-    env = session._display_env()
+    env = asyncio.run(session.display_env())
 
     named = env.get("SDL_GAMECONTROLLERCONFIG_FILE")
     assert named == str(mapping_db.SERVED_DB), named

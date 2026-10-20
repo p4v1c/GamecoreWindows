@@ -25,33 +25,25 @@ sys.path.insert(0, str(ROOT))
 from backend.services import gamepad_monitor as gm    # noqa: E402
 from backend.services.gamepad_devices import EV_ABS  # noqa: E402
 from backend.services import process_manager as pm    # noqa: E402
-
-pytestmark = pytest.mark.usefixtures("posix_boundary")
-
+from backend.services.game_session import Session    # noqa: E402
+from backend.tests.fake_jobs import FakeJob           # noqa: E402
 
 @pytest.fixture
 def manager(monkeypatch):
-    """The real manager, with its signals recorded and its disk untouched."""
+    """The real manager, with fake jobs and its disk untouched."""
     m = pm.process_manager
     monkeypatch.setattr(m, "_sessions", [])
     monkeypatch.setattr(m, "_save_state", lambda: None)
     monkeypatch.setattr(m, "_raise_interface", AsyncMock())
     monkeypatch.setattr(m, "_give_back_the_screen", AsyncMock())
-    monkeypatch.setattr(pm.os, "killpg", lambda pgid, sig: None)
-    monkeypatch.setattr(pm.os, "getpgid", lambda pid: pid)
     return m
-
-
-class _Proc:
-    def __init__(self, pid=4242):
-        self.pid, self.returncode = pid, None
 
 
 def _resident(manager, *, game_key, system_id, state="foreground", pid=4242):
     manager._seq += 1
-    s = pm.Session(proc=_Proc(pid), game_key=game_key, system_id=system_id,
-                   rom_path="", start_time=0.0, session_id=manager._seq,
-                   state=state)
+    s = Session(job=FakeJob(pid), game_key=game_key, system_id=system_id,
+                rom_path="", start_time=0.0, session_id=manager._seq,
+                state=state)
     manager._sessions.append(s)
     return s
 
@@ -197,7 +189,7 @@ def test_nothing_is_killed_when_the_suspend_fails(manager, guide, monkeypatch):
     held = _resident(manager, game_key="precious.iso", system_id="rpcs3",
                      state="background", pid=11)
     _resident(manager, game_key="playing.iso", system_id="pcsx2", pid=22)
-    monkeypatch.setattr(manager, "_signal", lambda session, sig: False)
+    monkeypatch.setattr(manager, "_suspend", lambda session: False)
     killed = AsyncMock()
     monkeypatch.setattr(manager, "kill", killed)
 

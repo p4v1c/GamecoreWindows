@@ -44,7 +44,7 @@ def staged(monkeypatch):
     monkeypatch.setattr(launch_service, "_prepare", prepare)
     monkeypatch.setattr(launch_service, "_pack_launch_command", pack_command)
     monkeypatch.setattr(launch_service, "_spawn", spawn)
-    monkeypatch.setattr(launch_service, "_start_background_tasks", lambda *a: None)
+    monkeypatch.setattr(launch_service, "start_window_task", lambda *a: None)
     monkeypatch.setattr(launch_service, "_release_profile_saves",
                         lambda system_id: calls.__setitem__("release",
                                                             calls["release"] + 1))
