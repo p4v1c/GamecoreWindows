@@ -33,7 +33,7 @@ const ITEMS = [
   { id: 'bios',      label: 'BIOS',             sub: 'System files each console needs' },
   { id: 'update',    label: 'Update',           sub: 'Check for a new version' },
   { id: 'logs',      label: 'Logs',             sub: 'Size, and purge' },
-  { id: 'desktop',   label: 'Desktop Mode',     sub: 'Leave for the system session', danger: true },
+  { id: 'desktop',   label: 'Desktop Mode',     sub: 'Leave for the Windows desktop', danger: true },
 ]
 
 export default function SettingsModal({ onClose }: Props) {

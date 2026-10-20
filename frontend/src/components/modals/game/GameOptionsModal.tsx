@@ -14,7 +14,8 @@ import { onGp } from '../../../hooks/useGamepad'
  */
 
 const ACCENT = 'var(--gc-accent, #b8501b)'
-const DIM = 'var(--gc-overlay-muted, rgba(255,255,255,0.35))'
+// The faintest readable ink (tokens.css), not an alpha below it.
+const DIM = 'var(--gc-overlay-muted, var(--gc-ink-3))'
 const WARN = 'var(--gc-overlay-warn, #fbbf24)'
 
 type Row = {
