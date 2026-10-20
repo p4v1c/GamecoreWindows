@@ -22,7 +22,7 @@
       "target": "AppImage",
       "category": "Game"
     },
-    "files": ["main.js", "hud.js", "power.js", "preload.js", "hud-tokens.json", "boot/**"]
+    "files": ["main.js", "desktop.js", "hud.js", "power.js", "preload.js", "hud-tokens.json", "boot/**"]
   },
   "allowScripts": {
     "electron": true

@@ -1,9 +1,10 @@
 'use strict'
 const { app, BrowserWindow, ipcMain, powerMonitor, screen } = require('electron')
-const { exec, spawn } = require('child_process')
+const { exec, execFile, spawn } = require('child_process')
 const path = require('path')
 const fs   = require('fs')
 const os   = require('os')
+const { leaveToDesktop } = require('./desktop.js')
 
 // Settings → Display → Scale is the interface's only zoom. Windows' own
 // display scaling (150 % on most 4K TVs) would multiply it a second time.
@@ -382,84 +383,11 @@ require('./hud.js').createHud({ BrowserWindow, screen }).register(ipcMain)
 require('./power.js').register({ app, ipcMain, exec, powerMonitor,
   getWindow: () => mainWindow, sessionOwnsScreen: () => sessionOwnsScreen })
 
-/**
- * Exit to desktop. In the console session, leaving is a session change: point
- * SDDM's autologin at the desktop FIRST (`gamecore-session-select`, allowed by
- * sudoers), then end the session — otherwise SDDM logs straight back into
- * GameCore. On an un-migrated box quitting alone is right, so a failure here
- * does not block the exit. `quitting` lets window-all-closed tell this apart
- * from an accidental close.
- */
-/**
- * True when running as the console session. Checks DESKTOP_SESSION,
- * XDG_SESSION_DESKTOP and XDG_CURRENT_DESKTOP case-insensitively: the session
- * sets them from different places ("gamecore" vs "GameCore"), and a
- * case-sensitive check made "Desktop mode" quit without handing autologin back.
- */
-function inConsoleSession() {
-  return ['DESKTOP_SESSION', 'XDG_SESSION_DESKTOP', 'XDG_CURRENT_DESKTOP']
-    .some(name => (process.env[name] || '').split(':')
-      .some(word => word.trim().toLowerCase() === 'gamecore'))
-}
-
-/**
- * Ask the session to hand the box back to the desktop, and get out of the way.
- *
- * This used to run `sudo gamecore-session-select desktop` here and quit in the
- * callback. On the reference box that call reached sudo every single time —
- * the journal has all five invocations, each exiting 0 in about 30 ms — and
- * the auto-login file was never touched. The same command, run by hand, from a
- * systemd user unit, and from this service's own working directory, wrote it
- * every time. The only thing the failing runs had in common is that they ran
- * inside `gamecore-ui.service`, whose cgroup systemd tears down as soon as
- * this process exits, which is the very next thing that happens.
- *
- * So the privileged part moved to where nothing is racing it: the session
- * script's teardown, which runs in the session's own process after the units
- * are stopped. All that is left here is to say what the player asked for.
- * `install/bin/gamecore-session` reads this file and removes it; a marker left
- * behind by a session that never tore down is cleared at the next login.
- */
-function askSessionForDesktop() {
-  const runtime = process.env.XDG_RUNTIME_DIR
-  if (!runtime) return false
-  try {
-    const dir = path.join(runtime, 'gamecore')
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    fs.writeFileSync(path.join(dir, 'leave-to-desktop'), `${new Date().toISOString()}\n`)
-    return true
-  } catch (err) {
-    console.warn('[session] could not ask the session to leave:', err.message)
-    return false
-  }
-}
-
-/**
- * The way out for a box whose session script predates the marker above.
- *
- * Kept only for that case: an installation updates its shell and its session
- * script together, but a box can be running an old session from a login that
- * happened before the update. Best effort, and its failure is not fatal — the
- * next login is GameCore again, which is recoverable from a terminal.
- */
-function handBackToDesktop(done) {
-  const SELECT = '/usr/local/bin/gamecore-session-select'
-  let left = false
-  const leave = () => { if (!left) { left = true; done() } }
-  setTimeout(leave, 10_000).unref?.()
-  exec(`sudo -n ${SELECT} desktop --once --restart-dm`, (err, stdout, stderr) => {
-    if (err) console.warn('[session] the fallback switch failed:', err.message, stderr || '')
-    else console.log('[session] fallback switch:', String(stdout).trim())
-    leave()
-  })
-}
-
+// Settings → Desktop mode. `quitting` lets window-all-closed tell this apart
+// from an accidental close.
 ipcMain.on('system:quit', () => {
   quitting = true
-  if (!inConsoleSession()) { app.quit(); return }
-  // The session does the switch on its way out. Quitting is what starts it.
-  if (askSessionForDesktop()) { app.quit(); return }
-  handBackToDesktop(() => app.quit())
+  leaveToDesktop({ execFile, spawn, quit: () => app.quit() })
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

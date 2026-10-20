@@ -27,7 +27,8 @@ const MAIN = path.join(__dirname, '..', 'main.js')
  * @param answers  the sequence /api/ready gives back, `true` = 200 {ready}
  * @param env      the process environment main.js sees
  */
-function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
+function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {}) {
+  const execFiles = []      // every program the shell ran with execFile
   const windows = []
   const spawned = []
   const switches = []       // every Chromium flag the shell asked for
@@ -67,7 +68,7 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     }
   }
 
-  const child = { stdout: { on: () => {} }, stdin: { write: () => {} }, on: () => {} }
+  const child = { stdout: { on: () => {} }, stdin: { write: () => {} }, on: () => {}, unref: () => {} }
   const electron = {
     app: {
       commandLine: { appendSwitch: (...a) => { switches.push(a.join('=')) } },
@@ -83,6 +84,10 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     electron,
     'child_process': {
       spawn: (bin, args, options) => { spawned.push({ bin, args, options }); return child },
+      execFile: (bin, args, options, cb) => {
+        execFiles.push([bin, ...args].join(' '))
+        setTimeout(() => (tasklist instanceof Error ? cb(tasklist, '') : cb(null, tasklist)), 0)
+      },
       exec: (cmd, cb) => {
         execs.push(cmd)
         const bad = execRefuses.some(frag => cmd.includes(frag))
@@ -122,6 +127,8 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     quit: () => ipc.get('system:quit')?.(),
     // Only a second uvicorn is the defect this file is about.
     backends: () => spawned.filter(s => s.args.join(' ').includes('uvicorn')),
+    /** Everything spawned that is not a backend. */
+    spawned: () => spawned.filter(s => !s.args.join(' ').includes('uvicorn')),
     start: () => { readyResolve(); return appReady },
     // The wait for a backend deliberately has no deadline — it slows down and
     // reports, it never gives up. Ending the generation is how a test stops it
@@ -343,73 +350,28 @@ test('the boot screen paints no ground of its own', () => {
     'the boot screen draws a wordmark — the theme owns the intro')
 })
 
-// ── Leaving the console session ──────────────────────────────────
-//
-// On the reference box "Mode bureau" blacked the screen and came straight back
-// to GameCore. The shell asked one variable, spelled one way:
-//
-//     if (process.env.XDG_SESSION_DESKTOP !== 'gamecore') { app.quit() }
-//
-// and SDDM sets that one from `DesktopNames=`, which is `GameCore`. So every
-// press took the early exit, the auto-login was never handed back, and Relogin
-// brought the console up again. The three variables below are what the real
-// session actually carries — checked with `tr '\0' '\n' < /proc/<pid>/environ`
-// on the box, not assumed.
+// ── Leaving for the Windows desktop ───────────────────────────────────
 
-const CONSOLE_ENV = { DESKTOP_SESSION: 'gamecore', XDG_SESSION_DESKTOP: 'GameCore',
-                      XDG_CURRENT_DESKTOP: 'GameCore', GAMECORE_MANAGED: '1' }
-
-const runtimeDir = () => fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'gc-rt-'))
-const marker = (dir) => path.join(dir, 'gamecore', 'leave-to-desktop')
-
-test('leaving the console session asks the session, and quits', async () => {
-  // The switch is the session teardown's job now — see main.js. What this
-  // process owes it is the marker and then its own exit, in that order.
-  const rt = runtimeDir()
-  const r = rig({ env: { ...CONSOLE_ENV, XDG_RUNTIME_DIR: rt } })
+test('leaving starts Explorer when the console session has none, then quits', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: 'INFO: No tasks are running which match the specified criteria.' })
   r.quit()
   await settle(20)
-  assert.ok(fs.existsSync(marker(rt)), 'the session was never told to leave')
-  assert.deepEqual(r.execs, [], 'it ran the switch in the cgroup that is about to be torn down')
+  assert.deepEqual(r.spawned().map(s => s.bin), ['explorer.exe'])
   assert.equal(r.quits.length, 1, 'the app stayed up after asking to leave')
 })
 
-test('the capital letters in XDG_SESSION_DESKTOP are not a different session', async () => {
-  // SDDM fills XDG_SESSION_DESKTOP from DesktopNames=, which is `GameCore`,
-  // while the session script exports the file's name, `gamecore`. A shell that
-  // compares against one spelling answers wrongly in the other session.
-  const rt = runtimeDir()
-  const r = rig({ env: { XDG_SESSION_DESKTOP: 'GameCore', XDG_RUNTIME_DIR: rt, GAMECORE_MANAGED: '1' } })
+test('leaving with Explorer already running starts no second one', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: '"explorer.exe","4242","Console","1","120 000 K"' })
   r.quit()
   await settle(20)
-  assert.ok(fs.existsSync(marker(rt)), 'it quit without asking for the desktop')
-})
-
-test("a window on somebody else's desktop just closes", async () => {
-  const rt = runtimeDir()
-  const r = rig({ env: { DESKTOP_SESSION: 'plasma', XDG_SESSION_DESKTOP: 'KDE',
-                         XDG_CURRENT_DESKTOP: 'KDE', XDG_RUNTIME_DIR: rt, GAMECORE_MANAGED: '1' } })
-  r.quit()
-  await settle(20)
-  assert.ok(!fs.existsSync(marker(rt)), 'it asked a desktop session to hand itself over')
-  assert.deepEqual(r.execs, [])
+  assert.deepEqual(r.spawned(), [])
   assert.equal(r.quits.length, 1)
 })
 
-test('a session that cannot be told is switched the old way instead', async () => {
-  // No runtime directory means no marker, which would leave the box in the
-  // console session with no way out from the sofa. The direct call is worth
-  // trying even though it is the one that failed on the reference box: it
-  // works everywhere else, and there is nothing better left to do.
-  const r = rig({ env: { ...CONSOLE_ENV, XDG_RUNTIME_DIR: '' } })
+test('a tasklist that fails does not keep the player in GameCore', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: new Error('tasklist missing') })
   r.quit()
-  await settle(30)
-  assert.equal(r.execs.length, 1, r.execs.join(' | '))
-  // `--once`, like the marker path: this fallback is still the player asking
-  // for the desktop, not asking to stop booting the console. Leaving it out
-  // here would make the one box that needs the fallback the one box the trip
-  // is permanent on.
-  assert.match(r.execs[0], /gamecore-session-select desktop --once --restart-dm$/)
+  await settle(20)
   assert.equal(r.quits.length, 1)
 })
 

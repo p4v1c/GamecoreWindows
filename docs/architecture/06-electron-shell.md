@@ -1,6 +1,6 @@
 # 6 — Electron shell
 
-`electron/`: `main.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
+`electron/`: `main.js`, `desktop.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
 `start-ui.sh`. It owns two windows: the kiosk window and the HUD toast.
 
 
@@ -85,7 +85,7 @@ Every call is a one-way `ipcRenderer.send` except the `onResume` listener.
 |---|---|
 | `system:reboot` | `exec('shutdown /r /t 0')` (`electron/power.js`) |
 | `system:shutdown` | `exec('shutdown /s /t 0')` (`electron/power.js`) |
-| `system:quit` | `app.quit()` |
+| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): starts `explorer.exe` when `tasklist` shows none in this session, then `app.quit()`; the check is bounded by `LEAVE_DEADLINE_MS` (5 s) |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
 
