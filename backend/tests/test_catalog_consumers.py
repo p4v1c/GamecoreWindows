@@ -210,17 +210,6 @@ def test_media_aliases_match_the_catalogue(packs):
     assert mismatched == [], "\n".join(mismatched)
 
 
-def test_overlay_wm_classes_match_the_catalogue(packs):
-    import json
-    overlays = json.loads((ROOT / "config/overlays.json").read_text(encoding="utf-8"))
-    for pack in packs.values():
-        ov = pack.data.get("overlay")
-        if not ov:
-            continue
-        assert pack.id in overlays, f"{pack.id} declares an overlay, overlays.json has none"
-        assert overlays[pack.id]["wm_class"] == ov["wmClass"], pack.id
-
-
 def test_frontend_colours_match_the_catalogue(packs):
     """systemColors.ts diverged on pcsx2 and rpcs3, and ignored five ids.
     Latent only because it is a fallback — it bites the moment a pack omits

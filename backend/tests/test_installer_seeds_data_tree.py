@@ -13,8 +13,7 @@ was not where the backend looks. The reference box only had its overlays
 because its migration had copied them across.
 
 The functions are extracted out of arch.sh and run in bash against temporary
-roots, then the backend's own resolver is pointed at the seeded tree: the proof
-that matters is `for_launch()` answering a bezel, not a file being present.
+roots. Linux installer tests, removed with `arch.sh` at port step 7.
 """
 from __future__ import annotations
 
@@ -33,7 +32,6 @@ ARCH = REPO / "install" / "arch.sh"
 GUI = REPO / "install" / "installer-gui" / "gamecore_installer.py"
 sys.path.insert(0, str(REPO))
 
-from backend.services import bezels, consoles, paths  # noqa: E402
 
 
 def _bash_function(name: str) -> str:
@@ -97,30 +95,6 @@ def test_a_fresh_split_install_gets_its_bezels_and_geometry(tmp_path):
     assert (data / "config/overlays.json").is_file()
     assert (data / "config/themes/shelf/theme.json").is_file()
     assert (data / "config/catalog.d/README.md").is_file()
-
-
-@pytest.mark.linux_until_port(7)
-def test_the_seeded_tree_resolves_a_bezel(tmp_path, monkeypatch):
-    """The proof that matters. Not "the file is there" — the launch answers."""
-    src = _checkout(tmp_path)
-    data = tmp_path / "userdata"
-    (data / "assets/overlays").mkdir(parents=True)
-    (data / "config").mkdir(parents=True)
-    _seed(src, data)
-
-    monkeypatch.setattr(paths, "GAMECORE_ROOT", tmp_path / "install")
-    monkeypatch.setattr(paths, "GAMECORE_DATA", data)
-    bezels.forget()
-    consoles.forget()
-    try:
-        assert bezels.for_launch("gopher64", "Mario Kart 64.z64")["source"] == "system"
-        assert bezels.for_launch("gba", "Emerald.gba")["source"] == "system"
-        # And the geometry Electron reads before starting the overlay monitor
-        # at all — `if (!cfg) return` — is in the tree the backend serves.
-        assert "gopher64" in json.loads((data / "config/overlays.json").read_text())
-    finally:
-        bezels.forget()
-        consoles.forget()
 
 
 @pytest.mark.linux_until_port(7)

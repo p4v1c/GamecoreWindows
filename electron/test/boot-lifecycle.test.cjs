@@ -27,7 +27,8 @@ const MAIN = path.join(__dirname, '..', 'main.js')
  * @param answers  the sequence /api/ready gives back, `true` = 200 {ready}
  * @param env      the process environment main.js sees
  */
-function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
+function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {}) {
+  const execFiles = []      // every program the shell ran with execFile
   const windows = []
   const spawned = []
   const switches = []       // every Chromium flag the shell asked for
@@ -35,6 +36,7 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
   const asked = []
   const execs = []          // every shell command the shell asked for, in order
   const quits = []
+  const appHandlers = new Map()
   let readyResolve
   const appReady = new Promise((r) => { readyResolve = r })
 
@@ -57,7 +59,8 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     loadFile(p) { this.loaded.push({ kind: 'file', at: p }) }
     loadURL(u) { this.loaded.push({ kind: 'url', at: u }) }
     once(event, fn) { this.handlers.set(event, fn) }
-    on() {} close() {} hide() {} isVisible() { return true }
+    on(event, fn) { (this.listeners ||= new Map()).set(event, fn) }
+    close() {} hide() {} isVisible() { return true }
     show() { this.shown = true }
     /** What Electron does once the first document can be painted. */
     readyToShow() { this.handlers.get('ready-to-show')?.() }
@@ -67,12 +70,12 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     }
   }
 
-  const child = { stdout: { on: () => {} }, stdin: { write: () => {} }, on: () => {} }
+  const child = { stdout: { on: () => {} }, stdin: { write: () => {} }, on: () => {}, unref: () => {} }
   const electron = {
     app: {
       commandLine: { appendSwitch: (...a) => { switches.push(a.join('=')) } },
       whenReady: () => appReady,
-      on: () => {}, quit: () => { quits.push(Date.now()) },
+      on: (event, fn) => appHandlers.set(event, fn), quit: () => { quits.push(Date.now()) },
     },
     BrowserWindow: Window,
     ipcMain: { on: (key, fn) => ipc.set(key, fn) },
@@ -82,7 +85,11 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
   const stubs = {
     electron,
     'child_process': {
-      spawn: (bin, args) => { spawned.push({ bin, args }); return child },
+      spawn: (bin, args, options) => { spawned.push({ bin, args, options }); return child },
+      execFile: (bin, args, options, cb) => {
+        execFiles.push([bin, ...args].join(' '))
+        setTimeout(() => (tasklist instanceof Error ? cb(tasklist, '') : cb(null, tasklist)), 0)
+      },
       exec: (cmd, cb) => {
         execs.push(cmd)
         const bad = execRefuses.some(frag => cmd.includes(frag))
@@ -100,8 +107,8 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
   const queue = answers.slice()
   const signals = new Map()
   const context = vm.createContext({
-    require: (id) => id === './hud-tokens.json' ? require('../hud-tokens.json')
-      : id === './power.js' ? require('../power.js') : stubs[id],
+    // The shell's own modules load for real; Electron and Node are doubles.
+    require: (id) => id.startsWith('./') ? require(path.join('..', id)) : stubs[id],
     __dirname: path.dirname(MAIN),
     process: { env, on: (sig, fn) => signals.set(sig, fn) },
     console: { log: () => {}, warn: () => {}, error: () => {} },
@@ -118,11 +125,14 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     /** What systemd sends on `systemctl stop`. */
     signal: (sig = 'SIGTERM') => signals.get(sig)?.(),
     hasSignal: (sig) => signals.has(sig),
+    /** What Electron does when the last window has closed. */
+    allClosed: () => appHandlers.get('window-all-closed')?.(),
     /** What the renderer sends when the player picks Settings → Mode bureau. */
     quit: () => ipc.get('system:quit')?.(),
-    // The overlay monitor is a legitimate child; only a second uvicorn is the
-    // defect this file is about.
+    // Only a second uvicorn is the defect this file is about.
     backends: () => spawned.filter(s => s.args.join(' ').includes('uvicorn')),
+    /** Everything spawned that is not a backend. */
+    spawned: () => spawned.filter(s => !s.args.join(' ').includes('uvicorn')),
     start: () => { readyResolve(); return appReady },
     // The wait for a backend deliberately has no deadline — it slows down and
     // reports, it never gives up. Ending the generation is how a test stops it
@@ -138,7 +148,7 @@ test('the screen is covered before anything is waited for', async () => {
   // The order is the whole visible change. The window used to be created after
   // the backend answered, so what covered the television during that wait was
   // the desktop: wallpaper, panel, and whatever was left open.
-  const r = rig({ answers: [false], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [false], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(120)
   r.stop()
@@ -152,7 +162,7 @@ test('the screen is covered before anything is waited for', async () => {
 test('the interface replaces the boot screen in the same window', async () => {
   // A second window would be a second thing for the compositor to stack and
   // to focus, and neither is this code's decision to make.
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(200)
   r.stop()
@@ -162,7 +172,7 @@ test('the interface replaces the boot screen in the same window', async () => {
 })
 
 test('a backend that never answers leaves the boot screen up', async () => {
-  const r = rig({ answers: [false], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [false], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(900)
   r.stop()
@@ -171,7 +181,7 @@ test('a backend that never answers leaves the boot screen up', async () => {
 })
 
 test('the window is shown when it has something to show', async () => {
-  const r = rig({ answers: [false], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [false], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(120)
   r.stop()
@@ -181,9 +191,8 @@ test('the window is shown when it has something to show', async () => {
 })
 
 test('a managed box never starts a second backend', async () => {
-  // INVOCATION_ID is what systemd sets in every service it runs; start-ui.sh is
-  // the unit's ExecStart, so Electron inherits it.
-  const r = rig({ answers: [false, false, true], env: { INVOCATION_ID: 'abc123' } })
+  // The logon task that starts the interface says the backend is its own.
+  const r = rig({ answers: [false, false, true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(900)
   r.stop()
@@ -198,8 +207,27 @@ test('an unmanaged box still starts one when nothing answers', async () => {
   assert.equal(r.backends().length, 1)
 })
 
+test('a systemd variable no longer means anything', async () => {
+  const r = rig({ answers: [false, false, true], env: { INVOCATION_ID: 'abc123' } })
+  r.start()
+  await settle(900)
+  r.stop()
+  assert.equal(r.backends().length, 1)
+})
+
+test('the backend a checkout starts is the venv python, in UTF-8 mode', async () => {
+  const r = rig({ answers: [false, false, true], env: {} })
+  r.start()
+  await settle(900)
+  r.stop()
+  const [backend] = r.backends()
+  assert.ok(backend.bin === 'python' || /Scripts[\\/]python\.exe$/.test(backend.bin),
+    `started with ${backend.bin}`)
+  assert.equal(backend.options.env.PYTHONUTF8, '1')
+})
+
 test('readiness is asked of /api/ready, not of the diagnostic endpoint', async () => {
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(200)
   r.stop()
@@ -209,7 +237,7 @@ test('readiness is asked of /api/ready, not of the diagnostic endpoint', async (
 })
 
 test('the interface saying it is ready is what ends the boot', async () => {
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(200)
   r.stop()
@@ -232,7 +260,7 @@ test('a renderer that dies puts the boot screen back', async () => {
   // What is left otherwise is a window showing the last frame it painted: a
   // console that looks frozen rather than broken, with no way back but the
   // power switch.
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(200)
   const window = r.windows[0]
@@ -262,7 +290,7 @@ function themeTree(active, manifest) {
 
 /** main.js evaluated with a real data root, stopping at the window options. */
 function backgroundFor(dataRoot) {
-  const r = rig({ answers: [false], env: { GAMECORE_DATA: dataRoot, INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [false], env: { GAMECORE_DATA: dataRoot, GAMECORE_MANAGED: '1' } })
   r.context.createWindow()
   return r.windows[0].options.backgroundColor
 }
@@ -308,7 +336,7 @@ test('an active id that names a path is not followed', () => {
 
 test('the interface is handed the same colour, before its first frame', () => {
   const root = themeTree('shelf', { id: 'shelf', boot: { background: '#F4F2ED' } })
-  const r = rig({ answers: [false], env: { GAMECORE_DATA: root, INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [false], env: { GAMECORE_DATA: root, GAMECORE_MANAGED: '1' } })
   r.context.createWindow()
   const args = r.windows[0].options.webPreferences.additionalArguments
   assert.ok(args.includes('--gamecore-boot-bg=#F4F2ED'),
@@ -326,73 +354,28 @@ test('the boot screen paints no ground of its own', () => {
     'the boot screen draws a wordmark — the theme owns the intro')
 })
 
-// ── Leaving the console session ──────────────────────────────────
-//
-// On the reference box "Mode bureau" blacked the screen and came straight back
-// to GameCore. The shell asked one variable, spelled one way:
-//
-//     if (process.env.XDG_SESSION_DESKTOP !== 'gamecore') { app.quit() }
-//
-// and SDDM sets that one from `DesktopNames=`, which is `GameCore`. So every
-// press took the early exit, the auto-login was never handed back, and Relogin
-// brought the console up again. The three variables below are what the real
-// session actually carries — checked with `tr '\0' '\n' < /proc/<pid>/environ`
-// on the box, not assumed.
+// ── Leaving for the Windows desktop ───────────────────────────────────
 
-const CONSOLE_ENV = { DESKTOP_SESSION: 'gamecore', XDG_SESSION_DESKTOP: 'GameCore',
-                      XDG_CURRENT_DESKTOP: 'GameCore', INVOCATION_ID: 'x' }
-
-const runtimeDir = () => fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'gc-rt-'))
-const marker = (dir) => path.join(dir, 'gamecore', 'leave-to-desktop')
-
-test('leaving the console session asks the session, and quits', async () => {
-  // The switch is the session teardown's job now — see main.js. What this
-  // process owes it is the marker and then its own exit, in that order.
-  const rt = runtimeDir()
-  const r = rig({ env: { ...CONSOLE_ENV, XDG_RUNTIME_DIR: rt } })
+test('leaving starts Explorer when the console session has none, then quits', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: 'INFO: No tasks are running which match the specified criteria.' })
   r.quit()
   await settle(20)
-  assert.ok(fs.existsSync(marker(rt)), 'the session was never told to leave')
-  assert.deepEqual(r.execs, [], 'it ran the switch in the cgroup that is about to be torn down')
+  assert.deepEqual(r.spawned().map(s => s.bin), ['explorer.exe'])
   assert.equal(r.quits.length, 1, 'the app stayed up after asking to leave')
 })
 
-test('the capital letters in XDG_SESSION_DESKTOP are not a different session', async () => {
-  // SDDM fills XDG_SESSION_DESKTOP from DesktopNames=, which is `GameCore`,
-  // while the session script exports the file's name, `gamecore`. A shell that
-  // compares against one spelling answers wrongly in the other session.
-  const rt = runtimeDir()
-  const r = rig({ env: { XDG_SESSION_DESKTOP: 'GameCore', XDG_RUNTIME_DIR: rt, INVOCATION_ID: 'x' } })
+test('leaving with Explorer already running starts no second one', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: '"explorer.exe","4242","Console","1","120 000 K"' })
   r.quit()
   await settle(20)
-  assert.ok(fs.existsSync(marker(rt)), 'it quit without asking for the desktop')
-})
-
-test("a window on somebody else's desktop just closes", async () => {
-  const rt = runtimeDir()
-  const r = rig({ env: { DESKTOP_SESSION: 'plasma', XDG_SESSION_DESKTOP: 'KDE',
-                         XDG_CURRENT_DESKTOP: 'KDE', XDG_RUNTIME_DIR: rt, INVOCATION_ID: 'x' } })
-  r.quit()
-  await settle(20)
-  assert.ok(!fs.existsSync(marker(rt)), 'it asked a desktop session to hand itself over')
-  assert.deepEqual(r.execs, [])
+  assert.deepEqual(r.spawned(), [])
   assert.equal(r.quits.length, 1)
 })
 
-test('a session that cannot be told is switched the old way instead', async () => {
-  // No runtime directory means no marker, which would leave the box in the
-  // console session with no way out from the sofa. The direct call is worth
-  // trying even though it is the one that failed on the reference box: it
-  // works everywhere else, and there is nothing better left to do.
-  const r = rig({ env: { ...CONSOLE_ENV, XDG_RUNTIME_DIR: '' } })
+test('a tasklist that fails does not keep the player in GameCore', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: new Error('tasklist missing') })
   r.quit()
-  await settle(30)
-  assert.equal(r.execs.length, 1, r.execs.join(' | '))
-  // `--once`, like the marker path: this fallback is still the player asking
-  // for the desktop, not asking to stop booting the console. Leaving it out
-  // here would make the one box that needs the fallback the one box the trip
-  // is permanent on.
-  assert.match(r.execs[0], /gamecore-session-select desktop --once --restart-dm$/)
+  await settle(20)
   assert.equal(r.quits.length, 1)
 })
 
@@ -402,7 +385,7 @@ test('systemctl stop actually stops the shell', async () => {
   // seconds and SIGKILLed it, with the backend already gone underneath. That
   // is the minute and forty-five of dead interface the box showed after each
   // update.
-  const r = rig({ env: { INVOCATION_ID: 'x' } })
+  const r = rig({ env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(60)
   r.stop()
@@ -416,7 +399,7 @@ test('systemctl stop actually stops the shell', async () => {
 })
 
 test('the interrupt signals are all handled, not just the one we tested', () => {
-  const r = rig({ env: { INVOCATION_ID: 'x' } })
+  const r = rig({ env: { GAMECORE_MANAGED: '1' } })
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
     assert.ok(r.hasSignal(sig), `${sig} would kill the shell without a clean exit`)
   }
@@ -438,7 +421,7 @@ test('nothing the shell loads is addressed by a name that has to be resolved', a
    * where nothing listens, and — the expensive part — Chromium's proxy
    * resolution, which cannot finish on a box that has no route yet.
    */
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(120)
   r.stop()
@@ -458,10 +441,31 @@ test('and it does not look for a proxy to reach its own loopback', async () => {
   // could not complete until the box had a default route. This window talks to
   // one thing — the backend on this machine — so there is nothing a proxy could
   // ever be for.
-  const r = rig({ answers: [true], env: { INVOCATION_ID: 'x' } })
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
   r.start()
   await settle(60)
   r.stop()
   assert.ok(r.switches.includes('no-proxy-server'),
     `the shell did not switch the proxy lookup off; flags were ${JSON.stringify(r.switches)}`)
+})
+
+test('Windows display scaling does not zoom the interface a second time', async () => {
+  // Settings → Display → Scale is a page zoom. A 4K television runs Windows at
+  // 150 % or more, and the interface would otherwise be scaled by both.
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
+  assert.ok(r.switches.includes('force-device-scale-factor=1'),
+    `the device scale is left to Windows; flags were ${JSON.stringify(r.switches)}`)
+  assert.ok(!r.switches.includes('enable-transparent-visuals'),
+    'an X11-only switch is still set')
+})
+
+test('a Windows sign-out is a teardown, not a window to rebuild', async () => {
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
+  r.start()
+  await settle(60)
+  r.stop()
+  const before = r.windows.length
+  r.windows[0].listeners.get('session-end')()
+  r.allClosed()
+  assert.equal(r.windows.length, before, 'it built a new window while Windows was signing out')
 })

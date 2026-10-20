@@ -76,3 +76,26 @@ test('shipped text and severity colors meet AA on their panels', () => {
     }
   }
 })
+
+test('the toast never takes the focus from the game', () => {
+  const r = rig()
+  r.context.showHudToast({ title: 'Connected', accent: '#4ade80' })
+  const w = r.windows[0]
+  assert.equal(w.options.show, false, 'a window shown at creation is activated')
+  assert.equal(w.options.focusable, false)
+  assert.equal(w.options.skipTaskbar, true)
+  assert.equal(w.clickThrough, true)
+  assert.deepEqual(w.topmost, { flag: true, level: 'screen-saver' })
+  w.readyToShow()
+  assert.deepEqual(w.calls, ['showInactive', 'moveTop'])
+})
+
+test('a toast replaced before it painted is not shown', () => {
+  const r = rig()
+  r.context.showHudToast({ title: 'First' })
+  r.context.showHudToast({ title: 'Second' })
+  r.windows[0].readyToShow()
+  assert.deepEqual(r.windows[0].calls, [])
+  r.windows[1].readyToShow()
+  assert.deepEqual(r.windows[1].calls, ['showInactive', 'moveTop'])
+})

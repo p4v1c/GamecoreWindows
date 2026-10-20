@@ -1,14 +1,3 @@
-interface OverlayData {
-  system_id: string
-  rect?: { x: number; y: number; w: number; h: number }
-  /** The bezel this launch resolved to, already URL-encoded, or null when
-   *  none was found. Absent means an older main process: the overlay falls
-   *  back to the per-system path it used to build itself. */
-  asset?: string | null
-  /** Which level of the cascade answered — 'game' | 'system' | 'declared'. */
-  source?: string
-}
-
 /** What the host had to settle before the shell may show the interface.
  *  Reported for the journal, never used to decide anything on this side. */
 interface BootReadyReport {
@@ -35,9 +24,6 @@ interface GamecoreAPI {
   shutdown: () => void
   quit:     () => void
 
-  overlayStart: (system_id: string, game_key?: string) => void
-  overlayStop:  (system_id: string) => void
-
   /**
    * Whether a session owns the screen, so the shell can get out of its way.
    *
@@ -57,9 +43,6 @@ interface GamecoreAPI {
    */
   controllerToast: (data: { theme?: Record<string, string>; player?: number | null; who?: string; label?: string; connected: boolean; unconfigured?: string[]; autoconfigOff?: string[] }) => void
 
-  onOverlayShow:    (cb: (data: OverlayData) => void) => void
-  onOverlayHide:    (cb: (data: OverlayData) => void) => void
-  onOverlayWaiting: (cb: (data: OverlayData) => void) => void
   /** Electron's powerMonitor `resume`, relayed by electron/power.js. Older shells lack it. */
   onResume?: (cb: () => void) => void
 }

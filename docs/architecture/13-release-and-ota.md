@@ -122,7 +122,8 @@ happens in its own unit, about two seconds after the script exits.
   update.**
 - `config/` — excluded *wholesale*, which is what preserves `config/catalog.d/`
   (the operator's own packs) and all the box state across every update.
-- `assets/overlays/`, `assets/logos/` — uploaded by the player/operator.
+- `assets/logos/` — uploaded by the operator (the Linux script also excludes
+  the Linux bezel folder, assets/overlays, gone from the Windows edition).
 - `.venv/` — rebuilt separately.
 
 **`catalog/` is deliberately NOT excluded**, and that is the whole point of the

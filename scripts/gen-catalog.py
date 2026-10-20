@@ -39,7 +39,6 @@ SYSTEMS_DIST   = ROOT / "install" / "generated" / "systems.json.dist"
 APPS_DIST      = ROOT / "install" / "generated" / "apps.json.dist"
 COLOURS_TS     = ROOT / "frontend" / "src" / "lib" / "systemColors.ts"
 INSTALLER_DATA = ROOT / "install" / "installer-gui" / "catalog_data.py"
-OVERLAYS       = ROOT / "config" / "overlays.json"
 
 # Logos keep their historical file names in assets/logos/ so that a box that
 # has hand-replaced one keeps it (assets/logos/ stays out of the OTA rsync).
@@ -140,33 +139,6 @@ def render_installer_data(packs: dict) -> str:
     ])
 
 
-def render_overlays(packs: dict, current: dict) -> str:
-    """config/overlays.json — the fields the PACK owns, nothing else.
-
-    Deliberately a partial rewrite, the same "only the sections we own"
-    contract the config generators follow. `window_rect`, `hole` and
-    `watch_timeout_s` are tuning tied to the image and the resolution, not
-    properties of the emulator: they stay hand-maintained and are copied
-    through untouched. The pack owns `wm_class` and `overlay_asset`, and
-    nothing else.
-
-    `label` is hand-maintained too, and that is not an oversight: here it names
-    the BEZEL, not the system. mgba's reads "Game Boy Advance (Cadre Total)" —
-    the full-frame variant — where the pack's label is plain "Game Boy
-    Advance". Generating it from the pack silently threw that distinction away.
-    """
-    out = {}
-    for pid, entry in current.items():
-        pack = packs.get(pid)
-        merged = dict(entry)
-        if pack and (ov := pack.data.get("overlay")):
-            merged["wm_class"] = ov["wmClass"]
-            if asset := ov.get("asset"):
-                merged["overlay_asset"] = f"assets/overlays/{asset}"
-        out[pid] = merged
-    return json.dumps(out, indent=4, ensure_ascii=False) + "\n"
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--check", action="store_true",
@@ -176,15 +148,12 @@ def main() -> int:
     # The catalogue in THIS tree — never the one GAMECORE_PATH points at.
     packs = load_catalog(ROOT / "catalog", ROOT / "config" / "catalog.d")
     systems_text, apps_text = render(packs)
-    overlays_current = json.loads(OVERLAYS.read_text(encoding="utf-8")) \
-        if OVERLAYS.is_file() else {}
 
     targets = [
         (SYSTEMS_DIST, systems_text),
         (APPS_DIST, apps_text),
         (COLOURS_TS, render_system_colours(packs)),
         (INSTALLER_DATA, render_installer_data(packs)),
-        (OVERLAYS, render_overlays(packs, overlays_current)),
     ]
     if args.check:
         stale = []

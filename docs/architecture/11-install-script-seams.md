@@ -75,16 +75,15 @@ Not "the script exits 0". On a fresh VM, after a full run:
 - the closing summary still lists the recoverable failures. Extracting a phase
   into a sourced file makes it easy to lose the `warn`-and-continue behaviour by
   making the phase exit instead — and that failure looks exactly like success.
-- **a game draws a bezel, on a box whose data is outside the install.** The
+- **the starting tree reaches a box whose data is outside the install.** The
   first split installs did not: `arch.sh` seeded the player's starting tree
-  (`assets/overlays/`, `config/overlays.json`, the bundled themes) into
+  (the Linux bezels, the bundled themes) into
   GAMECORE_PATH "when absent there", and on a split box `provision_userdata`
   had already created the empty directories under GAMECORE_DATA — so nothing
-  was seeded, Electron never started the overlay monitor (`if (!cfg) return`),
-  and no game got a frame. `seed_data_tree` now targets GAMECORE_DATA and seeds
-  a directory that is absent **or empty**; a populated one is the player's.
+  was seeded. `seed_data_tree` now targets GAMECORE_DATA and seeds a
+  directory that is absent **or empty**; a populated one is the player's.
   `backend/tests/test_installer_seeds_data_tree.py` runs the function out of
-  the script and asks `bezels.for_launch()` for the answer.
+  the script (Linux, removed with `arch.sh` at port step 7).
 
 Two smaller things `arch.sh` decides from the same fact (data root ≠ install):
 the addons checkout is pre-created in `/opt/gamecore-addons` **only** on the

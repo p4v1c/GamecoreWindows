@@ -50,7 +50,7 @@ def fmt_size(n: int) -> str:
 
 
 # A system id names a directory and a file under a served root ("mgba" →
-# assets/overlays/mgba.png, config/per-game/mgba/…). Anything outside this
+# emu/covers/mgba/, config/per-game/mgba/…). Anything outside this
 # alphabet is not a system, and `..` in particular would make a resolver read
 # files from anywhere the backend user can reach. One regex, imported by every
 # router that takes a system id off the wire — two routers each carried their
@@ -70,8 +70,8 @@ def atomic_write(p: Path, text: str) -> None:
     is what keeps the rename atomic.
 
     This lived in configgen/helpers/base.py and was re-grown, slightly
-    differently, in pergame.py, bezels.py, bezel_capture.py, merge.py and
-    ota.py. One implementation now; the callers keep saying WHY their file
+    differently, in pergame.py, merge.py and ota.py (and two bezel modules
+    since removed). One implementation now; the callers keep saying WHY their file
     must not be torn, not how.
     """
     p.parent.mkdir(parents=True, exist_ok=True)

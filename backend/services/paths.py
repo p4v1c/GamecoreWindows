@@ -6,7 +6,7 @@ Two roots, deliberately separate:
                       catalogue, installers. Read-only once the box is up.
                       `C:\Program Files\GameCore` on an installed PC.
   ``GAMECORE_DATA``   everything the player owns — ROMs, generated config,
-                      covers, scraped media, overlays, playtime. Writable.
+                      covers, scraped media, playtime. Writable.
                       Chosen at install: `Documents\GameCore` by default, or a
                       folder on another NTFS volume such as `D:\GameCoreData`.
 
@@ -42,7 +42,7 @@ which is dry-run by default and is deliberately not reachable from the updater.
 
 The layout below keeps today's directory names
 ----------------------------------------------
-`emu/`, `config/`, `assets/overlays/` — not `roms/`, `overlays/`, `media/`.
+`emu/`, `config/`, `assets/logos/` — not `roms/`, `logos/`, `media/`.
 
 Renaming them here would mean one of two things, and both are worse than
 waiting. Either the names change under the default root, which moves bytes on
@@ -85,7 +85,6 @@ _LAYOUT = {
     "media":     "emu/gamemedia",     # scraped media cache
     "index":     "emu/gamescrape",    # ScreenScraper index (~234 MB)
     "metadata":  "emu/metadata",      # scraped synopses and genres
-    "overlays":  "assets/overlays",   # bezels uploaded by the player
     "logos":     "assets/logos",      # logo replacements uploaded by the operator
     "art":       "assets/art",        # pack picture replacements, <DATA>/assets/art/<id>/<name>.*
     "themes":    "config/themes",     # installed themes (mutable code)
@@ -133,7 +132,6 @@ def covers_dir() -> Path:      return data_dir("covers")
 def media_cache_dir() -> Path: return data_dir("media")
 def media_index_dir() -> Path: return data_dir("index")
 def metadata_dir() -> Path:    return data_dir("metadata")
-def overlays_dir() -> Path:    return data_dir("overlays")
 def logos_dir() -> Path:       return data_dir("logos")
 def art_dir() -> Path:         return data_dir("art")
 def themes_dir() -> Path:      return data_dir("themes")

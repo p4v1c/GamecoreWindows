@@ -18,7 +18,7 @@ than no map.
 | `backend/routers/**` (endpoint added/renamed/removed) | `docs/architecture/03-backend-routers.md` |
 | `backend/services/**`, `backend/utils.py`, `ws.py`, `db.py` | `docs/architecture/04-backend-services.md` |
 | `frontend/src/**` (store, hooks, bus, WS events, api groups) | `docs/architecture/05-frontend.md` |
-| `electron/**`, overlays, bezels window | `docs/architecture/06-electron-and-overlays.md` |
+| `electron/**`, the HUD window | `docs/architecture/06-electron-shell.md` |
 | `config/*.json` schema, paths, SQLite, caches | `docs/architecture/07-config-and-data.md` |
 | controllers, SDL, configgen | `docs/architecture/08-controller-pipeline.md` (+ `docs/CONTROLLER_MODELS.md`) |
 | an invariant that is easy to break | `docs/architecture/09-gotchas.md` |

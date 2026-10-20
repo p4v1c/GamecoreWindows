@@ -12,8 +12,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 |---|---|---|
 | 1. Repo, skills, docs read, dev log, CI skeleton | merged | #1 |
 | 2. Platform layer + paths, backend passes the ported suite | merged | #3 |
-| 3. Process / session management (launch, suspend, resume, kill) | in review | `feat/windows-process-session` |
-| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds | — | — |
+| 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
+| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | in review | #5 |
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | — | — |
 | 6. Rest mode (sleep, wake by pad, splash after wake) | — | — |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
@@ -46,6 +46,11 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D19 | Suspending raises the interface **before** freezing the game; `bring_to_front()` never attaches to a thread that does not answer `WM_NULL` in 200 ms; suspends and resumes are serialised | measured on this PC: with a frozen game window in front, `AttachThreadInput` + `BringWindowToTop` blocked for as long as the game stayed frozen, and without attaching Windows refused the foreground. In front of a running game, the attached call works |
 | D20 | Launcher args are split with shell quotes but **backslashes kept** (`command_line.split_args`); the catalogue's `args` format is unchanged | POSIX `shlex.split` turned `C:\Games\x.iso` into `C:Gamesx.iso`; `Popen` then quotes each argument for Windows |
 | D21 | `gamepadTrigger` is ignored (no udev step); the key stays in the schema for the Linux packs | it re-fired udev for Flatpak sandboxes; Windows has neither. The packs stay unchanged until they are rewritten for Windows (owner's decision) |
+| D22 | The bezel overlay leaves **whole** (owner, 20/10): Electron window, `overlay_monitor`, backend router and services, `config/overlays.json`, the shipped PNGs, the per-game bezel choice. The pack schema keeps its `overlay` field and `roms.consoles`, read by no Windows code | the Linux packs stay untouched until they are rewritten for Windows (owner); a schema field removed now would fail their validation |
+| D23 | electron-builder `--win`, target `dir` (an unpacked `GameCore.exe` folder) | the installer (step 7) copies the folder into the code root; NSIS or portable would only be unpacked again. `productName` stays `GameCore`, the image `window_focus` looks for |
+| D24 | Only `GAMECORE_MANAGED=1` stops the shell from starting its own backend; the logon task (step 7) must set it | systemd's `INVOCATION_ID` was the Linux signal and does not exist here; unset now means "a checkout run by hand" |
+| D25 | Chromium's device scale factor is pinned to 1 | Settings → Display → Scale (a page zoom) is the interface's only zoom, as under X11; Windows scaling a 4K TV to 150 % would apply on top |
+| D26 | Desktop mode starts `explorer.exe` when the session has none, then quits; the HUD toast is shown with `showInactive()` | the console session will run without Explorer (step 7). A shown window activates on Windows: the toast would pull a game out of fullscreen |
 
 ## Baseline on Windows (19/10/2026, before any port change)
 
@@ -126,6 +131,25 @@ and 7). New: `test_platform_jobs.py`, `test_platform_window_control.py`,
 `test_event_loop.py`. One pack test is marked step 7
 (`catalog/lutris/tests/test_fullscreen.py`: X11 `WM_CLASS` matching).
 
+## After step 4 (20/10/2026)
+
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
+
+| | Before (main at `ebd3ffb`) | After |
+|---|---|---|
+| pytest passed | 2 568 | 2 332 |
+| pytest skipped | 279 | 271 |
+| vitest | 777 | 755 |
+| Electron bench | 38 | 42 |
+| `linux_until_port` items ([list](windows-port-linux-tests.md)) | 352 in 52 files | 371 in 51 files (−2 step 4, −1 bezel seed test, +22 the sudoers guard, step 7) |
+
+The pytest drop is the overlay code's own tests, removed with it (D7):
+`test_bezels.py`, `test_bezel_capture.py`, `test_bezels_consoles.py`,
+`test_overlay_monitor.py`, `test_overlay_naming.py`,
+`test_overlays_router.py`, plus the bezel cases of five other files; the
+vitest drop is `OverlayScreen` and the bezel rows of the options panel.
+`main.js` 1 147 → 499 lines: no longer over the file-size budget.
+
 ## Done
 
 - Both originals cloned read-only; the clone's `upstream` remote has its push
@@ -163,27 +187,37 @@ and 7). New: `test_platform_jobs.py`, `test_platform_window_control.py`,
   `fullscreen_enforcer.py` rewritten for Win32; `launch.py` without the udev
   step; `rest_mode.close_everything()` on jobs. The X11/pgid code went with it.
 
+- Step 4: the bezel overlay leaves (D22) — Electron window and IPC, the
+  `/overlay` page and `useEmulatorOverlay` (its session-screen claim kept as
+  `useSessionScreen`), the overlays router, `bezels`, `bezel_capture`,
+  `consoles`, `overlay_monitor`, `config/overlays.json`, `assets/overlays/`.
+  Electron on Windows: HUD in `electron/hud.js`, never activated (D26);
+  `shutdown /r|/s /t 0`; device scale 1 (D25); `.venv\Scripts\python.exe`
+  and `GAMECORE_MANAGED` (D24); Desktop mode in `electron/desktop.js` (D26);
+  pointer hidden over the interface; a sign-out (`session-end`) ends the shell;
+  `electron-builder --win` (D23). Doc 06 renamed `06-electron-shell.md`.
+
 ## Next
 
-Step 4: Electron shell and frontend fullscreen, the 5 themes, boot animation
-and sounds; the overlay window and its backend leave. Electron must expect
-the backend to raise its window (`window_focus.hide`, by process image
-`GameCore.exe`) and to start games behind it then bring them forward.
+Step 5: pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage,
+logs. Carry over from step 4: the logon task (step 7) starts the interface
+with `GAMECORE_MANAGED=1`; the updater (step 8) must stop the shell with
+`taskkill /F` or by the backend, since a plain `WM_CLOSE` makes the kiosk
+rebuild its window; `electron/start-ui.sh` (Linux) leaves with step 7.
 
 ## Open questions for the owner
 
-- D8 confirmed: the backend runs elevated (highest privileges) in the
-  console session, so **games inherit the elevated token**. Fine for
-  emulators; if you prefer games to run unelevated, step 7 can start them
-  with the user's filtered token. Say which.
-- D17: the brief asked for kill-on-close jobs; they would kill the game on
-  every backend restart, so the job is terminated explicitly instead.
-  Confirm.
-- The overlay window (out of scope) is marked step 4, where the brief removes
-  it from Electron; its backend (`overlay_monitor.py`, `bezel_capture.py`,
-  `routers/overlays.py`, `bezels.py`) would go in the same PR. Confirm.
+- Answered 20/10: games stay elevated (D8), no kill-on-close (D17), the
+  overlay and its backend leave at step 4 (D22).
 - D9: no `Documents\GameCore` default in code, the installer sets the data
   root. Confirm, or say if a run without the installer should default there.
+- D22: the pack schema keeps its `overlay` field (and `roms.consoles`) for the
+  Linux packs; drop them when the packs are rewritten? Conservative choice:
+  kept.
+- D26: if the shell runs elevated (same logon task as the backend), the
+  Explorer it starts for Desktop mode is elevated too. Step 7 can start the
+  interface unelevated, or start Explorer with the user's filtered token. Say
+  which.
 
 ## Tested on the real Windows PC
 
@@ -196,4 +230,8 @@ the backend to raise its window (`window_focus.hide`, by process image
 | `backend.main` imports with no Linux module loaded (`test_main_imports.py`); `/api/ready` answers under `TestClient` with the lifespan running and conftest's stubs in place | 19/10/2026 | green. The real lifespan was never run outside the suite |
 | The whole backend and pack suite | 19/10/2026 | see "After step 2" |
 | Step 3, `process_manager` driven from a script in this user's console session under a throwaway `GAMECORE_DATA`, the real lifespan never run: a Tk "game" that starts a child process, launched through `launch()` (argv with a quoted path holding spaces and backslashes), brought to the front by `window_focus.present()`, made borderless fullscreen; the script then exited (a backend restart) and a second process adopted the job by name from `session.json`, suspended it (all 5 processes `stopped`, the stand-in interface window raised over it), resumed it (all `running`, game window back in front), killed it (all 5 processes gone, child included, `session.json` removed). Screenshots in `%USERPROFILE%\Downloads\gamecore-port-step3\shots` | 19/10/2026 | green |
+| Step 4: the real Electron shell (`electron.exe .`, kiosk) against the read-only dev server (`devserve.py`, `GAMECORE_MANAGED=1`, throwaway data root): boot to RUNNING in ~1.8 s, fullscreen 1920x1080, on all five themes. Screenshots in `%USERPROFILE%\Downloads\gamecore-port-step4\shots` | 20/10/2026 | green |
+| Step 4: a real HUD toast (`electron/hud.js`) over a borderless fullscreen stand-in game window that had the foreground: drawn on top, the game kept the foreground before, during and after | 20/10/2026 | green |
+| Step 4: legibility audit of the game options panel on the five themes | 20/10/2026 | 3 FAIL on Shelf (white at 35 %) fixed; 0 FAIL after |
+| Step 4, not tested: Windows scaling above 100 % (this PC runs 96 dpi), the UI sounds, the pointer (screen captures do not show it; bench only), Desktop mode starting Explorer (Explorer already runs here), an exclusive-fullscreen game, `npm run pack` | — | not run |
 | Raising another window over a frozen game window that has the foreground: hung with `AttachThreadInput`, refused without; raising before the freeze works (D19, `test_platform_window_control.py`) | 19/10/2026 | design changed |

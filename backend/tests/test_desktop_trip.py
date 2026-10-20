@@ -191,12 +191,6 @@ def test_the_session_teardown_takes_the_trip():
     assert "gamecore-session-select desktop --once --restart-dm" in SESSION.read_text()
 
 
-def test_the_electron_fallback_takes_it_too():
-    """The way out for a box whose session script predates the marker."""
-    main = (ROOT / "electron" / "main.js").read_text()
-    assert "desktop --once --restart-dm" in main
-
-
 @pytest.mark.linux_until_port(7)
 def test_the_trip_is_granted_without_a_password(tmp_path):
     """sudoers matches a command line exactly, so `--once` needs its own line.

@@ -34,7 +34,6 @@ SYSTEMS_FILE  = paths.config_dir() / "systems.json"
 APPS_FILE     = paths.config_dir() / "apps.json"
 PLAYTIME_DB   = paths.config_dir() / "playtime.db"
 COVERS_DIR    = paths.covers_dir()
-OVERLAYS_DIR  = paths.overlays_dir()
 LOGOS_DIR     = paths.logos_dir()
 # The shipped assets tree — fonts, sounds, the operator-replaceable logos live
 # under it but resolve through LOGOS_DIR above, which is the writable one.

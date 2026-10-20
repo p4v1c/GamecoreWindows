@@ -11,7 +11,6 @@ sequenceDiagram
     participant pm as process_manager
     participant ws as ws.py
     participant el as Electron
-    participant mon as overlay_monitor
     participant emu as emulator
 
     ui->>r: POST /api/games/launch {system_id, rom_path, game_key}
@@ -27,12 +26,8 @@ sequenceDiagram
     pm->>pm: create_task(_watch()) — polls the job until it is empty
     r->>r: window_focus.present() or fullscreen_enforcer.enforce()
     ws-->>ui: game:started
-    ui->>el: window.gamecore.overlayStart(system_id)
-    el->>el: loadOverlayConfig() → config/overlays.json
-    el->>mon: spawn + {"cmd":"watch","system_id":…,"config":…}
-    mon->>mon: find_window(wm_classes) — poll until it appears
-    mon-->>el: {"event":"window:ready","rect":{…}}
-    el->>el: createOverlayWindow() — transparent, always-on-top
+    ui->>el: window.gamecore.sessionScreen(true)
+    el->>el: mainWindow.hide() — the game's window is in front
     r-->>ui: {ok: true, game_key}
 ```
 
@@ -71,7 +66,7 @@ sequenceDiagram
         pm->>pm: INSERT/UPDATE playtime (ON CONFLICT DO UPDATE)
     end
     pm->>ws: broadcast("game:finished", {elapsed})
-    ws-->>ui: game:finished → clears session, hides overlay
+    ws-->>ui: game:finished → clears session, sessionScreen(false) shows the window
 ```
 
 Why it is built this way:
@@ -315,29 +310,3 @@ sequenceDiagram
 The core's own `/api/*` is **403 from the LAN, always**. Addons contain no
 auth code — Caddy is the enforcement point. The TV bypasses all of this over
 loopback.
-
-## 7. Overlay lifecycle
-
-```mermaid
-sequenceDiagram
-    participant ui as React
-    participant el as Electron main
-    participant mon as overlay_monitor.py
-    participant x as X11
-
-    ui->>el: overlayStart(system_id)
-    el->>mon: {"cmd":"watch", system_id, config}
-    loop until timeout (watch_timeout_s)
-        mon->>x: find_window(wm_classes) via _NET_CLIENT_LIST
-    end
-    mon-->>el: window:waiting … then window:ready {rect}
-    el->>el: createOverlayWindow() + loadURL(/overlay?…)
-    mon->>x: force_rect() — ClientMessage to leave fullscreen, then configure
-    Note over mon,x: writing _NET_WM_STATE directly clears every state<br/>and desyncs the WM — always use the ClientMessage
-    mon-->>el: window:closed (emulator exited)
-    el->>el: destroyOverlayWindow()
-```
-
-The whole feature is disabled when `WAYLAND_DISPLAY` is set
-(`_WAYLAND_SESSION`), silently. A dev machine on Wayland will never reproduce
-an overlay bug.

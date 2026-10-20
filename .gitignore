@@ -41,7 +41,7 @@ emu/
 /lib/
 /firmwares/
 
-# Local backup copies (e.g. config/overlays.json.bak)
+# Local backup copies (e.g. config/systems.json.bak)
 *.bak
 
 # SQLite
@@ -94,13 +94,6 @@ config/auth_secret
 config/theme.json
 # Who plays on this box: the player's own, like theme.json.
 config/profiles/
-# Measured bezel holes, keyed by ABSOLUTE path. Pure cache — the backend
-# rebuilds it in 0.4 s per PNG and invalidates each entry by mtime and size, so
-# there is nothing to preserve. Committed once by accident, carrying this
-# machine's own /home/... paths into every clone.
-config/bezel-holes.json
-config/bezel-corrections.json
-config/bezel-choices.json
 # Local harness: a dev server pointed at a test backend. Never shipped.
 frontend/vite.check.config.ts
 frontend/preview.html

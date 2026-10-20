@@ -7,7 +7,7 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "dev": "ELECTRON_DEV=1 electron .",
-    "pack": "electron-builder --linux"
+    "pack": "electron-builder --win"
   },
   "dependencies": {
     "electron": "^31.0.0"
@@ -18,11 +18,10 @@
   "build": {
     "appId": "com.gamecore.app",
     "productName": "GameCore",
-    "linux": {
-      "target": "AppImage",
-      "category": "Game"
+    "win": {
+      "target": "dir"
     },
-    "files": ["main.js", "power.js", "preload.js", "hud-tokens.json", "boot/**"]
+    "files": ["main.js", "desktop.js", "hud.js", "power.js", "preload.js", "hud-tokens.json", "boot/**"]
   },
   "allowScripts": {
     "electron": true

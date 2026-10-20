@@ -34,6 +34,11 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# sudoers is the Linux installer's (`arch.sh`, removed at port step 7). The
+# Windows shell no longer runs `sudo systemctl poweroff|reboot`, so the rule
+# granting them is already orphaned on this tree.
+pytestmark = pytest.mark.linux_until_port(7)
+
 # The granted command list of a sudoers rule: everything after NOPASSWD:, up to
 # the end of the line or the quote the installer wrapped it in.
 NOPASSWD_RE = re.compile(r"NOPASSWD:\s*(?P<spec>[^\"'\n]+)")

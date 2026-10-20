@@ -28,7 +28,7 @@ exists and is documented — do not duplicate it here:
 React components have **no CSS files** (the shared settings screen in `frontend/src/settings/` is written in the SDK idiom and ships `settings.css`). Most components style themselves with
 inline style objects — 131 hardcoded hex colours and 172 `rgba(255,255,255,…)`
 values live inside the components. The only global CSS in the project is six
-lines in `frontend/index.html` (reset, scrollbar, overlay-mode, one keyframe).
+lines in `frontend/index.html` (reset, scrollbar, keyframes).
 
 An external stylesheet cannot override an inline style. So a theme cannot
 restyle the existing UI — it replaces the components that contain the styling.
@@ -746,7 +746,7 @@ theme can bind, so a theme cannot run a second action on the same press, and
 | Button | Event | Owner | Does |
 |---|---|---|---|
 | PS / Guide ×2 | `gp:guide` | host, reserved | in a game: suspend it. In the menu: the session menu (§5f), or home when nothing is suspended |
-| Options / Start (≡) | `gp:menu` | host, reserved | on a library game or a focused home game supplied by `homeGameOptions`: that game's options (bezel). Otherwise: Settings |
+| Options / Start (≡) | `gp:menu` | host, reserved | on a library game or a focused home game supplied by `homeGameOptions`: that game's options (per-game emulator settings). Otherwise: Settings |
 | Share / Select | `gp:power` | host, reserved | the power menu, which lists suspended sessions first |
 | □ | `gp:x` | host | the controller screen |
 | △ | `gp:y` | host | search, in the library |

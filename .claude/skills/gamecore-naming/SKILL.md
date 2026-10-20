@@ -62,4 +62,4 @@ except established ones (`gp`, `ws`, `db`, `emu`, `ota`, `bt`, `id`).
 - Name lies: `get_*` that writes, `is_*` that returns a non-bool.
 - A theme name (`orbit`, `shelf`) inside a core file name → the code belongs in `config/themes/<name>/`.
 - Two names for one concept (e.g. `system_id` vs `console_id` vs `pack_id` — they are
-  distinct concepts here; use the right one, see `docs/architecture/06-electron-and-overlays.md`).
+  distinct concepts here; use the right one, see `docs/architecture/10-catalog-and-install.md`).

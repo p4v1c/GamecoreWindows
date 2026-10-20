@@ -152,7 +152,6 @@ out["launch_allowed"] = bool(utils.rom_in_root(
     system, str(roms / "Crash Bandicoot.cue")))
 
 out["covers"] = sorted(p.name for p in paths.covers_dir().glob("**/*.png"))
-out["overlay"] = (paths.overlays_dir() / "duckstation.png").read_text()
 out["theme"] = (paths.config_dir() / "theme.json").read_text()
 out["addons"] = sorted(addons_router._registry())
 out["index_present"] = (paths.media_index_dir() / "launchbox.sqlite").exists()
@@ -195,7 +194,6 @@ def test_the_release_deploys_onto_the_old_layout_and_the_box_still_works(box, tm
     assert seen["games"] == ["Crash Bandicoot.cue"], "the library came up empty"
     assert seen["launch_allowed"], "the containment check would refuse to launch"
     assert seen["covers"] == ["Crash Bandicoot.png"]
-    assert seen["overlay"] == _USER_DATA["assets/overlays/duckstation.png"]
     assert seen["theme"] == _USER_DATA["config/theme.json"]
     assert seen["addons"] == ["rom-manager"]
     assert seen["index_present"], "the 234 MB index must not have to be rebuilt"

@@ -152,11 +152,7 @@ describe('the tabs', () => {
     const sdk = buildSdk('jelly', { selectTheme: vi.fn(async () => {}) })
     const mod = await import(/* @vite-ignore */ `${THEME}/index.js`)
     const { ctx, Home, Library } = mod.createParts(sdk)
-    const choices = vi.spyOn(api.overlays, 'choices').mockResolvedValue({
-      system_id: 'duckstation', rom: 'Crash Bandicoot (Europe).chd', current: null,
-      resolved: { system_id: 'duckstation', source: 'none', asset: null, hole: null, frame: null },
-      options: [],
-    } as never)
+    const choices = vi.spyOn(api.perGame, 'state').mockRejectedValue(new Error('unavailable'))
     const Inert = () => null
     const r = render(createElement(DefaultShell as React.ComponentType<Record<string, unknown>>, {
       topbar: Inert, homeView: Home, libraryView: Library,
@@ -175,11 +171,6 @@ describe('the tabs', () => {
     const sdk = buildSdk('jelly', { selectTheme: vi.fn(async () => {}) })
     const mod = await import(/* @vite-ignore */ `${THEME}/index.js`)
     const { ctx, Home, Library } = mod.createParts(sdk)
-    vi.spyOn(api.overlays, 'choices').mockResolvedValue({
-      system_id: 'duckstation', rom: 'Crash Bandicoot (Europe).chd', current: null,
-      resolved: { system_id: 'duckstation', source: 'none', asset: null, hole: null, frame: null },
-      options: [],
-    } as never)
     vi.spyOn(api.perGame, 'state').mockRejectedValue(new Error('unavailable'))
     const Inert = () => null
     const r = render(createElement(DefaultShell as React.ComponentType<Record<string, unknown>>, {
@@ -196,7 +187,7 @@ describe('the tabs', () => {
     expect(r.container.textContent).toContain('Game options')
     expect(r.container.textContent).toContain('Crash Bandicoot')
     expect(r.container.textContent).not.toContain('Settings screen')
-    expect(api.overlays.choices).toHaveBeenCalledWith('duckstation', 'Crash Bandicoot (Europe).chd')
+    expect(api.perGame.state).toHaveBeenCalledWith('duckstation', 'Crash Bandicoot (Europe).chd')
   })
 
   it('walk with L1 and R1, and ○ comes back to Play', async () => {

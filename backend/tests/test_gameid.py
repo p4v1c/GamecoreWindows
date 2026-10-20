@@ -25,7 +25,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from backend.services import bezels, gameid  # noqa: E402
+from backend.services import gameid  # noqa: E402
 from backend.services.catalog import load_schema  # noqa: E402
 
 CATALOG = ROOT / "catalog"
@@ -211,29 +211,6 @@ def test_a_name_that_normalises_away_is_no_identity_at_all(tmp_path):
     into one bucket — the leak this whole phase exists to close, arriving
     through the back door."""
     assert gameid.identify("filename", tmp_path / "(((...))).bin") is None
-
-
-def test_the_bezel_cascade_and_the_config_agree_on_what_a_game_is_called():
-    """One game, one name — and DELEGATION, not agreement by coincidence.
-
-    Comparing the two outputs would pass just as happily with a second copy of
-    the computation sitting in bezels.py, because two fresh copies always
-    agree. What has to hold is that there is only one, so the day either side
-    learns a new region tag the other learns it too. Substituting the reader
-    and watching `rom_key` follow is the only way to state that.
-    """
-    for name in ("Crash Bandicoot (USA).cue", "Zelda, The - Ocarina of Time.z64"):
-        assert bezels.rom_key(name) == gameid.from_filename(name)
-
-    original = gameid.from_filename
-    gameid.from_filename = lambda name: "sentinel"
-    try:
-        assert bezels.rom_key("Crash Bandicoot (USA).cue") == "sentinel", (
-            "bezels.rom_key computes the identity itself instead of asking "
-            "gameid — a game's overlay and its settings can now be filed under "
-            "different names, and nothing will say so")
-    finally:
-        gameid.from_filename = original
 
 
 # ── failing without taking the launch with it ────────────────────────────────

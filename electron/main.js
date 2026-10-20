@@ -1,13 +1,14 @@
 'use strict'
 const { app, BrowserWindow, ipcMain, powerMonitor, screen } = require('electron')
-const { exec, spawn } = require('child_process')
+const { exec, execFile, spawn } = require('child_process')
 const path = require('path')
 const fs   = require('fs')
-const os   = require('os')
-const hudContract = require('./hud-tokens.json')
+const { leaveToDesktop } = require('./desktop.js')
 
-// Required on Linux X11 for per-pixel transparency in BrowserWindow
-app.commandLine.appendSwitch('enable-transparent-visuals')
+// Settings → Display → Scale is the interface's only zoom. Windows' own
+// display scaling (150 % on most 4K TVs) would multiply it a second time.
+app.commandLine.appendSwitch('high-dpi-support', '1')
+app.commandLine.appendSwitch('force-device-scale-factor', '1')
 
 // Chromium keeps WebAudio suspended until a "user gesture" — and gamepad
 // buttons don't count as one (only mouse/keyboard do). On a controller-only
@@ -48,18 +49,16 @@ const DEV_URL     = 'http://127.0.0.1:5173'
 
 let mainWindow     = null
 let backendProcess = null
-let overlayWindow  = null
 
 // Set only by Settings → Desktop (system:quit). Everything else that empties
 // the window list is a fault, and window-all-closed rebuilds instead of dying.
 let quitting = false
 // Timestamps of recent rebuilds. A kiosk must never exit on its own, but it
-// must not spin either: if the window cannot stay up, stop and let systemd and
-// the desktop launcher deal with it.
+// must not spin either: if the window cannot stay up, stop and let the
+// watchdog that started it decide.
 let rebuilds = []
 const REBUILD_LIMIT  = 3
 const REBUILD_WINDOW = 10_000
-let monitorProcess = null
 
 
 /**
@@ -129,7 +128,7 @@ function createWindow() {
       // frame it was needed for.
       additionalArguments: [`--gamecore-boot-bg=${bootBg}`],
       // This window is the WebSocket bridge for battery alerts even while
-      // buried under an emulator or hidden behind a bezel overlay — never
+      // buried under an emulator — never
       // let Chromium throttle it in the background.
       backgroundThrottling: false,
     },
@@ -162,7 +161,7 @@ function createWindow() {
     console.error('[boot] the renderer is gone:', details.reason)
     rebuilds = rebuilds.filter(t => Date.now() - t < REBUILD_WINDOW)
     if (rebuilds.length >= REBUILD_LIMIT) {
-      console.error('[boot] too many renderer failures — stopping, systemd will decide')
+      console.error('[boot] too many renderer failures — stopping, the watchdog will decide')
       app.quit()
       return
     }
@@ -173,6 +172,9 @@ function createWindow() {
   if (DEBUG) mainWindow.webContents.openDevTools({ mode: 'detach' })
 
   mainWindow.on('closed', () => { mainWindow = null })
+  // Windows is signing out or shutting down: the windows closing next are a
+  // teardown, not a fault to rebuild from.
+  mainWindow.on('session-end', () => { quitting = true })
 }
 
 /**
@@ -212,557 +214,22 @@ function presentApp() {
   mainWindow.loadURL(DEV ? DEV_URL : BACKEND_URL)
 }
 
-// ── Overlay window ────────────────────────────────────────────────────────────
-/**
- * The screen the game is on, in the units BrowserWindow speaks.
- *
- * The bezel was pinned to (0, 0) 1920×1080 while the main window is a genuine
- * fullscreen one. On anything but a 1080p single-screen box that is a bezel
- * covering a quarter of the picture, or sitting on the wrong output — and the
- * distinction that matters is logical against physical: a 4K panel scaled to
- * 200 % reports 1920×1080 of LOGICAL space, which is what `bounds` gives and
- * what this window has to be measured in.
- *
- * `getDisplayMatching` because the game follows the interface, and the
- * interface is where the player put it. Everything here is defensive: a screen
- * API that answers nothing must cost the size of the bezel, never the launch.
- */
-function overlayBounds() {
-  const fallback = { x: 0, y: 0, width: 1920, height: 1080 }
-  try {
-    const display = (mainWindow && typeof screen.getDisplayMatching === 'function')
-      ? screen.getDisplayMatching(mainWindow.getBounds())
-      : screen.getPrimaryDisplay()
-    const b = display?.bounds || screen.getPrimaryDisplay()?.bounds
-    if (!b || !b.width || !b.height) return fallback
-    return { x: b.x || 0, y: b.y || 0, width: b.width, height: b.height }
-  } catch {
-    return fallback
-  }
-}
-
-function createOverlayWindow() {
-  if (overlayWindow) return
-
-  const at = overlayBounds()
-  overlayWindow = new BrowserWindow({
-    x: at.x,
-    y: at.y,
-    width: at.width,
-    height: at.height,
-    // Do NOT use fullscreen: true — on Linux X11 fullscreen windows are placed
-    // in a separate compositor layer that prevents see-through transparency.
-    // Explicit x/y/w/h with alwaysOnTop gives the same visual result.
-    transparent: true,
-    backgroundColor: '#00000000',
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    focusable: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
-      // A session of its own. Chromium keeps page zoom per session and origin,
-      // and this window loads the same origin as the interface: the player's
-      // Display → Scale would otherwise zoom the bezel too and move its hole
-      // off the game. In memory only — the loopback API needs no cookie.
-      partition: 'gamecore-overlay',
-    },
-  })
-
-  overlayWindow.setIgnoreMouseEvents(true)
-  // `alwaysOnTop: true` alone is the "floating" level, and KWin puts a window
-  // that asked for _NET_WM_STATE_FULLSCREEN — which is what every emulator
-  // launched with -f does — in a layer above it. The bezel then draws *under*
-  // the emulator and only shows where the emulator happens not to paint.
-  // Measured with Rosalie's Mupen GUI: two 1920x1080 RMG windows on top, the
-  // bezel visible only in the two vertical strips RMG leaves untouched.
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver')
-
-  // Open DevTools for the overlay window so we can inspect its DOM
-  if (DEBUG) overlayWindow.webContents.openDevTools({ mode: 'detach' })
-
-  const overlayUrl = DEV
-    ? `${DEV_URL}/overlay`
-    : `${BACKEND_URL}/overlay`
-  overlayWindow.loadURL(overlayUrl)
-
-  overlayWindow.on('closed', () => { overlayWindow = null })
-}
-
-
-function destroyOverlayWindow() {
-  if (overlayWindow) {
-    overlayWindow.close()
-    overlayWindow = null
-  }
-}
-
-// ── HUD toasts (battery, controller connect/disconnect) ───────────────────────
-// In-game the main window is buried under the fullscreen emulator, so its
-// React toast is invisible. This small transparent always-on-top window
-// (same recipe as the bezel overlay) shows the alert over anything.
-let hudToastWindow = null
-let hudToastTimer  = null
-const HUD_TOAST_MS = 10000
-
-// title/body/label reach us from the renderer over IPC, and the renderer gets
-// them from WebSocket broadcasts — including /api/addons/notify, an open LAN
-// endpoint, and Bluetooth device names. Never interpolate them into HTML raw.
-function escHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ))
-}
-
-// accent lands inside style="" — only ever use it as a plain color token
-function safeColor(c) {
-  return /^#[0-9a-fA-F]{3,8}$/.test(String(c)) ? c : '#fbbf24'
-}
-
-// Both renderers interpret this small declarative contract. No theme code or
-// stylesheet crosses the IPC boundary, even if a LAN sender controls the data.
-function hudTokens(input) {
-  const result = {}
-  for (const [key, kind] of Object.entries(hudContract.tokens)) {
-    const value = input?.[key]
-    if (typeof value === 'string' && value.length <= 160 &&
-        new RegExp(hudContract.patterns[kind]).test(value)) result[key] = value
-  }
-  // A light panel without severity overrides must still have readable text.
-  const rgb = result.panel?.slice(1, 7).match(/../g)?.map(v => {
-    const n = parseInt(v, 16) / 255
-    return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4
-  })
-  if (rgb && 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 0.45) {
-    return { ...hudContract.lightDefaults, ...result }
-  }
-  return result
-}
-
-// A known icon name draws the contract's SVG path; any other value (a theme's own
-// text icon) is escaped text, as before.
-function hudIcon(icon) {
-  const d = hudContract.icons && Object.hasOwn(hudContract.icons, icon) ? hudContract.icons[icon] : null
-  return d
-    ? `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`
-    : escHtml(icon)
-}
-
-function showHudToast({ icon = 'gamepad', title = '', body = '', accent = '#fbbf24', theme, tone } = {}) {
-  icon = hudIcon(icon); title = escHtml(title); body = escHtml(body)
-  const t = hudTokens(theme)
-  const themed = Object.keys(t).length > 0
-  accent = t[tone] || safeColor(accent)
-  const html = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"></head><body style="margin:0;background:transparent;overflow:hidden;font-family:${t.font || 'sans-serif'}">
-    <div style="display:flex;align-items:center;gap:14px;margin:8px;padding:14px 18px;border-radius:${t.radius || '14px'};
-                background:${t.panel || 'rgba(18,18,26,0.94)'};backdrop-filter:blur(${t.blur || '0px'});border:1px solid ${t.border || accent};box-shadow:0 8px 32px rgba(0,0,0,0.6)">
-      <div style="width:40px;height:40px;flex-shrink:${themed ? 0 : 1};border-radius:10px;background:${accent.length === 7 ? accent + '33' : accent};display:flex;align-items:center;justify-content:center;font-size:20px;color:${accent}">${icon}</div>
-      <div style="${themed ? 'min-width:0;overflow-wrap:anywhere' : ''}">
-        <div style="font-size:${themed ? 20 : 14}px;font-weight:700;color:${accent}">${title}</div>
-        <div style="font-size:${themed ? 18 : 13}px;color:${t.text || 'rgba(255,255,255,0.7)'};margin-top:3px">${body}</div>
-      </div>
-    </div></body></html>`
-
-  if (hudToastTimer) { clearTimeout(hudToastTimer); hudToastTimer = null }
-  // destroy(), not close(): close() is a request that can be ignored — a
-  // lingering HUD on screen is worse than a skipped fade-out.
-  if (hudToastWindow) { hudToastWindow.destroy(); hudToastWindow = null }
-
-  const { width } = screen.getPrimaryDisplay().workAreaSize
-  const W = themed ? 560 : 440, H = themed ? 240 : 100
-  hudToastWindow = new BrowserWindow({
-    // The shipped themed headers are taller than the default 54px bar.
-    // Keep their notifications below the header as well as over emulators.
-    x: width - W - 24, y: themed ? 140 : 66, width: W, height: H,
-    transparent: true, backgroundColor: '#00000000', frame: false,
-    alwaysOnTop: true, skipTaskbar: true, focusable: false,
-    resizable: false, hasShadow: false,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
-  })
-  hudToastWindow.setIgnoreMouseEvents(true)
-  hudToastWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
-  // Both this window and the bezel overlay are always-on-top: X11 stacks the
-  // most recently raised one higher, but make it explicit so the alert can
-  // never end up under the bezel.
-  hudToastWindow.webContents.once('did-finish-load', () => {
-    hudToastWindow?.moveTop()
-  })
-  hudToastWindow.on('closed', () => { hudToastWindow = null })
-
-  hudToastTimer = setTimeout(() => {
-    hudToastTimer = null
-    if (hudToastWindow) { hudToastWindow.destroy(); hudToastWindow = null }
-  }, HUD_TOAST_MS)
-}
-
-function showBatteryToast({ level = 0, player = null, who = '', theme } = {}) {
-  if (typeof level !== 'number' || !Number.isFinite(level) || level < 0 || level > 100) return
-  const stage = hudContract.battery.find(s => level <= s.threshold) || hudContract.battery.at(-1)
-  const title = String(who || (player ? `Controller ${player}` : 'Controller'))  // who: "Max’s controller"
-  showHudToast({
-    icon: 'gamepad', title: `${title} battery at ${Math.round(level)}%`,
-    body: stage.message, accent: stage.color, theme, tone: `battery-${stage.threshold}`,
-  })
-}
-
-ipcMain.on('notify:battery', (_, data) => showBatteryToast(data || {}))
-
-ipcMain.on('notify:controller', (_, data) => {
-  const d = data || {}
-  const who = String(d.who || (d.player ? `Controller ${d.player}` : 'Controller'))
-
-  // Systems this pad was NOT configured for. A pad can be recognised and still
-  // be left out of one emulator, and until this branch existed that arrived as
-  // the green "connected" toast — so the one console that ignored the pad was
-  // the one thing the player was never told about.
-  //
-  // Same provenance rule as everything else reaching showHudToast: these are
-  // catalogue labels relayed by the renderer, so they are text to escape and
-  // never markup. Capped because the HUD is a fixed 440x100 window.
-  const missing = Array.isArray(d.unconfigured)
-    ? d.unconfigured.filter(s => typeof s === 'string').slice(0, 3)
-    : []
-
-  // Autoconfig is off, so this pad got nothing anywhere. First, and it names no
-  // systems: listing nine of them truncated to three would read as a fault in
-  // three consoles instead of one switch somebody flicked. This is also the one
-  // moment the player can be told at all — they are in a game, the app window
-  // is buried under the emulator, and the pad in their hands does not work.
-  if (d.connected && Array.isArray(d.autoconfigOff) && d.autoconfigOff.length > 0) {
-    showHudToast({
-      icon: 'gamepad',
-      title: `${who} was not configured`,
-      body: 'Automatic controller setup is off (Settings → Controllers).',
-      accent: '#fbbf24', theme: d.theme, tone: 'warning',
-    })
-    return
-  }
-
-  if (d.connected && missing.length > 0) {
-    showHudToast({
-      icon: 'warning',
-      title: `${who} is not set up for ${missing.join(', ')}`,
-      body: `It works elsewhere — ${missing.length === 1 ? 'that system' : 'those systems'} will not respond to it.`,
-      accent: '#fbbf24', theme: d.theme, tone: 'warning',
-    })
-    return
-  }
-
-  showHudToast({
-    icon: 'gamepad',
-    title: d.connected ? `${who} connected` : `${who} disconnected`,
-    body: d.label ? String(d.label) : '',
-    accent: d.connected ? '#4ade80' : '#94a3b8', theme: d.theme,
-    tone: d.connected ? 'connected' : 'disconnected',
-  })
-})
-
-// ── Overlay monitor (Python) ──────────────────────────────────────────────────
-//
-// `config/overlays.json` is the player's — `config/` is excluded from the OTA
-// rsync for exactly that reason — so it is read from the DATA root, not from
-// the install this file happens to live in. The two are one directory on every
-// box installed so far, which is what the fallback preserves; once the data
-// has moved, reading it from `__dirname/..` would read the abandoned copy: the
-// backend (services/paths.py) and this process would then hold two different
-// overlays.json, identical on the day of the move and drifting apart from the
-// first edit, with a launch resolving its window from one and its hole from
-// the other. The unit passes GAMECORE_DATA to the UI for this line.
-function loadOverlayConfig() {
-  const root       = process.env.GAMECORE_DATA || path.join(__dirname, '..')
-  const configPath = path.join(root, 'config', 'overlays.json')
-  try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  } catch {
-    return {}
-  }
-}
-
-function startOverlayMonitor() {
-  if (monitorProcess) return
-
-  const root   = path.join(__dirname, '..')
-  const venv   = path.join(root, '.venv', 'bin', 'python')
-  const python = fs.existsSync(venv) ? venv : 'python3'
-  const script = path.join(root, 'backend', 'services', 'overlay_monitor.py')
-
-  if (!fs.existsSync(script)) return
-
-  monitorProcess = spawn(python, [script], {
-    cwd: root,
-    stdio: ['pipe', 'pipe', 'ignore'],
-  })
-
-  // Parse JSON-lines from monitor stdout
-  let buffer = ''
-  monitorProcess.stdout.on('data', chunk => {
-    buffer += chunk.toString()
-    const lines = buffer.split('\n')
-    buffer = lines.pop() // keep incomplete line
-    for (const line of lines) {
-      if (!line.trim()) continue
-      try {
-        const msg = JSON.parse(line)
-        handleMonitorEvent(msg)
-      } catch { /* ignore malformed lines */ }
-    }
-  })
-
-  monitorProcess.on('exit', () => { monitorProcess = null })
-}
-
-function stopOverlayMonitor() {
-  if (!monitorProcess) return
-  try {
-    monitorProcess.stdin.write(JSON.stringify({ cmd: 'quit' }) + '\n')
-  } catch { /* ignore */ }
-  setTimeout(() => {
-    if (monitorProcess) { monitorProcess.kill(); monitorProcess = null }
-  }, 2000)
-}
-
-// Send to the overlay page, loaded or not.
-//
-// `once('did-finish-load')` on its own loses the event whenever the page has
-// ALREADY finished loading — and that is not a rare case:
-//
-//   · `createOverlayWindow()` returns early when a window is already there, so
-//     any window a previous launch left behind is reused fully loaded;
-//   · an emulator that recreates its window makes the monitor emit a second
-//     `window:ready`, and the listener attached then never fires either.
-//
-// The failure is silent and total: the `window:ready` branch still runs, still
-// hides the main window, still logs — and no bezel is ever drawn. Waiting only
-// when there is actually something to wait for removes the whole class.
-function sendToOverlay(channel, payload) {
-  if (!overlayWindow) return
-  const wc = overlayWindow.webContents
-  if (wc.isLoading()) {
-    wc.once('did-finish-load', () => overlayWindow?.webContents.send(channel, payload))
-  } else {
-    wc.send(channel, payload)
-  }
-}
-
-/**
- * The coordinate space the hole is measured in.
- *
- * `window_rect` is the rectangle the monitor forces the emulator into, and the
- * backend places the hole inside it — so the two are in the same units, and
- * neither is in the units of an overlay window that now follows the screen.
- * Handing this along lets the page speak in fractions instead of pixels.
- */
-function overlaySpace(system_id) {
-  const rect = loadOverlayConfig()[system_id]?.window_rect
-  return (rect && rect.w && rect.h) ? { w: rect.w, h: rect.h } : { w: 1920, h: 1080 }
-}
-
-function handleMonitorEvent(msg) {
-  if (DEBUG) console.log('[overlay-monitor]', JSON.stringify(msg))
-
-  // A report about a system nobody is watching any more. The monitor is told
-  // to stop, but a message already on its way through the pipe still arrives,
-  // and acting on it would hide the interface behind a bezel for a game that
-  // has ended. `error` carries no system and is always worth reading.
-  if (msg.system_id && overlayWatching && msg.system_id !== overlayWatching) return
-
-  switch (msg.event) {
-    case 'window:waiting':
-      sendToOverlay('overlay:waiting', msg)
-      if (mainWindow) mainWindow.webContents.send('overlay:waiting', msg)
-      break
-
-    case 'window:ready':
-      createOverlayWindow()
-      // Hide the main window so the transparent hole shows the emulator directly.
-      // If mainWindow stays visible it sits between overlay and emulator, making
-      // the hole appear black (showing GameCore's dark background instead).
-      if (mainWindow) {
-        console.log('[overlay] hiding mainWindow — isVisible:', mainWindow.isVisible())
-        mainWindow.hide()
-        console.log('[overlay] mainWindow hidden — isVisible now:', mainWindow.isVisible())
-      }
-      if (overlayWindow) {
-        // The asset travels with the geometry. Without it the overlay page
-        // would rebuild the URL from system_id and always draw the system
-        // bezel — the per-game resolution would be computed and then thrown
-        // away one process boundary before it was used.
-        //
-        // `space` is the rectangle the hole's numbers are expressed in — the
-        // window the monitor forces the emulator into. The overlay page stops
-        // being able to assume 1920x1080 the moment its own window follows the
-        // screen, and it draws the fallback bars from the two together.
-        const shown = { ...msg, asset: overlayChoice?.asset ?? null,
-                        source: overlayChoice?.source ?? 'declared',
-                        space: overlaySpace(msg.system_id) }
-        // Said out loud, next to the "hiding mainWindow" line above: those two
-        // used to be able to disagree — the window hidden, the bezel never
-        // sent — and the log gave no way to tell which half had happened.
-        console.log('[overlay] show:', shown.source, shown.asset ?? '(aucun bezel)',
-                    'chargement en cours:', overlayWindow.webContents.isLoading())
-        sendToOverlay('overlay:show', shown)
-      }
-      break
-
-    case 'window:closed':
-      destroyOverlayWindow()
-      overlayWatching = null
-      if (mainWindow) {
-        // The bezel's window went away. That is not the same thing as the
-        // session ending — a suspended game keeps its window — so the
-        // interface only comes back if nothing is holding the screen.
-        if (!sessionOwnsScreen) mainWindow.show()
-        mainWindow.webContents.send('overlay:hide', msg)
-      }
-      break
-
-    // The emulator drew somewhere other than the hole said it would. Two
-    // things happen, and they are deliberately independent: the overlay moves
-    // its hole now, so this game is right immediately; and the backend is
-    // told, so the next launch starts out right without looking again.
-    case 'window:measured':
-      sendToOverlay('overlay:show', {
-        ...msg, rect: msg.measured,
-        asset: overlayChoice?.asset ?? null,
-        source: overlayChoice?.source ?? 'declared',
-        space: overlaySpace(msg.system_id),
-      })
-      fetch(`${BACKEND_URL}/api/overlays/measured/${encodeURIComponent(msg.system_id)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // `console` comes from the resolve answer, not from the monitor: the
-        // monitor is handed a window id and reports geometry, and it has no
-        // way to know which of a pack's consoles this ROM was. Without it the
-        // correction lands under the pack's shared key and one console's
-        // measurement is applied to all of them — which is the whole reason
-        // the level exists.
-        body: JSON.stringify({ announced: msg.announced, measured: msg.measured,
-                               window: msg.window,
-                               console: overlayChoice?.console ?? null }),
-        signal: AbortSignal.timeout(4000),
-      }).catch(() => { /* a correction not learned is next launch's problem */ })
-      break
-
-    case 'error':
-      if (DEBUG) console.error('[overlay-monitor] error:', msg.message)
-      break
-  }
-}
-
-// Which bezel this launch resolved to, and where its hole falls. Set just
-// before the monitor is told to watch, read again when 'window:ready' comes
-// back — the monitor reports geometry and knows nothing about artwork.
-let overlayChoice = null
-
-/**
- * Which overlay run is current, and what it is watching.
- *
- * `overlay:start` awaits the backend before it tells the monitor anything, and
- * a game can be gone by the time that answer arrives: press ✕, the emulator
- * fails to start, `overlay:stop` tears the overlay down — and then the resolve
- * came back and the old start carried on, sending `watch` for a game that is
- * no longer running. The monitor then reported on whatever window it found,
- * and the next launch inherited the argument.
- *
- * The number is taken before the await and compared after it. `overlayWatching`
- * is the same guard one level further out: a report about a system nobody is
- * watching any more decides nothing.
- */
-let overlayRun = 0
-let overlayWatching = null
-
 /**
  * A session owns the screen right now, so the interface must stay out of it.
  *
  * Set by the renderer from the SAME value the input guard reads, and it is what
- * makes resuming a suspended game work at all. The interface used to be hidden
- * by the bezel monitor's `window:ready` — but `overlay:start` returns early for
- * a system with no overlay config, which is most of them, so nothing hid it.
- *
- * On a first launch that never showed: the emulator maps a fresh fullscreen
- * window, which takes the screen by itself. On a RESUME there is no new window
- * — SIGCONT wakes a process whose window is already mapped, and already
- * underneath GameCore. The game came back and stayed behind the interface.
- *
- * Every `mainWindow.show()` in this file now asks this first, because the
- * overlay path and the session path both reach for the same window and used to
- * be able to contradict each other one message apart.
+ * makes resuming a suspended game work at all: on a resume there is no new
+ * window to take the screen, the game's window is already there, underneath
+ * GameCore. Every `mainWindow.show()` in this file asks this first.
  */
 let sessionOwnsScreen = false
-let overlayResolveAbort = null
-
-// The backend measures the hole out of the PNG's own alpha channel, so the
-// answer follows whatever bezel is actually on this box. Deciding it here
-// instead would mean a second PNG decoder in JavaScript and two sets of
-// numbers to keep in agreement; `config/overlays.json` is the fallback for a
-// system with no PNG at all, and the backend already reads it.
-function resolveBezel(system_id, game_key, signal) {
-  const q = new URLSearchParams({ rom: game_key || '' })
-  return fetch(`${BACKEND_URL}/api/overlays/resolve/${encodeURIComponent(system_id)}?${q}`,
-               { signal: signal || AbortSignal.timeout(4000) })
-    .then(r => (r.ok ? r.json() : null))
-    .catch(() => null)
-}
-
-// ── IPC — overlay control (from renderer) ────────────────────────────────────
-ipcMain.on('overlay:start', async (_, { system_id, game_key }) => {
-  const configs = loadOverlayConfig()
-  const cfg     = configs[system_id]
-  if (!cfg) return
-
-  // Claimed before the first await. Anything that ends this run — a stop, or
-  // another launch — takes the next number, and this one then knows it is over.
-  const run = ++overlayRun
-  const ctl = (typeof AbortController === 'function') ? new AbortController() : null
-  overlayResolveAbort = ctl
-  const deadline = ctl ? setTimeout(() => ctl.abort(), 4000) : null
-
-  // Awaited before the monitor starts, not raced against it: the monitor
-  // emits 'window:ready' as soon as the emulator's window appears, and a
-  // choice that arrived after that point would draw the previous game's bezel.
-  const choice = await resolveBezel(system_id, game_key, ctl?.signal)
-  if (deadline) clearTimeout(deadline)
-  if (overlayResolveAbort === ctl) overlayResolveAbort = null
-
-  // The game this was resolved for is not the game the box is on any more.
-  // Nothing may be sent: `watch` here is the monitor looking at the next
-  // player's window on the last player's behalf.
-  if (run !== overlayRun) return
-
-  // A backend that did not answer is not a reason to skip the overlay — the
-  // declared geometry is exactly what this code used before there was an
-  // endpoint to ask.
-  overlayChoice = choice && choice.source !== 'none'
-    ? choice
-    : { source: 'declared', asset: null, hole: cfg.hole || null }
-  overlayWatching = system_id
-
-  startOverlayMonitor()
-
-  // `measure`/`announced` ride along so the monitor knows whether to look at
-  // the screen at all, and against which rectangle to report what it sees.
-  const watched = overlayChoice.hole
-    ? { ...cfg, hole: overlayChoice.hole,
-        measure: !!overlayChoice.measure, announced: overlayChoice.announced }
-    : cfg
-  const cmd = JSON.stringify({ cmd: 'watch', system_id, config: watched }) + '\n'
-  try { monitorProcess?.stdin.write(cmd) } catch { /* monitor not ready yet */ }
-})
 
 /**
  * Who has the screen: the session, or the interface.
  *
- * Independent of bezels on purpose. `overlay:start` needs an overlay config and
- * returns early without one, so tying the interface's visibility to it left
- * every system with no bezel — most of them — with a resumed game behind the
- * dashboard.
- *
- * `show()` is followed by `focus()`: on X11 a window that is mapped but not
- * focused still leaves the pad pointing at whatever had focus before, which is
- * the emulator that was just suspended.
+ * `show()` is followed by `focus()`, which Windows honours only when this
+ * process may take the foreground. The backend raises this window itself when
+ * it suspends a game (`window_focus`, dev log D19); this is the second try.
  */
 ipcMain.on('shell:session-screen', (_, { owned }) => {
   sessionOwnsScreen = !!owned
@@ -773,31 +240,6 @@ ipcMain.on('shell:session-screen', (_, { owned }) => {
     mainWindow.show()
     mainWindow.focus()
   }
-})
-
-ipcMain.on('overlay:stop', (_, { system_id }) => {
-  // Tear the overlay down and bring the UI back FIRST, before anything that
-  // depends on the monitor still being alive. This used to `return` when
-  // monitorProcess was gone — and by then 'window:ready' had already hidden
-  // mainWindow, so the bezel stayed on screen with the interface invisible
-  // behind it and no way to get back to it.
-  destroyOverlayWindow()
-  if (mainWindow && !sessionOwnsScreen) mainWindow.show()
-  // Cleared here rather than on the next start: a stale choice surviving a
-  // failed launch is the previous game's bezel drawn over the new one.
-  overlayChoice = null
-  // Ends the run, including one still waiting on the backend: it will find its
-  // number stale and send nothing. The request itself is dropped too — no
-  // point holding a socket open for an answer that has nowhere to go.
-  overlayRun += 1
-  overlayWatching = null
-  try { overlayResolveAbort?.abort() } catch { /* already settled */ }
-  overlayResolveAbort = null
-
-  if (!monitorProcess) return
-  try {
-    monitorProcess.stdin.write(JSON.stringify({ cmd: 'stop', system_id }) + '\n')
-  } catch { /* ignore */ }
 })
 
 // ── Backend startup ───────────────────────────────────────────────────────────
@@ -823,22 +265,17 @@ function backendReady() {
 /**
  * Who owns the backend process.
  *
- * On an installed box, systemd does — `gamecore-backend.service`, with its own
- * restart policy, its own environment and its own journal. Electron spawning a
- * second uvicorn on the same port produced an EADDRINUSE crash loop next to a
- * working backend, and the guard against it was a race: "nothing answered in
- * the last 1.5 s" is true of a backend that is merely still starting.
+ * On an installed box, the logon task does (port step 7), with its own
+ * watchdog and environment. Electron spawning a second uvicorn on the same
+ * port produced an EADDRINUSE crash loop next to a working backend, and the
+ * guard against it was a race: "nothing answered in the last 1.5 s" is true
+ * of a backend that is merely still starting.
  *
- * systemd sets INVOCATION_ID in every service it runs, and start-ui.sh is the
- * unit's ExecStart, so Electron inherits it. That is the signal — no installer
- * change, and it cannot drift out of sync with reality. GAMECORE_MANAGED
- * overrides it either way, for a sandbox or a test.
+ * The task that starts the interface sets GAMECORE_MANAGED=1. Unset, this is
+ * a checkout run by hand, which may start its own backend.
  */
 function backendIsManaged() {
-  const explicit = process.env.GAMECORE_MANAGED
-  if (explicit === '1') return true
-  if (explicit === '0') return false
-  return !!process.env.INVOCATION_ID
+  return process.env.GAMECORE_MANAGED === '1'
 }
 
 async function startBackend() {
@@ -851,15 +288,17 @@ async function startBackend() {
   if (backendIsManaged()) return
 
   const root   = path.join(__dirname, '..')
-  const venv   = path.join(root, '.venv', 'bin', 'python')
-  const python = fs.existsSync(venv) ? venv : 'python3'
+  const venv   = path.join(root, '.venv', 'Scripts', 'python.exe')
+  const python = fs.existsSync(venv) ? venv : 'python'
 
   console.log('[boot] no managed backend — starting one from', root)
   backendProcess = spawn(
     python, ['-m', 'uvicorn', 'backend.main:app',
              '--host', '127.0.0.1', '--port', BACKEND_PORT,
              '--log-level', DEBUG ? 'debug' : 'warning'],
-    { cwd: root, detached: false, stdio: 'ignore' }
+    // UTF-8 mode, as the installed backend runs (dev log D14).
+    { cwd: root, detached: false, stdio: 'ignore',
+      env: { ...process.env, PYTHONUTF8: '1' } }
   )
 }
 
@@ -941,87 +380,16 @@ ipcMain.on('boot:ready', (_, payload) => {
   setBootState(BOOT.RUNNING)
 })
 
+require('./hud.js').createHud({ BrowserWindow, screen }).register(ipcMain)
+
 require('./power.js').register({ app, ipcMain, exec, powerMonitor,
   getWindow: () => mainWindow, sessionOwnsScreen: () => sessionOwnsScreen })
 
-/**
- * Exit to desktop. In the console session, leaving is a session change: point
- * SDDM's autologin at the desktop FIRST (`gamecore-session-select`, allowed by
- * sudoers), then end the session — otherwise SDDM logs straight back into
- * GameCore. On an un-migrated box quitting alone is right, so a failure here
- * does not block the exit. `quitting` lets window-all-closed tell this apart
- * from an accidental close.
- */
-/**
- * True when running as the console session. Checks DESKTOP_SESSION,
- * XDG_SESSION_DESKTOP and XDG_CURRENT_DESKTOP case-insensitively: the session
- * sets them from different places ("gamecore" vs "GameCore"), and a
- * case-sensitive check made "Desktop mode" quit without handing autologin back.
- */
-function inConsoleSession() {
-  return ['DESKTOP_SESSION', 'XDG_SESSION_DESKTOP', 'XDG_CURRENT_DESKTOP']
-    .some(name => (process.env[name] || '').split(':')
-      .some(word => word.trim().toLowerCase() === 'gamecore'))
-}
-
-/**
- * Ask the session to hand the box back to the desktop, and get out of the way.
- *
- * This used to run `sudo gamecore-session-select desktop` here and quit in the
- * callback. On the reference box that call reached sudo every single time —
- * the journal has all five invocations, each exiting 0 in about 30 ms — and
- * the auto-login file was never touched. The same command, run by hand, from a
- * systemd user unit, and from this service's own working directory, wrote it
- * every time. The only thing the failing runs had in common is that they ran
- * inside `gamecore-ui.service`, whose cgroup systemd tears down as soon as
- * this process exits, which is the very next thing that happens.
- *
- * So the privileged part moved to where nothing is racing it: the session
- * script's teardown, which runs in the session's own process after the units
- * are stopped. All that is left here is to say what the player asked for.
- * `install/bin/gamecore-session` reads this file and removes it; a marker left
- * behind by a session that never tore down is cleared at the next login.
- */
-function askSessionForDesktop() {
-  const runtime = process.env.XDG_RUNTIME_DIR
-  if (!runtime) return false
-  try {
-    const dir = path.join(runtime, 'gamecore')
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    fs.writeFileSync(path.join(dir, 'leave-to-desktop'), `${new Date().toISOString()}\n`)
-    return true
-  } catch (err) {
-    console.warn('[session] could not ask the session to leave:', err.message)
-    return false
-  }
-}
-
-/**
- * The way out for a box whose session script predates the marker above.
- *
- * Kept only for that case: an installation updates its shell and its session
- * script together, but a box can be running an old session from a login that
- * happened before the update. Best effort, and its failure is not fatal — the
- * next login is GameCore again, which is recoverable from a terminal.
- */
-function handBackToDesktop(done) {
-  const SELECT = '/usr/local/bin/gamecore-session-select'
-  let left = false
-  const leave = () => { if (!left) { left = true; done() } }
-  setTimeout(leave, 10_000).unref?.()
-  exec(`sudo -n ${SELECT} desktop --once --restart-dm`, (err, stdout, stderr) => {
-    if (err) console.warn('[session] the fallback switch failed:', err.message, stderr || '')
-    else console.log('[session] fallback switch:', String(stdout).trim())
-    leave()
-  })
-}
-
+// Settings → Desktop mode. `quitting` lets window-all-closed tell this apart
+// from an accidental close.
 ipcMain.on('system:quit', () => {
   quitting = true
-  if (!inConsoleSession()) { app.quit(); return }
-  // The session does the switch on its way out. Quitting is what starts it.
-  if (askSessionForDesktop()) { app.quit(); return }
-  handBackToDesktop(() => app.quit())
+  leaveToDesktop({ execFile, spawn, quit: () => app.quit() })
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -1052,27 +420,11 @@ app.whenReady().then(async () => {
   // is the whole of the visible change: the order used to be "wait, then show
   // something", and the wait is exactly when there was nothing to see.
   createWindow()
-  startOverlayMonitor()
 
   await startBackend()
   const up = await waitForBackend(generation)
   if (!up || generation !== bootGeneration) return
   presentApp()
-
-  // A television that changes mode, or an output plugged in mid-session, moves
-  // the ground under a window that was placed by hand. Registered here and not
-  // at module scope: the screen module cannot be talked to before the app is
-  // ready. Nothing here is fatal — an Electron whose `screen` cannot be
-  // subscribed to keeps the bezel the size it was given.
-  try {
-    const refit = () => {
-      if (!overlayWindow) return
-      try { overlayWindow.setBounds(overlayBounds()) } catch { /* window going away */ }
-    }
-    screen.on?.('display-metrics-changed', refit)
-    screen.on?.('display-added', refit)
-    screen.on?.('display-removed', refit)
-  } catch { /* no screen module to listen to */ }
 })
 
 // Electron's boilerplate here is `app.quit()`, which is right for a desktop
@@ -1082,9 +434,8 @@ app.whenReady().then(async () => {
 // desktop launcher happened to start it again, whole, splash and all. That is
 // the "the splash reappears while I'm on the board" report.
 //
-// The window lifecycle is driven by game launches (mainWindow.hide() on start,
-// the overlay window created and destroyed around it), which is why it struck
-// at random and more often when a launch failed.
+// The window lifecycle is driven by game launches (mainWindow.hide() on start),
+// which is why it struck at random and more often when a launch failed.
 //
 // So: leaving is a decision, taken in Settings → Desktop, and nowhere else.
 // Anything else that empties the window list is a fault to recover from —
@@ -1108,8 +459,8 @@ app.on('window-all-closed', () => {
   createWindow()
 })
 
-// Any real shutdown passes through here first — Settings → Desktop, but also
-// the SIGTERM systemd sends on `systemctl stop`. Without it, windows closing
+// Any real shutdown passes through here first — Settings → Desktop, a signal,
+// or Windows ending the session. Without it, windows closing
 // during teardown would look like the fault above and rebuild a window while
 // the app is on its way out.
 app.on('before-quit', () => { quitting = true })
@@ -1131,7 +482,9 @@ app.on('before-quit', () => { quitting = true })
  *
  * So the signal says what it means. `quitting` first, `app.quit()` second —
  * in that order, because the quit closes the windows and the flag is what
- * `window-all-closed` reads to let them stay closed.
+ * `window-all-closed` reads to let them stay closed. On Windows Node only
+ * delivers SIGINT (Ctrl+C) and SIGHUP (console closed); a sign-out arrives as
+ * `session-end` instead (createWindow).
  */
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(signal, () => {
@@ -1142,6 +495,5 @@ for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
 }
 
 app.on('will-quit', () => {
-  stopOverlayMonitor()
   if (backendProcess) backendProcess.kill()
 })

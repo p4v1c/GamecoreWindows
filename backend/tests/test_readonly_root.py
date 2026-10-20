@@ -2,8 +2,8 @@
 
 Every other test in this phase checks that a path *resolves* somewhere
 sensible. This one removes write permission from the whole code tree and then
-asks the backend to do the things a player does — change a setting, upload a
-bezel, have a ROM appear, install and remove an addon.
+asks the backend to do the things a player does — change a setting, have a
+ROM appear, install and remove an addon.
 
 It is the only check that cannot be satisfied by a path that merely looks
 right. A module that still writes into the installation passes every resolution
@@ -77,7 +77,6 @@ sys.path.insert(0, code)
 
 from backend.services import paths, standby, themes
 from backend.services import systems as sys_router
-import backend.routers.overlays as ov
 
 done = {}
 
@@ -95,11 +94,6 @@ done["standby"] = json.loads(standby.CONFIG_FILE.read_text())["screensaver_mins"
 # The player picks a theme.
 themes.set_active(None)
 done["theme_state_written"] = themes.STATE_FILE.exists()
-
-# A bezel is uploaded.
-dest = ov._overlay_path("duckstation")
-dest.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
-done["overlay"] = dest.exists() and dest.stat().st_size > 0
 
 done["code_root"] = code
 done["data_root"] = str(paths.GAMECORE_DATA)
@@ -155,7 +149,6 @@ def test_the_box_works_with_the_code_frozen(frozen):
     assert seen["library"] == ["Crash Bandicoot.cue"]
     assert seen["standby"] == 3
     assert seen["theme_state_written"]
-    assert seen["overlay"]
 
 
 def test_nothing_was_written_into_the_installation(frozen):
@@ -232,7 +225,6 @@ roms = paths.resolve_data_path(rows[0]["romsPath"])
 print(json.dumps({
     "systems": [r["id"] for r in rows],
     "games": sorted(p.name for p in roms.glob("*.cue")),
-    "overlay": (paths.overlays_dir() / "duckstation.png").exists(),
     "standby": (paths.config_dir() / "standby.json").exists(),
 }))
 """
@@ -241,5 +233,4 @@ print(json.dumps({
     seen = json.loads(r.stdout)
     assert seen["systems"] == ["duckstation"]
     assert seen["games"] == ["Crash Bandicoot.cue"]
-    assert seen["overlay"], "the uploaded bezel did not survive the restore"
     assert seen["standby"], "the settings did not survive the restore"
