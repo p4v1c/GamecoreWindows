@@ -33,31 +33,20 @@ WATCH_POLL_SECS = 0.5
 
 
 async def kill_process_group(proc) -> None:
-    """Kill a child started without a job and every process it started.
-
-    For the update script (`routers/update.py`): killing the shell alone left
-    the copies it spawned writing into the installation after the UI had been
-    told the update was aborted.
-    """
+    """Kill a child started without a job and all it started (the update
+    script: killing the shell alone left its copies writing)."""
     if proc is None or proc.returncode is not None:
         return
     processes.kill_tree(proc.pid)
 
 
 class SessionConflict(RuntimeError):
-    """A lifecycle request the box cannot honour in the state it is in.
-
-    Carries the sentence the player should read. Every raise site here is a
-    409 at the router, and the router does not invent the wording: the manager
-    is the only thing that knows *which* session is in the way.
-    """
+    """A lifecycle request the box cannot honour now. Carries the sentence the
+    player reads (a 409 at the router): only the manager knows what is in the way."""
 
 
-#: RAM below which a third resident session is not offered.
-#:
-#: A suspended emulator has given back its CPU and nothing else: RPCS3 holds
-#: several gigabytes and its VRAM for as long as it is frozen. 16 GiB is where
-#: a third fits beside Windows, the interface and two emulators.
+#: RAM below which a third resident session is not offered: a frozen emulator
+#: keeps its memory (RPCS3: gigabytes, and its VRAM).
 _THIRD_SLOT_MIN_BYTES = 16 * 1024 ** 3
 
 
@@ -79,14 +68,9 @@ MAX_SESSIONS = _resident_cap()
 class ProcessManager:
     """A few slots, one screen, and at most one resident game.
 
-    At most `MAX_SESSIONS` launched things exist at once, and at most one of
-    them is in front of the player. Applications may coexist with a game; a
-    second game may not. Selecting the suspended game resumes it, while
-    selecting another is an explicit conflict that names the game to close.
-
-    The invariant is enforced on launch, not suspend: moving the foreground
-    into the background creates no process, and refusing the second *launch*
-    prevents the two-game state without trapping the player in a game.
+    At most `MAX_SESSIONS` launched things, one of them in front. Apps may
+    coexist with a game; a second game may not (enforced on launch, never on
+    suspend, so the player is never trapped in a game).
     """
 
     def __init__(self):
@@ -107,12 +91,10 @@ class ProcessManager:
     # ── what the box is doing ────────────────────────────────────────────────
 
     def _reap(self) -> bool:
-        """Drop slots whose process tree has gone, and say whether anything changed.
+        """Drop slots whose process tree has gone; say whether anything changed.
 
-        Every dead session, not only the adopted ones: a watcher only runs when
-        the loop gets back to it, and a slot still holding a game that has
-        exited would refuse the next launch naming a game that is gone. Safe
-        under a watcher: it holds its `Session` and still records its playtime.
+        Not only adopted ones: a watcher runs late, and a dead slot would
+        refuse the next launch. A watcher keeps its `Session` and its playtime.
         """
         keep = [s for s in self._sessions if s.alive()]
         if len(keep) == len(self._sessions):
@@ -185,12 +167,8 @@ class ProcessManager:
                 "rom_path": s.rom_path, "session": s.session_id}
 
     def session_state(self) -> dict:
-        """The whole of what the box is running, in one shape.
-
-        Flat fields describe the FOREGROUND session, which is what
-        `/api/games/session` has always returned; `background` lists the
-        suspended ones.
-        """
+        """Everything resident: flat fields for the FOREGROUND session (what
+        `/api/games/session` always returned), `background` for the rest."""
         state: dict = {}
         fg = self.foreground_session
         if fg is not None:
@@ -203,13 +181,8 @@ class ProcessManager:
     # ── the sessions on disk ─────────────────────────────────────────────────
 
     def _save_state(self) -> None:
-        """Remember the jobs so a restarted backend can still reach them.
-
-        Without it a restart (update, crash) left the game fullscreen and
-        untouchable: `is_running` was false and the double-PS shortcut could
-        never close it again. A suspended game most needs finding again: it
-        cannot exit on its own.
-        """
+        """Remember the jobs so a restarted backend can still reach them:
+        without it a restart left the game on screen and unkillable."""
         rows = [s.to_disk() for s in self._sessions if s.job is not None]
         try:
             if not rows:
@@ -303,12 +276,8 @@ class ProcessManager:
         ws.set_current_game(self.session_state() or None)
 
     async def _announce(self, event: str, session: Session) -> None:
-        """One lifecycle event, carrying the WHOLE state.
-
-        A resume that swaps two slots moves both at once; a client rebuilding
-        its picture from "run 3 came forward" alone would drop the session
-        still frozen. So each event carries the transition and the state after.
-        """
+        """One lifecycle event, carrying the WHOLE state after it: a swap moves
+        two slots at once, and the transition alone would lose one."""
         payload = dict(session.describe())
         payload["state_snapshot"] = self.session_state()
         try:
@@ -392,12 +361,7 @@ class ProcessManager:
             "session": started.session_id,
         })
 
-        watch_task = asyncio.create_task(self._watch(started))
-
-        def _log_err(t: asyncio.Task) -> None:
-            if not t.cancelled() and t.exception():
-                log.warning("watch task failed: %s", t.exception())
-        watch_task.add_done_callback(_log_err)
+        asyncio.create_task(self._watch(started)).add_done_callback(_log_watch_error)
         return False
 
     # ── suspend and resume ───────────────────────────────────────────────────
@@ -543,13 +507,9 @@ class ProcessManager:
     # ── killing ──────────────────────────────────────────────────────────────
 
     async def kill(self, session_id: int | None = None) -> None:
-        """End a session: the one on the screen unless another is named; with
-        nothing on the screen, the suspended one ("close it" from a session bar).
-
-        The job is terminated: the whole tree at once, frozen processes
-        included. Never a polite close: several emulators answer it with a
-        confirmation dialog no pad can click.
-        """
+        """End a session: the one on screen unless another is named, else the
+        suspended one. The whole job, frozen processes included; never a polite
+        close, which some emulators answer with a dialog no pad can click."""
         if session_id is None:
             target = self.foreground_session or self.background_session
         else:
@@ -627,6 +587,11 @@ class ProcessManager:
             })
         except Exception:
             log.exception("_watch: failed to broadcast game:finished")
+
+
+def _log_watch_error(task: asyncio.Task) -> None:
+    if not task.cancelled() and task.exception():
+        log.warning("watch task failed: %s", task.exception())
 
 
 process_manager = ProcessManager()
