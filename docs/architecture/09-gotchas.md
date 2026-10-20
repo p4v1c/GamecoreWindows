@@ -10,15 +10,42 @@ because it already cost someone a debugging session.
 launches would otherwise both pass the `is_running` check while the first was
 still awaiting the spawn, and the box would run two emulators.
 
-**`start_new_session=True` is load-bearing.**
-It puts the emulator in its own process group. Without it, `killpg` in
-`_proc_kill()` targets the backend's own group — the kill button would kill
-GameCore.
+**A game is a Job Object, never a PID.**
+`platform/jobs.py` starts it suspended, puts it in a new job, then lets it
+run: everything it starts is born in the job. Suspend, resume and kill act on
+every process of the job. A launcher that starts the game and exits, or a
+helper process, would otherwise keep running (or keep the game running) under
+the interface.
 
-**Never SIGTERM an emulator.**
-Several answer it with a confirmation dialog that cannot be clicked from a
-gamepad. `_proc_kill()` goes straight to SIGKILL. For Flatpak, `flatpak kill
-<app-id>` must come first: a signal to the wrapper never reaches the sandbox.
+**Never close an emulator politely.**
+Several answer a close request with a confirmation dialog that cannot be
+clicked from a gamepad. `kill()` terminates the job (`TerminateJobObject`),
+frozen processes included.
+
+**No kill-on-close on the job, and the game holds its own job handle.**
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` would kill the game every time the
+backend restarts (update, crash), and adoption (below) exists precisely so it
+does not. A job's name dies with its last handle, so the game's first process
+gets a duplicate: without it a restarted backend can never open the job again.
+
+**The interface goes in front before a game freezes, never after.**
+A frozen window that has the foreground never answers the activation
+messages. Measured on the real PC: Windows then refuses to put it behind
+anything, and attaching to its input thread (`AttachThreadInput`) made the
+next `BringWindowToTop` wait for as long as the game stayed frozen.
+`ProcessManager._freeze()` raises the interface first; `bring_to_front()`
+never attaches to a thread that does not answer `WM_NULL` within 200 ms.
+
+**The backend must run in the console session.**
+A window opens on the desktop of its process's session; a service runs in
+session 0, which has no visible desktop. `session.launch_blocker()` refuses a
+launch rather than starting a game nobody can see (dev-log D8).
+
+**No `--reload` (or `--workers`) for uvicorn on Windows.**
+They switch it to the Selector event loop, where
+`asyncio.create_subprocess_exec` raises `NotImplementedError` (the update
+router, Rest mode). Games do not depend on it (`subprocess.Popen` in
+`jobs.spawn`); `test_event_loop.py` pins the Proactor loop.
 
 **A one-frame crash is not a play session.**
 `_watch()` only records playtime past 5 s, or a crash-looping emulator would
@@ -34,8 +61,8 @@ startup reconciliation.** Two instances of the same bug:
   unconditionally.
 - The running game lived only in `_proc`. A restarted backend saw
   `is_running == False`, so `kill()` returned immediately and the emulator was
-  fullscreen and unkillable. The pgid is persisted to `config/session.json` and
-  adopted at startup.
+  fullscreen and unkillable. The job's name is persisted to
+  `config/session.json` and adopted at startup, only when the identity matches.
 
 The general shape: if the backend can be restarted while the effect persists, ask
 at startup rather than assuming a clean slate. Note that a **crash** skips the
@@ -48,14 +75,15 @@ shutdown returned with them still mid-`await`.
 
 **Killing a shell does not kill what it spawned.** The OTA timeout killed `bash`
 and left its `rsync`, `pip` and `npm` writing into `/opt/GameCore` after the UI
-had been told the update was aborted. Spawn with `start_new_session=True` and
-kill the group — `process_manager.kill_process_group()` is shared for this.
+had been told the update was aborted. `process_manager.kill_process_group()`
+kills the whole tree (`processes.kill_tree`).
 
-**A blocking call in a coroutine blocks everything.** `_probe_display()` ran
-synchronous `subprocess.run(timeout=5)` on the event loop, on every launch and
-every standby transition; an unrelated `GET /api/systems` measured 4.7 s. It is
-memoised now, and the first probe runs off-thread. Same reason argon2 goes
-through `asyncio.to_thread` in the auth router.
+**A blocking call in a coroutine blocks everything.** The Linux display probe
+ran synchronous `subprocess.run(timeout=5)` on the event loop, on every launch
+and every standby transition; an unrelated `GET /api/systems` measured 4.7 s.
+Window moves (`window_focus`, `fullscreen_enforcer`) run in `asyncio.to_thread`
+for the same reason: `SetWindowLongPtrW` waits for the window's thread. Same
+reason argon2 goes through `asyncio.to_thread` in the auth router.
 
 ## The data root, seen from inside a sandbox
 
@@ -209,10 +237,6 @@ EWMH reserves `_NET_WM_STATE` for the window manager once a window is mapped.
 Writing it directly does clear fullscreen on some WMs, but it clears **every**
 state at once (`_NET_WM_STATE_ABOVE` included) and desyncs the WM: the window
 then ignores later state requests. `force_rect()` sends the ClientMessage.
-
-**`_display_env()` removes `WAYLAND_DISPLAY`.**
-Qt emulators launched from the systemd unit would otherwise try Wayland and
-fail silently.
 
 **Gamepad buttons are not a "user gesture".**
 Chromium keeps WebAudio suspended until mouse or keyboard input. On a

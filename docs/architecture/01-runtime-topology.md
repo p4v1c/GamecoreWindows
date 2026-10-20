@@ -6,10 +6,10 @@ What runs, where it listens, who starts it, and in what order.
 
 | Process | Started by | Listens | Owns |
 |---|---|---|---|
-| **Backend** | `gamecore-backend.service` (system unit) | `127.0.0.1:8765` | the emulator process, playtime DB, covers, standby, evdev |
+| **Backend** | `gamecore-backend.service` (system unit); on Windows a logon task in the console session ([below](#on-windows-the-backend-runs-in-the-console-users-session)) | `127.0.0.1:8765` | the emulator process, playtime DB, covers, standby, evdev |
 | **Electron** | `gamecore-ui.service` (system unit) | — | the kiosk window, the bezel overlay, HUD toasts |
 | **overlay_monitor** | Electron, `spawn()` | — | one X11 window watch, JSON-lines on stdio |
-| **The emulator** | Backend, `create_subprocess_exec` | — | its own process group |
+| **The emulator** | Backend, `platform/jobs.py` `spawn()` | — | its own Job Object (the whole process tree) |
 
 Plus, out of band:
 
@@ -217,6 +217,26 @@ session. Installed by `install/steps/setup-rest-mode.sh`, see
 
 ## The session the kiosk runs in
 
+### On Windows: the backend runs in the console user's session
+
+A window opens on the desktop of the session its process belongs to, and only
+the active console session is on the TV. A Windows service lives in session 0,
+which has no visible desktop, so the backend is **not** a service: it runs in
+the console user's session, started at logon by a scheduled task with highest
+privileges, restarted by a watchdog (the task and the watchdog are step 7;
+dev-log D8). A game it starts inherits that desktop; nothing is rebuilt.
+
+`session.launch_blocker()` (`backend/services/session.py`, over
+`backend/services/platform/console_session.py`: `ProcessIdToSessionId`,
+`WTSGetActiveConsoleSessionId`, `WTSQuerySessionInformationW`) refuses a
+launch when that is not true: nobody logged on to the console, or the backend
+in another session (started as a service, or the console taken over by Remote
+Desktop). `session.desktop()` names the session, the user and the primary
+display (`EnumDisplayDevicesW`) for logs. The display is not checked: a TV
+that is off still lists its output.
+
+### On Linux (until step 7)
+
 SDDM auto-logs the gaming user into **the machine's own X11 desktop session**,
 and `gamecore-ui.service` draws the kiosk over it. The whole stack is X11-only —
 the bezel overlays, the fullscreen enforcer, `gamecore-xsetup`'s 1080p pin and
@@ -259,36 +279,26 @@ next boot.
 
 ## Environment reconstruction
 
-A process started by systemd has no session environment. Two places rebuild it:
-
-- `electron/start-ui.sh` — for the UI itself.
-- `backend/services/session.py:_display_env()` — for every emulator:
-  `DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `XAUTHORITY` and
-  `SDL_GAMECONTROLLERCONFIG_FILE` → `backend/data/gamecontrollerdb.txt`.
-  It also **removes `WAYLAND_DISPLAY`**, or Qt emulators try Wayland and fail
-  silently under the unit.
-
-  `DISPLAY` is **probed, not guessed**. `_probe_display()` enumerates the
-  sockets in `/tmp/.X11-unix/X*`, and for each one tries every cookie the uid
-  owns — `/tmp/xauth_*` (SDDM's X11 session), `/run/user/<uid>/xauth_*`
-  (kwin_wayland), `~/.Xauthority` (startx) — plus no cookie at all, running
-  `xdpyinfo` until one answers. `:0` is the last-resort fallback if nothing
-  does. Hardcoding `:1` was the original bug: a box with both `X0` and `X1`
-  has only one that answers, and a wrong `DISPLAY` makes every emulator exit
-  instantly with its output on `DEVNULL` — the UI just flashes
-  `game:started` → `game:finished`.
-
-  The result is **memoised**: the display does not move during a session, and
-  the probe can block for seconds when X is slow to answer. It is recomputed
-  only after a failed launch (`invalidate_display_cache()`).
+On Windows the backend already runs in the console user's session, so a game
+gets the backend's own environment. `session.display_env()`
+(`backend/services/session.py`) adds one variable:
+`SDL_GAMECONTROLLERCONFIG_FILE`, the served controller database
+(`configgen/mapping_db.py`). `electron/start-ui.sh` (the UI) is replaced at
+step 4.
 
 ## Development topology
 
 ```bash
-uvicorn backend.main:app --port 8765 --reload   # backend
+uvicorn backend.main:app --port 8765            # backend (no --reload on Windows, see below)
 cd frontend && npm run dev                      # Vite :5173
 cd electron && ELECTRON_DEV=1 npx electron .    # shell → :5173
 ```
+
+On Windows, `--reload` and `--workers` make uvicorn run the Selector event
+loop, which cannot start subprocesses (`NotImplementedError` from
+`asyncio.create_subprocess_exec`, used by the update router and Rest mode);
+without them it runs the Proactor loop (`test_event_loop.py`). Games do not
+depend on it: `platform/jobs.py` starts them with `subprocess.Popen`.
 
 `DEBUG` exists twice — `backend/config.py` and `electron/main.js:16` — and
 must be `false` on a device. `DEV` is `DEBUG && ELECTRON_DEV=1`; only then does

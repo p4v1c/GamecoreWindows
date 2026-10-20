@@ -199,10 +199,10 @@ async def lifespan(app: FastAPI):
     # shutdown used to return with the tasks still mid-await.
     await asyncio.gather(*tasks, return_exceptions=True)
     # The running game is deliberately left alone — see
-    # process_manager._save_session(). Killing it here would take the player's
+    # process_manager._save_state(). Killing it here would take the player's
     # unsaved progress with it on any OTA or restart, and would do nothing at
     # all for the case that actually strands them: a crash, where this code
-    # never runs. The pgid on disk covers both.
+    # never runs. The job recorded on disk covers both.
 
 
 app = FastAPI(title="GameCore", version="1.0.0", lifespan=lifespan)

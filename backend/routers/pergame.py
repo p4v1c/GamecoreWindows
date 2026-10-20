@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..services import configgen, pergame
+from ..services.launch import start_window_task
 from ..utils import SYSTEM_ID_RE
 from ..services.catalog import launch as catalog_launch
 from ..services.process_manager import SessionConflict, process_manager
@@ -148,4 +149,5 @@ async def open_emulator_settings(system_id: str, body: OpenSettings):
         # and a 500 tells the player nothing about the suspended sessions that
         # are actually in the way.
         raise HTTPException(409, str(e)) from e
+    start_window_task({}, system_id)
     return {"ok": True, "opened": Path(body.rom).name or None}

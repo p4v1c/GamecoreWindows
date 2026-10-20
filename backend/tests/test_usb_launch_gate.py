@@ -24,11 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import usb_devices                          # noqa: E402
 
-pytestmark = pytest.mark.usefixtures("posix_boundary")
-
-
 _GHOST = {"id": "testpack", "label": "Test System", "kind": "emulator",
-          "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
+          "path": r"C:\definitely\not-installed.exe", "args": "", "romsPath": ""}
 
 ADAPTER = {"vidPid": "057e:0337", "class": "adapter",
            "label": "GameCube adapter", "note": "Check the switch is on Wii U."}
@@ -140,56 +137,3 @@ def test_a_check_that_explodes_does_not_stop_the_launch(launcher, monkeypatch):
     monkeypatch.setattr(usb_devices, "load_catalog", boom)
     r = launcher.post("/api/games/launch", json={"system_id": "testpack"})
     assert r.status_code == 503, r.text
-
-
-# ── the udev re-fire ────────────────────────────────────────────────────────
-
-def test_declaring_usb_asks_for_the_udev_re_fire(launcher, monkeypatch):
-    """The hole this closes: `launch.gamepadTrigger` was spelled for pads and
-    only one app set it, so an adapter plugged in after the sandbox started
-    stayed invisible until the game was quit and relaunched.
-
-    The tile here sets no gamepadTrigger at all — only `usb` — so a trigger
-    firing proves the new condition is what asked for it.
-    """
-    fired = []
-    from backend.services import systems as systems_service
-    from backend.services import launch as launch_service
-    monkeypatch.setattr(systems_service, "list_all",
-                        lambda: [{**_GHOST, "usb": [ADAPTER]}])
-
-    async def fake_trigger(*a, **k):
-        fired.append(True)
-    monkeypatch.setattr(launch_service, "_gamepad_trigger", fake_trigger)
-
-    # Reaching the trigger needs a launch that did not raise.
-    async def fake_launch(**_kw):
-        return None
-    monkeypatch.setattr(launch_service.process_manager, "launch", fake_launch)
-
-    _declaring(monkeypatch, [ADAPTER])
-    _adapter_present(monkeypatch)
-    r = launcher.post("/api/games/launch", json={"system_id": "testpack"})
-    assert r.status_code == 200, r.text
-    assert fired == [True]
-
-
-def test_a_tile_declaring_neither_does_not_fire_the_trigger(launcher, monkeypatch):
-    """`udevadm trigger` re-fires the whole device tree and costs a sudo call
-    three times over. A box whose systems ask for nothing must not pay it."""
-    fired = []
-    from backend.services import launch as launch_service
-
-    async def fake_trigger(*a, **k):
-        fired.append(True)
-    monkeypatch.setattr(launch_service, "_gamepad_trigger", fake_trigger)
-
-    async def fake_launch(**_kw):
-        return None
-    monkeypatch.setattr(launch_service.process_manager, "launch", fake_launch)
-
-    monkeypatch.setattr(usb_devices, "load_catalog", lambda *a, **k: {})
-    _no_devices(monkeypatch)
-    r = launcher.post("/api/games/launch", json={"system_id": "testpack"})
-    assert r.status_code == 200, r.text
-    assert fired == []

@@ -1,41 +1,36 @@
 """Rest mode: nothing may be alive when the box goes to sleep.
 
-No process is started and nothing is suspended: children are fakes, signals
-are recorded, `sudo systemctl suspend` is a stub that notes what was still
-alive when it was called. That last record is the whole point of the feature.
+No process is started and nothing is suspended: the jobs are `FakeJob`s that
+record what they are asked, and the suspend is a stub that notes what was
+still alive when it was called. That last record is the whole point of the
+feature.
 """
 from __future__ import annotations
 
 import asyncio
-import signal
 from unittest.mock import AsyncMock
 
 import pytest
 
 from backend.services import launch, process_manager as pm, rest_mode
 from backend.services.errors import ServiceError
+from backend.tests.fake_jobs import FakeJob
 
-pytestmark = pytest.mark.usefixtures("posix_boundary")
 
+class LingeringJob(FakeJob):
+    """A job whose first terminate does not take: it dies on the second."""
 
-class FakeProcess:
-    """A child whose group dies when SIGKILL reaches it, unless told to linger."""
-
-    def __init__(self, pid: int):
-        self.pid = pid
-        self.returncode = None
-        self.done = asyncio.Event()
-
-    async def wait(self):
-        await self.done.wait()
-        return self.returncode
+    def terminate(self) -> bool:
+        if self.calls.count((self.leader_pid, "terminate")) == 0:
+            self.calls.append((self.leader_pid, "terminate"))
+            return True
+        return super().terminate()
 
 
 @pytest.fixture
-def box(monkeypatch):
-    """A manager, its live process groups, and every signal and suspend."""
+def box(monkeypatch, spawner):
+    """A manager, its jobs, and every call and suspend."""
     m = pm.ProcessManager()
-    monkeypatch.setattr(pm, "display_env", AsyncMock(return_value={}))
     monkeypatch.setattr(pm.ws, "broadcast", AsyncMock())
     monkeypatch.setattr(pm.ws, "set_current_game", lambda data: None)
     monkeypatch.setattr(m, "_save_state", lambda: None)
@@ -43,49 +38,36 @@ def box(monkeypatch):
     monkeypatch.setattr(m, "_raise_interface", AsyncMock())
     monkeypatch.setattr(rest_mode, "process_manager", m)
     monkeypatch.setattr(pm, "MAX_SESSIONS", 3)   # read off the RAM of the box otherwise
+    monkeypatch.setattr(pm, "WATCH_POLL_SECS", 0.01)
     monkeypatch.setattr(rest_mode, "POLL_SECS", 0.01)
     monkeypatch.setattr(rest_mode, "EXIT_WAIT_SECS", 0.2)
     monkeypatch.setattr(rest_mode, "FORCE_WAIT_SECS", 0.1)
     monkeypatch.setattr(rest_mode, "REOPEN_AFTER_SECS", 3600)
 
-    state = {"alive": set(), "stubborn": set(), "signals": [], "procs": {},
-             "suspended_with": None, "suspend_ok": True}
-
-    def killpg(pgid, sig):
-        state["signals"].append((pgid, sig))
-        if sig == signal.SIGKILL and pgid in state["alive"]:
-            if pgid in state["stubborn"]:
-                state["stubborn"].discard(pgid)      # dies on the second SIGKILL
-                return
-            state["alive"].discard(pgid)
-            proc = state["procs"].get(pgid)
-            if proc is not None:
-                proc.returncode = -9
-                proc.done.set()
-
-    # One `os` module for both: the backend's own group is getpgid(0) == 0.
-    monkeypatch.setattr(pm.os, "killpg", killpg)
-    monkeypatch.setattr(pm.os, "getpgid", lambda pid: pid)
-    monkeypatch.setattr(pm, "_pgid_alive", lambda pgid: pgid in state["alive"])
+    jobs: list[FakeJob] = []
+    state = {"suspended_with": None, "suspend_ok": True}
 
     async def suspend():
-        state["suspended_with"] = set(state["alive"])
-        return state["suspend_ok"], "" if state["suspend_ok"] else "sudo: a password is required"
+        state["suspended_with"] = {j.leader_pid for j in jobs if j.alive()}
+        return state["suspend_ok"], "" if state["suspend_ok"] else "refused"
 
     monkeypatch.setattr(rest_mode, "_suspend", suspend)
 
-    async def start(pid, game_key, system_id="duckstation"):
-        proc = FakeProcess(pid)
-        state["procs"][pid] = proc
-        state["alive"].add(pid)
-        monkeypatch.setattr(pm.asyncio, "create_subprocess_exec",
-                            AsyncMock(return_value=proc))
+    async def start(pid, game_key, system_id="duckstation", lingering=False):
+        job = (LingeringJob(pid, spawner.calls) if lingering
+               else FakeJob(pid, spawner.calls))
+        jobs.append(job)
+        spawner.queue.append(job)
         await m.launch("emu", "", rom_path=game_key, game_key=game_key,
                        system_id=system_id)
-        return proc
+        return job
 
-    yield {"manager": m, "state": state, "start": start}
+    yield {"manager": m, "state": state, "start": start, "calls": spawner.calls}
     rest_mode.woke()
+
+
+def _terminated(box) -> list[int]:
+    return [pid for pid, call in box["calls"] if call == "terminate"]
 
 
 def test_every_session_is_gone_before_the_box_sleeps(box):
@@ -101,29 +83,26 @@ def test_every_session_is_gone_before_the_box_sleeps(box):
 
         assert result["ok"] is True
         assert box["state"]["suspended_with"] == set(), "slept with a session alive"
-        killed = {pgid for pgid, sig in box["state"]["signals"] if sig == signal.SIGKILL}
-        assert killed == {101, 202, 303}
+        assert set(_terminated(box)) == {101, 202, 303}
     asyncio.run(scenario())
 
 
-def test_a_frozen_session_is_thawed_before_it_is_killed(box):
-    """A stopped process cannot run its exit path; process_manager.kill thaws it."""
+def test_a_frozen_session_is_terminated_as_it_is(box):
+    """Terminating a job kills frozen processes too: no thaw, which would let
+    the game run a frame or play a sound on its way out."""
     async def scenario():
         await box["start"](101, "crash.cue")
         await box["manager"].background()
         await rest_mode.enter()
-        sigs = [sig for pgid, sig in box["state"]["signals"] if pgid == 101]
-        assert sigs.index(signal.SIGCONT) < sigs.index(signal.SIGKILL)
+        assert [c for p, c in box["calls"] if p == 101] == ["suspend", "terminate"]
     asyncio.run(scenario())
 
 
-def test_a_group_that_lingers_is_forced_then_the_box_sleeps(box):
+def test_a_job_that_lingers_is_forced_then_the_box_sleeps(box):
     async def scenario():
-        await box["start"](101, "game.iso")
-        box["state"]["stubborn"].add(101)
+        await box["start"](101, "game.iso", lingering=True)
         await rest_mode.enter()
-        kills = [p for p, s in box["state"]["signals"] if s == signal.SIGKILL]
-        assert kills.count(101) == 2, "the survivor was not forced"
+        assert _terminated(box).count(101) == 2, "the survivor was not forced"
         assert box["state"]["suspended_with"] == set()
     asyncio.run(scenario())
 
@@ -163,7 +142,7 @@ def test_a_launch_in_flight_is_waited_for_and_then_killed(box, monkeypatch):
         await rest_mode.enter()
         await task
         assert box["state"]["suspended_with"] == set()
-        assert (404, signal.SIGKILL) in box["state"]["signals"]
+        assert 404 in _terminated(box)
     asyncio.run(scenario())
 
 

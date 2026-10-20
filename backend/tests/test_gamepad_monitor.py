@@ -567,9 +567,11 @@ def test_slots_are_not_renumbered_while_a_game_is_only_suspended(roster,
     surviving pad now writes to a slot the game is not listening on.
     """
     from backend.services import process_manager as pm
+    from backend.services.game_session import Session
+    from backend.tests.fake_jobs import FakeJob
     manager = pm.ProcessManager()
-    manager._sessions.append(pm.Session(
-        proc=types.SimpleNamespace(pid=111, returncode=None),
+    manager._sessions.append(Session(
+        job=FakeJob(111),
         game_key="held.iso", system_id="dolphin", state="background",
         session_id=1))
     monkeypatch.setattr(pm, "process_manager", manager)

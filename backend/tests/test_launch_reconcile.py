@@ -33,11 +33,8 @@ from backend.services import controller_registry as reg       # noqa: E402
 from backend.services import gamepad_monitor as gm            # noqa: E402
 from backend.services import process_manager as pm            # noqa: E402
 
-pytestmark = pytest.mark.usefixtures("posix_boundary")
-
-
 GHOST = {"id": "ghost", "label": "Ghost", "kind": "emulator",
-         "path": "/usr/bin/definitely-not-installed", "args": "", "romsPath": ""}
+         "path": r"C:\definitely\not-installed.exe", "args": "", "romsPath": ""}
 
 
 def test_flatpak_resolution_does_not_freeze_the_event_loop(monkeypatch):

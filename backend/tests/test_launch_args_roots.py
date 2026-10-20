@@ -5,7 +5,7 @@ The measurement that produced this file (issue #36): one tile shipped
 only one in the catalogue. Nothing resolved it. `_expand` in services/systems.py
 rewrites `@…@` tokens and returns anything else untouched; `resolve_args` only
 substitutes `@APPID@`; `process_manager.launch` hands the string to
-`shlex.split` and calls `create_subprocess_exec` with no `cwd=`. So the child
+`command_line.split_args` and starts the game with no `cwd=`. So the child
 inherited the backend's working directory, which is `WorkingDirectory=$GAMECORE_PATH`
 in the systemd unit arch.sh writes.
 
@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import systems as systems_router  # noqa: E402
 from backend.services.catalog import load_catalog  # noqa: E402
+from backend.services.command_line import split_args  # noqa: E402
 
 CATALOG = ROOT / "catalog"
 LOCAL = ROOT / "config" / "catalog.d"
@@ -90,52 +91,42 @@ def test_no_launcher_argument_is_a_bare_relative_path(packs):
         "directory rather than a named root: " + ", ".join(offenders))
 
 
-@pytest.mark.linux_until_port(3)
 def test_the_two_root_tokens_resolve_to_the_roots_they_name(monkeypatch):
-    """With the roots genuinely split — which is the only way this test means
-    anything.
+    r"""With the roots genuinely split, and Windows-shaped: backslashes that
+    POSIX `shlex.split` used to eat (`C:\Program Files` became `C:Program Files`).
 
-    On the development box and on every box shipped so far, GAMECORE_PATH and
-    GAMECORE_DATA are the same directory, so a version of this test that let
-    them collapse would pass against code that confused the two. Both are
-    from-imports in services/systems.py and therefore bound at import time:
-    `paths.use_roots()` does not reach them, and a test that called it would be
-    asserting on values it never changed.
+    Both roots are from-imports in services/systems.py, bound at import time:
+    `paths.use_roots()` does not reach them, so they are patched there.
     """
-    code, data = Path("/opt/gamecore"), Path("/userdata")
-    assert code != data
+    code, data = Path(r"C:\Program Files\GameCore"), Path(r"D:\GameCoreData")
     monkeypatch.setattr(systems_router, "GAMECORE_ROOT", code)
     monkeypatch.setattr(systems_router, "GAMECORE_DATA", data)
 
     rows = systems_router._expand([{
         "id": "probe",
-        "path": "/usr/bin/wine",
+        "path": r"C:\Emulators\probe.exe",
         "args": "'@GAMECORE_PATH@/lib/probe/probe.exe' @GAMECORE_DATA@/somewhere",
     }])
-    tokens = shlex.split(rows[0]["args"])
+    tokens = split_args(rows[0]["args"])
 
-    assert tokens[0] == "/opt/gamecore/lib/probe/probe.exe"
-    assert tokens[1] == "/userdata/somewhere"
+    assert tokens[0] == r"C:\Program Files\GameCore/lib/probe/probe.exe"
+    assert tokens[1] == r"D:\GameCoreData/somewhere"
 
 
-@pytest.mark.linux_until_port(3)
 def test_the_code_token_survives_a_root_that_contains_a_space(monkeypatch):
-    """Why the token is quoted in the pack and not left bare.
-
-    `shlex.split` runs before the arguments reach the emulator, so an unquoted
-    token expanding to a root with a space in it becomes two arguments and wine
-    is handed a path that stops at the space.
-    """
-    monkeypatch.setattr(systems_router, "GAMECORE_ROOT", Path("/opt/Game Core"))
-    monkeypatch.setattr(systems_router, "GAMECORE_DATA", Path("/opt/Game Core"))
+    """Why the token is quoted in the pack and not left bare: the args are
+    split before they reach the emulator, so an unquoted token expanding to a
+    root with a space in it becomes two arguments."""
+    monkeypatch.setattr(systems_router, "GAMECORE_ROOT", Path(r"C:\Program Files\GameCore"))
+    monkeypatch.setattr(systems_router, "GAMECORE_DATA", Path(r"C:\Program Files\GameCore"))
 
     quoted = systems_router._expand(
         [{"args": "'@GAMECORE_PATH@/lib/probe/probe.exe' --flag"}])[0]["args"]
-    assert shlex.split(quoted) == ["/opt/Game Core/lib/probe/probe.exe", "--flag"]
+    assert split_args(quoted) == [r"C:\Program Files\GameCore/lib/probe/probe.exe", "--flag"]
 
     bare = systems_router._expand(
         [{"args": "@GAMECORE_PATH@/lib/probe/probe.exe --flag"}])[0]["args"]
-    assert shlex.split(bare) == ["/opt/Game", "Core/lib/probe/probe.exe", "--flag"]
+    assert split_args(bare) == [r"C:\Program", r"Files\GameCore/lib/probe/probe.exe", "--flag"]
 
 
 def test_a_bare_relative_argument_is_resolved_by_nobody(monkeypatch):

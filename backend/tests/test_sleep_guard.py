@@ -10,6 +10,8 @@ import asyncio
 import pytest
 
 from backend.services import launch, rest_mode, sleep_guard
+from backend.services.game_session import Session
+from backend.tests.fake_jobs import FakeJob
 
 
 @pytest.fixture
@@ -113,11 +115,7 @@ def test_the_rest_button_and_the_lock_do_not_double_kill(monkeypatch):
     """Rest mode sweeps, then suspends; logind's PrepareForSleep finds nothing left."""
     killed: list[int] = []
 
-    class S:
-        def __init__(self, n):
-            self.session_id, self.pgid, self.game_key, self.system_id = n, n, "g", "s"
-
-    resident = [S(7)]
+    resident = [Session(job=FakeJob(7), game_key="g", system_id="s", session_id=7)]
 
     class PM:
         foreground_session = None
@@ -128,10 +126,11 @@ def test_the_rest_button_and_the_lock_do_not_double_kill(monkeypatch):
 
         async def kill(self, sid):
             killed.append(sid)
+            for session in resident:
+                session.job.terminate()
             resident.clear()
 
     monkeypatch.setattr(rest_mode, "process_manager", PM())
-    monkeypatch.setattr(rest_mode.pm, "_pgid_alive", lambda pgid: False)
     monkeypatch.setattr(sleep_guard, "INHIBIT_CMD", ("cat",))
     monkeypatch.setattr(sleep_guard, "_holder", None)
 

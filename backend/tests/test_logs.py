@@ -29,28 +29,33 @@ def data(tmp_path, monkeypatch):
     paths.use_roots(*before)
 
 
-@pytest.mark.linux_until_port(3)
 def test_a_launch_keeps_what_the_emulator_printed(data, monkeypatch):
+    """A real game started in a real job: its stdout and stderr land in the log."""
     manager = pm.ProcessManager()
-    monkeypatch.setattr(pm, "display_env", AsyncMock(return_value={}))
+    monkeypatch.setattr(pm.session, "launch_blocker", lambda: "")
     monkeypatch.setattr(pm.ws, "broadcast", AsyncMock())
     monkeypatch.setattr(pm.ws, "set_current_game", lambda data: None)
     monkeypatch.setattr(manager, "_save_state", lambda: None)
     monkeypatch.setattr(manager, "_clear_session", lambda: None)
     monkeypatch.setattr(manager, "_watch", AsyncMock())
+    script = ("import os, sys; print('out'); print('err', file=sys.stderr); "
+              "print('dir=' + os.environ['GAMECORE_LOG_DIR'])")
 
     async def scenario():
-        await manager.launch("/bin/sh", "-c 'echo out; echo err >&2; echo dir=$GAMECORE_LOG_DIR'",
+        await manager.launch(sys.executable, f'-c "{script}"',
                              game_key="Some Game (Europe).nds", system_id="melonds")
-        await manager._fg.proc.wait()
+        job = manager._fg.job
+        while job.alive():
+            await asyncio.sleep(0.05)
+        job.close()
 
     asyncio.run(scenario())
     (log,) = (data / "launch" / "melonds").glob("*.log")
     assert "Some_Game_Europe_.nds" in log.name
-    text = log.read_text()
-    assert text.startswith("$ /bin/sh -c")
-    assert "out\n" in text and "err\n" in text
-    assert f"dir={data / 'packs' / 'melonds'}\n" in text, "a pack is told where its own log goes"
+    lines = log.read_text().splitlines()
+    assert lines[0].startswith(f"$ {sys.executable} -c")
+    assert "out" in lines and "err" in lines
+    assert f"dir={data / 'packs' / 'melonds'}" in lines, "a pack is told where its own log goes"
 
 
 def test_only_the_newest_launches_are_kept(data):

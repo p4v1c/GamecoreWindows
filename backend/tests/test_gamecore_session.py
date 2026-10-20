@@ -206,58 +206,6 @@ def test_the_interface_stopping_ends_the_session(box):
     assert "no longer running" in r.stdout
 
 
-# ── the other end: what the backend does with that file ─────────────────────
-
-@pytest.mark.usefixtures("posix_boundary")
-def test_the_backend_takes_the_display_from_the_session_file(tmp_path, monkeypatch):
-    """The pair that closes the loop: the session writes, the backend reads.
-
-    Without it the backend probes — every X socket against every cookie
-    location, on every launch and every standby transition, with a twenty
-    second bound in its own unit for the cold-boot case. That probe stays for
-    boxes that have not migrated and for sessions that are not ours; it is no
-    longer the first answer.
-    """
-    import sys
-    sys.path.insert(0, str(REPO))
-    from backend.services import session as xsession
-
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    monkeypatch.delenv("DISPLAY", raising=False)
-    monkeypatch.delenv("XAUTHORITY", raising=False)
-    # Any probe here would be the failure, not the fallback.
-    monkeypatch.setattr(xsession, "_probe_display",
-                        lambda uid: pytest.fail("the backend probed X instead of reading the session"))
-
-    session = tmp_path / "gamecore" / "session.env"
-    session.parent.mkdir(parents=True)
-    session.write_text("DISPLAY=:7\nXAUTHORITY=/tmp/cookie-7\nSTARTED=2026-09-06T21:00:00Z\n")
-
-    env = xsession._display_env()
-    assert env["DISPLAY"] == ":7"
-    assert env["XAUTHORITY"] == "/tmp/cookie-7"
-
-
-@pytest.mark.usefixtures("posix_boundary")
-def test_no_session_file_means_the_old_behaviour_exactly(tmp_path, monkeypatch):
-    """Every box that has not migrated, and every SSH install."""
-    import sys
-    sys.path.insert(0, str(REPO))
-    from backend.services import session as xsession
-
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    monkeypatch.delenv("DISPLAY", raising=False)
-    monkeypatch.delenv("XAUTHORITY", raising=False)
-    monkeypatch.setattr(xsession, "_probe_cache", None)
-    monkeypatch.setattr(xsession, "_probe_retry_at", 0.0)
-    probed = []
-    monkeypatch.setattr(xsession, "_probe_display", lambda uid: probed.append(uid) or (":3", ""))
-
-    env = xsession._display_env()
-    assert probed, "the fallback probe was skipped on a box with no session file"
-    assert env["DISPLAY"] == ":3"
-
-
 # ── what manages the windows ────────────────────────────────────────────────
 #
 # Recent Plasma ships KWin's X11 binary in its own `kwin-x11` package, so a box

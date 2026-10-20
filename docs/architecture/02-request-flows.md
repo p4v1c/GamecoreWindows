@@ -19,11 +19,13 @@ sequenceDiagram
     r->>pm: is_running? → 409 if busy
     r->>r: rom_path.resolve().relative_to(roms_root) → 403 if outside
     r->>pm: launch(exec_path, exec_args, rom_path, …)
+    pm->>pm: session.launch_blocker() → 409 if not on the TV's desktop
     pm->>pm: _launching = True (synchronous claim)
-    pm->>pm: session.display_env()
-    pm->>emu: create_subprocess_exec(start_new_session=True)
+    pm->>pm: command_line.launch_argv() + session.display_env()
+    pm->>emu: jobs.spawn(): created suspended, put in a new Job Object, resumed
     pm->>ws: set_current_game() + broadcast("game:started")
-    pm->>pm: create_task(_watch())
+    pm->>pm: create_task(_watch()) — polls the job until it is empty
+    r->>r: window_focus.present() or fullscreen_enforcer.enforce()
     ws-->>ui: game:started
     ui->>el: window.gamecore.overlayStart(system_id)
     el->>el: loadOverlayConfig() → config/overlays.json
@@ -34,12 +36,13 @@ sequenceDiagram
     r-->>ui: {ok: true, game_key}
 ```
 
-After the response, `launch_game()` may also schedule two fire-and-forget
-tasks, both driven by optional keys on the system entry:
-
-- `"gamepadTrigger": true` → `_gamepad_trigger()` runs `sudo udevadm trigger`
-  3× at 3 s intervals so Flatpak apps notice the pad.
-- `"fullscreen": {…}` → `fullscreen_enforcer.enforce()`.
+After the spawn, `launch.py` schedules one fire-and-forget task for the new
+game's window: `window_focus.present()` brings its first window to the front
+(Windows keeps the foreground for the interface, which received the player's
+last input), or, when the system entry carries `"fullscreen": {…}`,
+`fullscreen_enforcer.enforce()` makes it borderless fullscreen first.
+`"gamepadTrigger"` is no longer acted on: it re-fired udev for Flatpak, and
+Windows has neither.
 
 ## 2. Ending a game
 
@@ -62,9 +65,8 @@ sequenceDiagram
         Note over pm: _watch() was already awaiting
     end
     r->>pm: kill()
-    pm->>pm: _flatpak_kill() — flatpak kill <app-id>
-    pm->>pm: _proc_kill() — SIGKILL the process group
-    pm->>pm: _watch() wakes: elapsed = now - _start_time
+    pm->>pm: job.terminate() — TerminateJobObject, the whole tree, frozen or not
+    pm->>pm: _watch() sees the job empty: elapsed = played_secs()
     alt elapsed > 5 s
         pm->>pm: INSERT/UPDATE playtime (ON CONFLICT DO UPDATE)
     end
@@ -78,11 +80,36 @@ Why it is built this way:
   UI is buried under a fullscreen emulator anyway.
 - **Double press.** A single Guide press must never kill a game by accident
   (`GUIDE_DOUBLE_PRESS_MS`, mirrored in the frontend hook).
-- **`flatpak kill` first.** SIGTERM to the `flatpak` wrapper never reaches the
-  sandboxed app.
-- **SIGKILL, never SIGTERM.** Several emulators answer SIGTERM with a
-  confirmation dialog nobody can click from a gamepad.
+- **The job, never one process.** A launcher that starts the game and exits,
+  or a game with helper processes, dies whole.
+- **Terminate, never a polite close.** Several emulators answer a close
+  request with a confirmation dialog nobody can click from a gamepad.
 - **The 5 s floor.** An emulator that dies instantly is not a play session.
+
+## 2b. Suspending and resuming a game
+
+```mermaid
+sequenceDiagram
+    participant ui as React
+    participant pm as process_manager
+    participant wf as window_focus
+    participant job as the game's Job Object
+
+    ui->>pm: POST /api/games/background (double Home)
+    pm->>wf: hide() — the interface's window to the front
+    pm->>job: suspend() — NtSuspendProcess on every process
+    pm-->>ui: game:backgrounded + state_snapshot
+    ui->>pm: POST /api/games/foreground
+    pm->>wf: hide() + outgoing.suspend() — if an app held the screen
+    pm->>job: resume() — NtResumeProcess on every process
+    pm->>wf: activate() — the game's windows to the front
+    pm-->>ui: game:foregrounded + state_snapshot
+```
+
+The interface goes in front **before** the freeze: a frozen window that has
+the foreground never answers the activation messages, and Windows then
+refuses to put it behind. Suspends and resumes are serialised (`_switching`);
+each one awaits a window move before it freezes.
 
 ## 3. Resolving a cover
 
