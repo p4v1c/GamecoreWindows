@@ -44,3 +44,24 @@ contextBridge.exposeInMainWorld('gamecore', {
   // The machine woke from sleep (electron/power.js)
   onResume: (cb) => ipcRenderer.on('power:resume', () => cb()),
 })
+
+// The pointer hides until the mouse moves, and again after CURSOR_IDLE_MS
+// without a move: what unclutter did on Linux. Only over this window; a game
+// hides its own.
+const CURSOR_IDLE_MS = 5000
+const CURSOR_IDLE_CLASS = 'gc-cursor-idle'
+
+window.addEventListener('DOMContentLoaded', () => {
+  const style = document.createElement('style')
+  style.textContent = `html.${CURSOR_IDLE_CLASS}, html.${CURSOR_IDLE_CLASS} * { cursor: none !important; }`
+  document.head.appendChild(style)
+  const root = document.documentElement
+  let timer = null
+  const hide = () => root.classList.add(CURSOR_IDLE_CLASS)
+  hide()
+  window.addEventListener('mousemove', () => {
+    root.classList.remove(CURSOR_IDLE_CLASS)
+    clearTimeout(timer)
+    timer = setTimeout(hide, CURSOR_IDLE_MS)
+  }, { passive: true })
+})

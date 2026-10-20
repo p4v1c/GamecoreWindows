@@ -79,6 +79,11 @@ onResume(cb)
 Typed for the UI in `frontend/src/gamecore.d.ts` (`GamecoreAPI`).
 Every call is a one-way `ipcRenderer.send` except the `onResume` listener.
 
+The preload also hides the pointer over the window: from the first frame, back
+on a mouse move, hidden again after `CURSOR_IDLE_MS` (5 s) without one, through
+a `gc-cursor-idle` class on `<html>`. On Linux `start-ui.sh` ran `unclutter`
+X-wide; on Windows a game hides its own pointer.
+
 ## IPC handlers
 
 | Channel | Handler |
