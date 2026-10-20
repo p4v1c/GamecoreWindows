@@ -17,6 +17,14 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition: the bezel overlay is gone (owner's decision), window,
+  backend and per-game choice alike. `config/overlays.json`, `assets/overlays/`
+  and the `bezel-*.json` caches of an imported Linux box are no longer read;
+  they can be deleted. The Electron shell runs on Windows: restart and turn off
+  through `shutdown.exe`, Desktop mode starts Explorer, the pointer hides over
+  the interface, and the logon task must start it with `GAMECORE_MANAGED=1`
+  (port step 7).
+
 - Rest mode and every other sleep turn the Bluetooth pads off first, as a
   console does: an Xbox pad left to the kernel paged back and woke the box at
   once. The pad's home button still wakes it. No operator step.

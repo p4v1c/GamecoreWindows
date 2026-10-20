@@ -15,10 +15,10 @@ isolates the roots and the home, and skips the marked tests below; a catalog
 pack's tests rely on it. The owner may be playing on the same PC: start a long
 run at low priority (`Start-Process -Priority BelowNormal`).
 
-The tree holds about 2 950 tests, 4 of which need the network. On Windows
-355 are Linux-only for now (next section) and 54 skip on missing data or tools:
-seeds with no controller block, maps already
-gone, and a release tag (the Windows repository has none until step 8).
+The tree holds about 2 600 tests, 4 of which need the network. On Windows
+371 are Linux-only for now (next section) and 27 skip on missing data or tools:
+seeds with no controller block, maps already gone, and a release tag (the
+Windows repository has none until step 8).
 
 ## Linux code the port has not replaced yet — `linux_until_port`
 
