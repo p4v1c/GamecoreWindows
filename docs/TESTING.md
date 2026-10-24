@@ -104,6 +104,18 @@ home".
 - The event loop's self-pipe is a socket pair built with `connect()`; patch
   `socket.connect` only once the app runs (`test_boot_ready.py`).
 
+## The PowerShell installer
+
+`backend/tests/test_install_*.py` drive `install/` through
+`backend/tests/powershell_harness.py`: each case is a script that dot-sources
+the installer, defines fake functions for every cmdlet and program the step
+calls (a function shadows a cmdlet of the same name), and prints what the fakes
+noted as JSON. Nothing reaches the machine: files go to `tmp_path`, and
+`GAMECORE_STATE_DIR` moves the install record there. A fake that defines a
+variable the step also uses shadows it: the harness's own table is `$GcTest`.
+Each case starts a `powershell.exe` (about half a second). The details are in
+[11](architecture/11-install-script-seams.md#tests).
+
 ## The suite used to be decorative
 
 Every test file kept its whole body inside a `main()` behind

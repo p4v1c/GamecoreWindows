@@ -1,53 +1,54 @@
-# gamecore-install.conf — everything arch.sh --unattended needs.
-# The graphical installer generates this file for you; it is documented
-# here for scripted installs and the GameCore OS ISO.
+# install.conf - everything install\install.ps1 -Unattended needs.
+#   .\install\install.ps1 -ConfigFile install.conf -Unattended
+# KEY=value, one per line; quote a value that holds spaces or a '#'.
+# This file holds secrets in clear text: keep it out of git and delete it once
+# the install is done.
 
-USER_NAME=pavic                 # required — Linux user running GameCore
-GAMECORE_PATH=/opt/GameCore
+# The Windows account GameCore runs in: signed in automatically, the logon task
+# runs as it. Default: the account running the installer.
+#USER_NAME=pavic
+
+# Where the code goes (read-only for the player). Default: C:\Program Files\GameCore
+#GAMECORE_PATH=C:\Program Files\GameCore
+
+# Where the player's data lives: ROMs, saves, covers, config. Default:
+# <Documents of USER_NAME>\GameCore. Another NTFS volume works too. Avoid a
+# folder OneDrive syncs: ROMs and saves would upload.
+#GAMECORE_DATA=D:\GameCoreData
+
+# The backend's port on 127.0.0.1, and the LAN port Caddy serves (HTTPS).
 WEB_PORT=8765
-# Where the player's data lives — ROMs, saves, covers, config.
-# Absent, it defaults to GAMECORE_PATH, which is where every GameCore before the
-# split kept it. Do NOT "fix" that default: the code reading it ships over OTA
-# to boxes whose data really is inside the install, and pointing them at
-# /userdata would show them an empty library.
-# A NEW box sets it here and gets the split from day one. The ISO's guided
-# install writes GAMECORE_DATA=/userdata into this file by itself.
-#GAMECORE_DATA=/userdata
-MODE=full                       # full | minimal
-# "all" or a space-separated subset of:
-#   azahar rpcs3 pcsx2 dolphin melonds gopher64 mgba ppsspp cemu ryujinx
-#   shadps4 duckstation xenia
-EMULATORS='all'
-# Applications — "all" or a space-separated subset of:
-#   twitch stremio steam youtube
-# Unchecked apps are neither installed nor shown as tiles in the UI.
-APPS='all'
-# gamecore-addons modules to install (space-separated)
-ADDONS='rom-manager'
-# Optional API keys — leave empty to skip
-TWITCH_CLIENT_ID=''
-TWITCH_CLIENT_SECRET=''
+LAN_PORT=8443
+
+# 1 = sign USER_NAME in automatically at boot. Its password is never read from
+# this file: an unattended install skips it and says to run
+#   .\install\install.ps1 -Only configure-autologon
+# at the PC, which asks for it and stores it as an LSA secret.
+AUTOLOGON=1
+
+# 1 = install and start OpenSSH Server, reachable from private networks only.
+SSH=1
+
+# Optional API keys - leave empty to skip.
 TGDB_API_KEY=''
 
-# ScreenScraper — box art, 3D boxes, screenshots, videos and synopses, matched
+# ScreenScraper - box art, 3D boxes, screenshots, videos and synopses, matched
 # by file hash rather than by filename. Leave empty to skip: covers then resolve
-# exactly as they did before, from the embedded icon, GameTDB and libretro.
+# from the embedded icon, GameTDB and libretro.
 #
 # TWO levels, both required, and they are not the same account:
-#   · developer — granted per software on the ScreenScraper forum. SS_DEV_ID is
-#                 the developer PSEUDONYM, not the number in the devinfos.php
-#                 URL. jeuInfos.php answers 403 without it.
-#   · member    — your own screenscraper.fr account. It carries the daily quota
-#                 and the number of threads allowed.
+#   developer - granted per software on the ScreenScraper forum. SS_DEV_ID is
+#               the developer PSEUDONYM, not the number in the devinfos.php URL.
+#   member    - your own screenscraper.fr account. It carries the daily quota
+#               and the number of threads allowed.
 #
-# The installer writes them to /etc/systemd/system/gamecore-backend.service.d/
-# override.conf (mode 600). This conf file holds them in clear text too: keep it
-# out of git and delete it once the install is done.
+# The installer writes them to %ProgramData%\GameCore\session.env, readable by
+# administrators only.
 SS_DEV_ID=''
 SS_DEV_PASSWORD=''
 SS_USER=''
 SS_PASSWORD=''
 
-# Web login password (phase 3) — required for the LAN interface.
-# Empty/absent = LAN stays locked until "gamecore-addon auth-reset".
-WEB_PASSWORD=""
+# Web login password, required for web access from the LAN. Empty = asked
+# during an interactive install; an unattended one leaves web access locked.
+WEB_PASSWORD=''
