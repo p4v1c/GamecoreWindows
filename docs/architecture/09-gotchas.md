@@ -54,11 +54,10 @@ inflate the library stats.
 **In-memory state whose effect is on disk (or in the X server) needs a
 startup reconciliation.** Two instances of the same bug:
 
-- Standby is a module variable, but `xset dpms force off` belongs to the X
-  server, which SDDM owns and which does not restart with the backend. A box
-  asleep when the backend restarted came back believing it was awake with the TV
-  dark, and no button could wake it. The lifespan now forces the screen on
-  unconditionally.
+- Standby is a module variable, but a screen turned off stays off when the
+  backend restarts. A box asleep when the backend restarted came back believing
+  it was awake with the TV dark, and no button could wake it. The lifespan now
+  forces the screen on unconditionally.
 - The running game lived only in `_proc`. A restarted backend saw
   `is_running == False`, so `kill()` returned immediately and the emulator was
   fullscreen and unkillable. The job's name is persisted to

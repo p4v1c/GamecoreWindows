@@ -85,8 +85,6 @@ logged on to the console, the backend in another session), `desktop()` names
 the session, user and primary display, `display_env()` is the environment a
 game starts with (the backend's own plus `SDL_GAMECONTROLLERCONFIG_FILE`).
 See [1](01-runtime-topology.md#on-windows-the-backend-runs-in-the-console-users-session).
-`wayland_env()` / `kscreen_available()` are Linux helpers `display.py`,
-`standby.py` and `desktop_power.py` still call (steps 5 and 7).
 
 ### `window_focus.py` — who is in front
 
@@ -225,65 +223,47 @@ HUD instead, because the React toast is hidden under the emulator.
 |---|---|
 | `load_config()` / `save_config(cfg)` | `config/standby.json` |
 | `get_state()` | `active` / `screensaver` / `asleep` |
-| `_run_cmd(*argv)` | helper, returns success |
-| `_screen(on)` | DPMS on/off |
-| `_governor(gov)` | `cpupower frequency-set -g …` — optional, needs a sudoers rule |
-| `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before DPMS |
+| `_power(action, *args)` | the one door to `platform/power.py` (in a thread); `None` when Windows refused; the suite replaces it |
+| `_screen(on)` | `screen_on()` / `screen_off()` |
+| `_signal_user_activity()` | `signal_activity()`: Windows' display and sleep idle timers restart, nothing held |
+| `_governor(gov)` | `powersave`: the Power saver plan, remembering the active one; `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
+| `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before the screen goes off |
 | `ui_dark()` | the UI's fade to black is over (`POST /api/standby/dark`) |
 | `exit_standby()` | wake — **unconditional** |
 | `resume_after_restart()` | called from the lifespan; forces the screen on at startup |
-| `on_input()` | called from the evdev loop on any controller button |
-| `_ensure_timers_owned(enabled)` | re-asserts `desktop_power.claim()` (standby on) or `claim_x()` (standby off), at most once a minute |
+| `on_input()` | called from `gamepad_monitor`'s read loop on any controller input |
+| `_ensure_timers_owned(enabled)` | re-asserts `desktop_power.claim()` while standby is on, at most once a minute |
 | `run()` | the idle poll loop |
 
-A running game blocks standby entirely — GameCore's standby, which is not the
-only one on the box.
+A running game blocks standby entirely: GameCore's standby, which is not the
+only one on the PC.
 
-**Blocking GameCore's own standby is not enough, and a film going dark mid-play
-is how that was found.** Nothing in the journal accused the watcher, and it was
-innocent: Stremio for 27 minutes, melonDS for 43, Ryujinx for 74, and not one
-`active → screensaver` in any of them. What blanked the television was the
-**X server**. GameCore's session is an X11 session
-(`/usr/share/xsessions/gamecore.desktop` → `gamecore-session` → `kwin_x11`) and
-PowerDevil is not running in it, but a real X server is — with its own screen
-saver and its own DPMS delays, which nothing ever reset: a DualShock 4's buttons
-are tagged `ID_INPUT_JOYSTICK`, which the X server does not count as input, so a
-film in a kiosk browser is perfect silence to it.
+**Windows has its own idle timers, and they cannot see a gamepad.** XInput
+and HID pad input do not reset them, so the active plan's "turn off the
+display" would blank a film or a pad-only menu at its own fifteen minutes,
+whatever Settings → Standby says. Two mechanisms:
 
-`_signal_user_activity()` cannot cover that. It speaks to
-`org.freedesktop.ScreenSaver`, which in GameCore's own session **nobody owns** —
-the box said `ServiceUnknown: The name is not activatable` fifteen times a
-minute for the whole of every game. It is a best effort for the desktop session,
-not the protection.
+- `_signal_user_activity()` restarts those timers on pad input (throttled to
+  one call per `_ACTIVITY_SIGNAL_GAP`) and on every tick during a game. Never
+  held with `ES_CONTINUOUS`: a hold would outlive a crashed backend and the
+  PC would never sleep again.
+- `desktop_power.claim()` takes the timers themselves while standby is on:
+  "turn off the display" and "sleep after", on AC and battery, set to never,
+  the previous values written down so `release()` can hand them back.
+  `_tick()` re-asserts the claim, before the early return it takes for a
+  foreground game: the owner may change the plan from Windows' own settings in
+  desktop mode.
 
-What protects it is `desktop_power.claim()`, which takes the idle timers
-themselves (both arms: PowerDevil's screen-off *and* `xset s` / `xset dpms`).
-That claim cannot be made once at startup and left: the backend is a **system**
-service and starts at boot, before any session exists — boot at 07:39:06, the
-session's compositor at 07:39:20 — and each switch between GameCore's session
-and the desktop is a new X server with its delays back at the default. So
-`_tick()` re-asserts it, before the early return it takes for a foreground game.
+Standby switched off releases the timers (`main.py`, `POST /api/standby/config`)
+and nothing re-takes them: Windows' own timings decide, as the owner set them
+in Windows.
 
-The X arm is never handed back, even with standby switched off: X's delays
-cannot see a pad or a game, and handing them back blanked Ryujinx ten minutes
-in. Standby off keeps X's timers at zero (`claim_x()`) and only gives the
-desktop's PowerDevil timeout back (`release()`).
-
-**The state is in memory; its effect is not.** `xset dpms force off` is a
-property of the X server, and X belongs to SDDM — it does not restart with the
-backend. So a box asleep when the backend restarted (crash, `systemctl restart`,
-the end of an OTA) came back holding `_state == "active"` with the TV still
-dark. `on_input()` tests `_state != "active"` before waking, so a button press
-did nothing; pad events arrive over evdev rather than X, so DPMS never re-armed
-by itself; and `POST /api/standby/exit` returned at its first line. SSH or a USB
-keyboard were the only ways out.
-
-Hence both halves: `resume_after_restart()` in the lifespan repairs a box already
-in that state, and `exit_standby()` no longer short-circuits on
-`_state == "active"` — asking to wake up is never a no-op.
-
-`_run_cmd` awaits `session.display_env()` for the environment of the tools it
-runs (on Linux a display probe that could block for seconds stood behind it).
+**The state is in memory; its effect is not.** A screen turned off by the
+previous backend stays off across a crash, a restart or an OTA, while the new
+process starts at `_state == "active"`. Hence both halves:
+`resume_after_restart()` in the lifespan repairs a PC already in that state, and
+`exit_standby()` no longer short-circuits on `_state == "active"`: asking to
+wake up is never a no-op.
 
 ---
 
@@ -900,10 +880,13 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `radios.py` | `enabled(kind)`, `set_enabled(kind, on)`, `read_state(state)` | WinRT `Radio` for `WIFI` and `BLUETOOTH`: the quick-settings switches; `RadioBlocked` when disabled below Windows | `nmcli radio wifi`, rfkill |
 | `bluetooth.py` | `paired_devices()`, `scan(seconds)`, `pair(mac)`, `unpair(mac)`, `format_address(raw)` | WinRT association endpoints of the classic and LE protocols (address, connected, paired); a scan watches both for `seconds` and drops unnamed LE advertisers (random-address phones and beacons, 20 of 28 in one measured scan); pairing answers Windows' confirm / display-PIN requests | `bluetoothctl` |
 | `display.py` | `primary_output()`, `modes(output)`, `current_mode(output)`, `apply_mode(output, w, h, rate, persist)`, `display_ready()`, `unique_modes(raw)` | Win32 `EnumDisplaySettingsW` / `ChangeDisplaySettingsExW` on the primary display; one mode per size and whole-hertz rate (Windows lists each once per scaling option); `persist` = `CDS_UPDATEREGISTRY` with `CDS_NORESET` (registry only, no second mode change) | `xrandr`, `kscreen-doctor`, `/sys/class/drm` |
+| `power.py` | `screen_off()`, `screen_on()`, `signal_activity()` | `SC_MONITORPOWER` posted to every top-level window; on adds a zero-length `SendInput` mouse move (what lights a panel Windows turned off) and `signal_activity()`; `SetThreadExecutionState` once, without `ES_CONTINUOUS` | `xset dpms`, `kscreen-doctor --dpms`, `SimulateUserActivity` |
+| | `idle_timeouts()`, `set_idle_timeouts(values)` | the active plan's display and sleep timeouts on AC and battery, in seconds, 0 = never (PowrProf `PowerRead/WriteAC/DCValueIndex`, then the plan re-applied) | PowerDevil's `TurnOffDisplayIdleTimeoutSec`, `xset s` / `xset dpms` |
+| | `active_scheme()`, `set_active_scheme(guid)`, `POWER_SAVER` | the power plan | `cpupower frequency-set -g` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 

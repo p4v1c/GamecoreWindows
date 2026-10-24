@@ -30,13 +30,16 @@ import pytest
 
 from backend.services import standby
 
+# Read at import, before conftest's session guard replaces it.
+REAL_POWER = standby._power
+
 
 @pytest.fixture(autouse=True)
 def quiet_screen(monkeypatch):
-    """xset and cpupower are not this file's business."""
-    async def fake_run_cmd(*argv, **kw):
+    """The screen and the power plan are not this file's business."""
+    async def fake_power(*argv, **kw):
         return True
-    monkeypatch.setattr(standby, "_run_cmd", fake_run_cmd)
+    monkeypatch.setattr(standby, "_power", fake_power)
 
 
 @pytest.fixture(autouse=True)
@@ -177,12 +180,12 @@ def session_calls(quiet_screen, monkeypatch):
         calls.append(argv)
         return True
 
-    monkeypatch.setattr(standby, "_run_cmd", recording)
+    monkeypatch.setattr(standby, "_power", recording)
     return calls
 
 
 def signals(calls) -> list[tuple]:
-    return [c for c in calls if c and c[0] == "gdbus"]
+    return [c for c in calls if c and c[0] == "signal_activity"]
 
 
 def test_a_tick_during_a_game_tells_the_session_somebody_is_playing(playing, session_calls):
@@ -274,68 +277,59 @@ def test_never_is_not_zero_minutes(not_playing):
     assert standby.get_state() == "active"
 
 
-# ── which tool actually turns this box's screen off ──────────────────────────
-#
-# `xset dpms` was the only backend, and on the reference box it does nothing at
-# all: the session is Plasma on Wayland and XWayland carries no DPMS extension.
-# Measured there, with the television already blanked by the session's own
-# power manager:
-#
-#     kscreen-doctor --dpms show   →  off
-#     kscreen-doctor --dpms on     →  on
-#
-# routers/settings/display.py had already learned this for resolution and picks
-# its tool at runtime; standby went on calling xset. Same choice, one place.
+# ── the screen and the plan go through `_power`, one call each ───────────────
 
-def test_a_wayland_box_asks_kscreen(monkeypatch, session_calls):
-    monkeypatch.setattr(standby, "kscreen_available", lambda: True)
-    monkeypatch.setattr(standby, "wayland_env", lambda: {})
+def test_the_screen_is_turned_on_and_off_through_windows(session_calls):
     asyncio.run(standby._screen(True))
-    assert ("kscreen-doctor", "--dpms", "on") in session_calls
-    assert not [c for c in session_calls if c and c[0] == "xset"]
-
-
-def test_an_x11_box_still_asks_xset(monkeypatch, session_calls):
-    # The other half of the runtime choice: kscreen-doctor is installed on an
-    # X11 KDE box too, where xset is the tool that works.
-    monkeypatch.setattr(standby, "kscreen_available", lambda: False)
     asyncio.run(standby._screen(False))
-    assert ("xset", "dpms", "force", "off") in session_calls
+    assert session_calls == [("screen_on",), ("screen_off",)]
 
 
-def test_kscreen_failing_falls_back_to_xset(monkeypatch):
-    tried: list[tuple] = []
+@pytest.fixture
+def plans(monkeypatch):
+    """A fake power plan: `active` is what Windows reports, `calls` what was asked."""
+    state = {"active": "381b4222-f694-41f0-9685-ff5bb260df2e", "calls": [], "saver": True}
 
-    async def kscreen_is_broken(*argv, **kw):
-        tried.append(argv)
-        return argv[0] != "kscreen-doctor"
+    async def power(action, *args):
+        state["calls"].append((action, *args))
+        if action == "active_scheme":
+            return state["active"]
+        if action == "set_active_scheme":
+            if args[0] == standby.platform_power.POWER_SAVER and not state["saver"]:
+                return None             # no Power saver plan on this PC
+            state["active"] = args[0]
+        return True
 
-    monkeypatch.setattr(standby, "_run_cmd", kscreen_is_broken)
-    monkeypatch.setattr(standby, "kscreen_available", lambda: True)
-    monkeypatch.setattr(standby, "wayland_env", lambda: {})
-    asyncio.run(standby._screen(True))
-    assert [c[0] for c in tried] == ["kscreen-doctor", "xset"]
-
-
-# ── "it exited 0" is not "it worked" ─────────────────────────────────────────
-#
-# The most expensive thing that was wrong, because it is the one nobody can
-# see. This is the real output of `xset dpms force on` against XWayland, and
-# xset exits 0 after printing it.
-
-XSET_ON_XWAYLAND = (
-    "server does not have extension for dpms option\n"
-    "xset:  unknown option force\n"
-    "usage:  xset [-display host:dpy] option ...\n"
-)
+    monkeypatch.setattr(standby, "_power", power)
+    monkeypatch.setattr(standby, "_plan_before_sleep", None)
+    return state
 
 
-def test_xsets_polite_refusal_is_a_failure():
-    assert standby._reported_nothing_done(XSET_ON_XWAYLAND)
+def test_the_sleep_stage_switches_to_power_saver_and_back(plans):
+    balanced = plans["active"]
+    asyncio.run(standby._governor("powersave"))
+    assert plans["active"] == standby.platform_power.POWER_SAVER
+    asyncio.run(standby._governor("performance"))
+    assert plans["active"] == balanced
 
 
-def test_a_command_that_says_nothing_is_a_success():
-    # kscreen-doctor prints nothing on success, and cpupower prints its new
-    # governor. Neither must be read as a refusal.
-    assert not standby._reported_nothing_done("")
-    assert not standby._reported_nothing_done("Setting cpu: 0\n")
+def test_a_pc_without_power_saver_keeps_its_plan(plans):
+    plans["saver"] = False
+    balanced = plans["active"]
+    asyncio.run(standby._governor("powersave"))
+    asyncio.run(standby._governor("performance"))
+    assert plans["active"] == balanced
+    assert ("set_active_scheme", balanced) not in plans["calls"]
+
+
+def test_a_wake_with_no_sleep_before_it_changes_no_plan(plans):
+    asyncio.run(standby._governor("performance"))
+    assert plans["calls"] == []
+
+
+def test_a_call_windows_refuses_is_logged_not_raised(monkeypatch):
+    def refuse(*args):
+        raise OSError("PowerSetActiveScheme refused")
+    monkeypatch.setattr(standby.platform_power, "set_active_scheme", refuse)
+    monkeypatch.setattr(standby, "_power", REAL_POWER)
+    assert asyncio.run(standby._power("set_active_scheme", "x")) is None

@@ -1,6 +1,6 @@
 """A stand-in for `platform/display.py`: no test may change a real screen.
 
-`screen` (the fixture) replaces the four calls `display.py` makes. Each apply is
+`fake_screen` (the fixture) replaces the four calls `display.py` makes. Each apply is
 recorded as `(width, height, rate, persist)`; `refuse` names modes the driver
 turns down; `playing` makes a game resident.
 """
@@ -48,7 +48,7 @@ class FakeScreen:
 
 
 @pytest.fixture
-def screen(monkeypatch):
+def fake_screen(monkeypatch):
     fake = FakeScreen()
     monkeypatch.setattr(platform_display, "primary_output", fake.primary_output)
     monkeypatch.setattr(platform_display, "modes", fake.list_modes)

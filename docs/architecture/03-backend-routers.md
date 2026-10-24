@@ -22,11 +22,9 @@ Routers parse, validate and delegate; the logic lives in
 
 1. **`standby.resume_after_restart()`** — forces the screen back on
    unconditionally. Standby state is a module variable but its effect is not:
-   `xset dpms force off` belongs to the X server, which SDDM owns and which does
-   not restart with the backend. A box asleep when the backend restarted came
-   back believing it was awake with the TV dark, and nothing could wake it (pad
-   events arrive over evdev, not X, so DPMS never re-armed). Restarting the
-   backend is what a stuck user will try — so that is what now fixes it.
+   a screen turned off by the previous backend stays off, and the new one
+   would believe it awake. Restarting the backend is what a stuck user will
+   try, so that is what fixes it.
 2. **`process_manager.adopt_orphan()`** — re-attaches to a game a previous
    process left running, so the double-PS shortcut can still close it. See
    `config/session.json` in doc 7.
@@ -294,8 +292,8 @@ and an async `_run(*args)`.
 
 ### `settings/display.py` — resolution, refresh rate, UI scale
 
-Thin: six endpoints over `backend/services/display.py`, which picks
-`kscreen-doctor` (Wayland) or `xrandr`, arms the revert timer and writes
+Thin: six endpoints over `backend/services/display.py`, which sets the mode
+through `platform/display.py`, arms the revert timer and writes
 `config/display.json` / `config/ui-scale.json`. `DisplayError(status, detail)`
 becomes the HTTP error.
 

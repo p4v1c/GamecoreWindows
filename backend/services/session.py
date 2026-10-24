@@ -7,49 +7,13 @@ game it starts inherits that desktop: no `DISPLAY` or `XAUTHORITY` to rebuild,
 as the Linux service had to. `launch_blocker()` says when that is not true
 (the backend started as a service in session 0, a Remote Desktop session on
 the console), so a launch is refused instead of opening where nobody sees it.
-
-`wayland_env()` and `kscreen_available()` are the Linux display helpers
-`display.py`, `standby.py` and `desktop_power.py` still call; they leave with
-those modules (port steps 5 and 7).
 """
 import logging
 import os
-import shutil
-from pathlib import Path
 
 from .platform import console_session
 
 log = logging.getLogger(__name__)
-
-
-def wayland_env() -> dict | None:
-    """The session env a Wayland client needs, or None if there is no Wayland.
-
-    Discovered rather than assumed: the socket is `wayland-0` on most boxes and
-    is not guaranteed to be, and a hardcoded name would make callers silently
-    fall back to the tool that cannot work here.
-    """
-    uid = os.getuid()
-    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{uid}"
-    try:
-        sockets = sorted(p.name for p in Path(runtime).glob("wayland-*")
-                         if not p.name.endswith(".lock"))
-    except OSError:
-        return None
-    if not sockets:
-        return None
-    env = os.environ.copy()
-    env["XDG_RUNTIME_DIR"] = runtime
-    env["WAYLAND_DISPLAY"] = sockets[0]
-    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus")
-    return env
-
-
-def kscreen_available() -> bool:
-    """True when KDE's own screen client is here AND there is a Wayland session
-    for it to talk to. Both halves matter: kscreen-doctor exists on an X11 KDE
-    box too, where xset is the right tool and this one is not."""
-    return bool(shutil.which("kscreen-doctor")) and wayland_env() is not None
 
 
 # Community-maintained button/axis mappings (github.com/mdqinc/SDL_GameControllerDB).
