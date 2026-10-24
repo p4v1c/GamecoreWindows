@@ -100,6 +100,7 @@ import pytest as _pytest  # noqa: E402
 
 from backend.tests.posix_boundary import posix_boundary  # noqa: E402,F401  (fixture)
 from backend.tests.fake_jobs import spawner  # noqa: E402,F401  (fixture)
+from backend.tests.fake_display import screen  # noqa: E402,F401  (fixture)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -154,3 +155,22 @@ def _no_real_commands_from_the_suite():
     yield
     (standby._run_cmd, desktop_power._run, bt_wake._busctl,
      resume.LOGIND_MONITOR, sleep_guard.INHIBIT_CMD) = originals
+
+
+# ── This PC is not a test bench: no platform call that changes it ────────────
+#
+# The Windows calls that change the machine (display mode, ...) are replaced
+# for the whole session; a test that needs one fakes it on top
+# (`fake_display.screen`). Reads stay real: they change nothing.
+
+
+@_pytest.fixture(autouse=True, scope="session")
+def _no_machine_changes_from_the_suite():
+    from backend.services.platform import display as platform_display
+
+    def no_screen(*args, **kwargs):
+        return False, "no screen under test"
+
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(platform_display, "apply_mode", no_screen)
+        yield

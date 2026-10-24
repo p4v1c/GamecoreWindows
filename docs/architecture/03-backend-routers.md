@@ -301,9 +301,9 @@ becomes the HTTP error.
 
 | Route | Notes |
 |---|---|
-| `GET /settings/display` | modes, current, backend, `pending`, `revert_secs` |
+| `GET /settings/display` | modes, current, backend (`windows`), `pending`, `revert_secs` |
 | `POST /settings/display/mode` | 409 while a game is resident · 400 mode not advertised · arms the revert timer |
-| `POST /settings/display/confirm` | keeps the mode and persists it — the only writer of `display.json` |
+| `POST /settings/display/confirm` | keeps the mode and persists it (registry and `display.json`) — the only writer of `display.json` |
 | `POST /settings/display/revert` | goes back now |
 | `GET/POST /settings/display/scale` | one of `SCALES`; applied by the front end as a zoom |
 

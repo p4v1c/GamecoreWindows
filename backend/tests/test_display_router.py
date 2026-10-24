@@ -1,397 +1,172 @@
 """/api/settings/display — the mode, and the way back from a bad one.
 
-**No test here may change the developer's screen.** Both tools are stubbed in
-every one of them, and `_kscreen_available` is forced rather than left to
-answer: the machine this suite runs on IS a Plasma Wayland box, so a test that
-reached the real chooser would run `kscreen-doctor output.HDMI-A-1.mode.N` and
-change the screen of whoever ran it. Run for real, this is the module that puts
-a machine into a mode its monitor may refuse.
+**No test here may change the developer's screen.** `platform/display.py` is
+replaced in every test (`screen`, `fake_display.py`): run for real, this is the
+module that puts a machine into a mode its monitor may refuse.
 """
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-
-from backend.main import app                                    # noqa: E402
-from backend.services import display                            # noqa: E402
-
-QUERY = """Screen 0: minimum 320 x 200, current 1920 x 1080, maximum 16384 x 16384
-HDMI-A-1 connected primary 1920x1080+0+0 (normal left inverted right x axis y axis) 700mm x 390mm
-   1920x1080     60.00*+  50.00    59.94
-   1680x1050     59.95
-   1280x720      60.00    50.00
-DP-1 disconnected (normal left inverted right x axis y axis)
-"""
+from backend.routers.settings import display as display_router
+from backend.services import display
+from backend.services.errors import ServiceError
+from backend.services.platform import display as platform_display
+from backend.tests.fake_display import OUTPUT
 
 
 @pytest.fixture
 def client():
+    app = FastAPI()
+    app.include_router(display_router.router, prefix="/api")
+
+    @app.exception_handler(ServiceError)
+    async def _service_error(_request, exc):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
     return TestClient(app)
 
 
-@pytest.fixture(autouse=True)
-def _clean():
-    """No test inherits another's armed timer — it would revert a mode the next
-    test never set."""
-    display._cancel_pending()
-    yield
-    display._cancel_pending()
+def _set(client, width, height, rate):
+    return client.post("/api/settings/display/mode",
+                       json={"width": width, "height": height, "rate": rate})
 
 
-KSCREEN = """Output: 1 HDMI-A-1 7038548a-81b0-4ac0-98f9-119c3723fadf
-	enabled
-	connected
-	Modes:  1:1920x1080@60.00*!  2:1920x1080@60.00  3:1920x1080@59.94  4:1920x1080@50.00  5:1280x720@60.00
-	Geometry: 0,0 1920x1080
-"""
+# ── what it reads ───────────────────────────────────────────────────────────
+
+def test_the_state_lists_the_modes_and_the_live_one(client, screen):
+    body = client.get("/api/settings/display").json()
+    assert body["output"] == OUTPUT and body["backend"] == "windows"
+    assert body["current"] == {"width": 1920, "height": 1080, "rate": 60.0}
+    assert {"width": 1280, "height": 720, "rate": 50.0} in body["modes"]
+    assert body["pending"] is False and body["revert_secs"] == display.REVERT_SECS
 
 
-@pytest.fixture
-def xrandr(monkeypatch):
-    """Every xrandr call, captured and answered — on a box with no Wayland."""
-    state = {"calls": [], "query": QUERY, "code": 0}
-
-    async def fake_run(*args):
-        state["calls"].append(list(args))
-        if "--query" in args:
-            return 0, state["query"]
-        return state["code"], "" if state["code"] == 0 else "xrandr: cannot find mode"
-
-    monkeypatch.setattr(display, "_run", fake_run)
-    # Forced, not asked: this suite runs on a Wayland box.
-    monkeypatch.setattr(display, "_kscreen_available", lambda: False)
-    # `is_running` is a read-only property, so it is replaced on the class
-    # rather than on the instance — patching the instance raises, and patching
-    # it away entirely would stop this suite from testing the refusal at all.
-    #
-    # `is_running` and not `current_game`: the refusal is about a session being
-    # RESIDENT, because a suspended emulator still holds the swapchain that a
-    # mode change would invalidate, and answers None to `current_game`.
-    monkeypatch.setattr(type(display.process_manager), "is_running",
-                        property(lambda self: bool(state.get("playing"))))
-    return state
-
-
-# ── reading what the output offers ──────────────────────────────────────────
-
-def test_the_live_mode_is_the_one_marked_with_a_star():
-    data = display.parse_modes(QUERY)
-    assert data["output"] == "HDMI-A-1"
-    assert data["current"] == {"width": 1920, "height": 1080, "rate": 60.00}
-
-
-def test_a_rate_can_be_both_current_and_preferred():
-    """xrandr writes `60.00*+` for a mode that is live AND the monitor's
-    preferred one. Testing the marker for equality instead of membership loses
-    the current mode on every well-behaved monitor."""
-    data = display.parse_modes(QUERY)
-    rates = [m["rate"] for m in data["modes"] if m["height"] == 1080 and m["width"] == 1920]
-    assert rates == [60.00, 50.00, 59.94]
-
-
-def test_a_second_connected_output_is_left_alone():
-    """Two screens need a layout, not a mode. Picking one at random moves a
-    picture the owner cannot see, so the first connected output is the only one
-    this serves."""
-    two = QUERY.replace("DP-1 disconnected", "DP-1 connected 1280x1024+1920+0")
-    two += "   1280x1024     75.00*\n"
-    data = display.parse_modes(two)
-    assert data["output"] == "HDMI-A-1"
-    assert all(m["width"] != 1280 or m["height"] != 1024 for m in data["modes"])
-
-
-def test_a_box_with_no_display_answers_an_empty_list_not_an_error(client, xrandr, monkeypatch):
-    async def no_x(*args):
-        return 1, "Can't open display"
-    monkeypatch.setattr(display, "_run", no_x)
+def test_a_pc_with_no_display_answers_an_empty_list_not_an_error(client, screen):
+    screen.output = ""
     body = client.get("/api/settings/display").json()
     assert body["modes"] == [] and body["current"] is None
 
 
+def test_one_mode_per_size_and_rate_whatever_the_scaling_options(screen):
+    raw = [(1920, 1080, 60, 32), (1920, 1080, 60, 32), (1920, 1080, 120, 32),
+           (1280, 720, 60, 16), (800, 600, 1, 32)]
+    assert platform_display.unique_modes(raw) == [
+        {"width": 1920, "height": 1080, "rate": 120.0},
+        {"width": 1920, "height": 1080, "rate": 60.0}]
+
+
 # ── what it refuses ─────────────────────────────────────────────────────────
 
-def test_a_mode_the_output_never_advertised_is_refused(client, xrandr):
-    """xrandr accepts any geometry. Handing it one the monitor does not know is
-    walking into the black screen this module exists to make survivable."""
-    r = client.post("/api/settings/display/mode",
-                    json={"width": 3840, "height": 2160, "rate": 60.0})
-    assert r.status_code == 400
-    assert not any("--mode" in c for c in xrandr["calls"])
+def test_a_mode_the_output_never_advertised_is_refused(client, screen):
+    assert _set(client, 3840, 2160, 60.0).status_code == 400
+    assert screen.applied == []
 
 
-def test_the_mode_cannot_change_while_a_game_is_running(client, xrandr):
-    """Changing the mode under an emulator is the shortest way to crash it, and
-    nobody is reading this screen then."""
-    xrandr["playing"] = {"system_id": "rpcs3"}
-    r = client.post("/api/settings/display/mode",
-                    json={"width": 1280, "height": 720, "rate": 60.0})
-    assert r.status_code == 409
-    assert not any("--mode" in c for c in xrandr["calls"])
+def test_the_mode_cannot_change_while_a_game_is_running(client, screen):
+    screen.playing = True
+    assert _set(client, 1280, 720, 60.0).status_code == 409
+    assert screen.applied == []
 
 
-def test_asking_for_the_mode_already_on_screen_arms_nothing(client, xrandr):
-    """No change, so nothing to revert — and arming a timer would make the box
-    ask "can you see this?" about a screen that never moved."""
-    r = client.post("/api/settings/display/mode",
-                    json={"width": 1920, "height": 1080, "rate": 60.0})
+def test_asking_for_the_mode_already_on_screen_arms_nothing(client, screen):
+    r = _set(client, 1920, 1080, 60.0)
     assert r.status_code == 200 and r.json()["changed"] is False
     assert display._pending is None
 
 
 # ── the way back ────────────────────────────────────────────────────────────
 
-def test_applying_a_mode_arms_the_revert(client, xrandr):
-    r = client.post("/api/settings/display/mode",
-                    json={"width": 1280, "height": 720, "rate": 60.0})
+def test_applying_a_mode_arms_the_revert_for_this_session_only(client, screen):
+    r = _set(client, 1280, 720, 60.0)
     assert r.status_code == 200 and r.json()["changed"] is True
-    applied = [c for c in xrandr["calls"] if "--mode" in c][-1]
-    assert "1280x720" in applied and "60" in applied
+    assert screen.applied == [(1280, 720, 60.0, False)], "an unconfirmed mode reached the registry"
     assert display._pending is not None, "nothing would bring the old mode back"
 
 
-def test_confirming_disarms_it(client, xrandr):
-    client.post("/api/settings/display/mode",
-                json={"width": 1280, "height": 720, "rate": 60.0})
+def test_confirming_disarms_it_and_writes_the_mode_to_the_registry(client, screen):
+    _set(client, 1280, 720, 60.0)
     assert client.post("/api/settings/display/confirm").json()["confirmed"] is True
     assert display._pending is None
+    assert screen.applied[-1] == (1280, 720, 60.0, True)
 
 
-def test_confirming_twice_is_not_an_error(client, xrandr):
-    """A second press, or a reload after the timer already fired, means the same
-    thing as the first — and the player pressing again is not a bug report."""
+def test_confirming_twice_is_not_an_error(client, screen):
     assert client.post("/api/settings/display/confirm").status_code == 200
+    assert screen.applied == []
 
 
-def test_the_old_mode_comes_back_when_nobody_confirms(xrandr):
-    """The one that matters, and the one nobody can test on a real television
-    from here: silence means the screen is unreadable, so the previous mode is
-    put back without being asked.
-
-    Driven directly rather than through the client: the timer outlives the
-    request that armed it, which is the whole point, and a request-scoped test
-    would be asserting the opposite of the design.
-    """
-    # `backend` travels with the mode: whatever applied it is what has to put
-    # it back, and a box that changed its mode through the compositor cannot be
-    # restored with xrandr.
-    previous = {"backend": "xrandr", "output": "HDMI-A-1",
+def test_the_old_mode_comes_back_when_nobody_confirms(screen):
+    """Silence means the screen is unreadable: the previous mode is put back."""
+    previous = {"backend": "windows", "output": OUTPUT,
                 "width": 1920, "height": 1080, "rate": 60.0}
-
-    async def scenario():
-        await display._revert_after(0.01, previous)
-
-    asyncio.run(scenario())
-    applied = [c for c in xrandr["calls"] if "--mode" in c]
-    assert applied, "the screen was left in a mode nobody could see"
-    assert "1920x1080" in applied[-1]
+    asyncio.run(display._revert_after(0.01, previous))
+    assert screen.changes() == [(1920, 1080, 60.0)]
 
 
-def test_a_confirmation_stops_the_revert_before_it_fires(xrandr):
-    """Cancellation is the success path: /confirm cancels the task, and a
-    cancelled timer must put nothing back — otherwise confirming a mode would
-    undo it a few seconds later."""
-    previous = {"backend": "xrandr", "output": "HDMI-A-1",
+def test_a_confirmation_stops_the_revert_before_it_fires(screen):
+    previous = {"backend": "windows", "output": OUTPUT,
                 "width": 1920, "height": 1080, "rate": 60.0}
 
     async def scenario():
         task = asyncio.create_task(display._revert_after(5, previous))
-        await asyncio.sleep(0)          # let it reach the sleep
+        await asyncio.sleep(0)
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(scenario())
-    assert not [c for c in xrandr["calls"] if "--mode" in c]
+    assert screen.applied == []
 
 
-# ── the compositor path, which is what the reference box actually uses ───────
-
-@pytest.fixture
-def kscreen(monkeypatch):
-    """`kscreen-doctor`, captured and answered, with no session touched."""
-    state = {"calls": [], "out": KSCREEN, "code": 0}
-
-    async def fake_run_env(env, *args):
-        state["calls"].append(list(args))
-        if "-o" in args:
-            return 0, state["out"]
-        return state["code"], "" if state["code"] == 0 else "kscreen-doctor: invalid mode"
-
-    monkeypatch.setattr(display, "_kscreen_available", lambda: True)
-    monkeypatch.setattr(display, "_wayland_env", lambda: {"WAYLAND_DISPLAY": "wayland-0"})
-    monkeypatch.setattr(display, "_run_env", fake_run_env)
-    monkeypatch.setattr(type(display.process_manager), "is_running",
-                        property(lambda self: bool(state.get("playing"))))
-    return state
-
-
-def test_the_compositor_reports_the_rates_xwayland_hid(client, kscreen):
-    """Why the refresh rate could not be changed before: the session is Plasma
-    on Wayland, XWayland cannot set modes, and the synthetic list `xrandr` read
-    off it carried one rate. KWin's own list carries the real ones."""
-    body = client.get("/api/settings/display").json()
-    assert body["backend"] == "kscreen"
-    rates = sorted({m["rate"] for m in body["modes"]
-                    if m["width"] == 1920 and m["height"] == 1080})
-    assert rates == [50.0, 59.94, 60.0]
-
-
-def test_a_mode_is_addressed_by_id_not_by_its_name(client, kscreen):
-    """`1920x1080@60.00` appears twice under two IDs, so the name is not a
-    handle — asking by it is asking for whichever one matches first."""
-    r = client.post("/api/settings/display/mode",
-                    json={"width": 1920, "height": 1080, "rate": 59.94})
-    assert r.status_code == 200 and r.json()["changed"] is True
-    applied = [c for c in kscreen["calls"] if any("mode." in a for a in c)][-1]
-    assert "output.HDMI-A-1.mode.3" in applied
-
-
-def test_the_revert_goes_back_through_the_same_tool(kscreen):
-    """A box that changed its mode through the compositor cannot be restored
-    with xrandr — it would fail silently and leave the screen unreadable."""
-    previous = {"backend": "kscreen", "output": "HDMI-A-1",
-                "id": "1", "width": 1920, "height": 1080, "rate": 60.0}
-
-    async def scenario():
-        await display._revert_after(0.01, previous)
-
-    asyncio.run(scenario())
-    applied = [c for c in kscreen["calls"] if any("mode." in a for a in c)]
-    assert applied and "output.HDMI-A-1.mode.1" in applied[-1]
-
-
-def test_a_compositor_that_will_not_answer_falls_back_to_xrandr(client, monkeypatch, xrandr):
-    """kscreen present but broken must not leave the screen with no tool at
-    all: a genuine X11 box is still served."""
-    monkeypatch.setattr(display, "_kscreen_available", lambda: True)
-    monkeypatch.setattr(display, "_wayland_env", lambda: {"WAYLAND_DISPLAY": "wayland-0"})
-
-    async def broken(env, *args):
-        return 1, "kscreen-doctor: could not connect"
-    monkeypatch.setattr(display, "_run_env", broken)
-
-    body = client.get("/api/settings/display").json()
-    assert body["backend"] == "xrandr" and body["output"] == "HDMI-A-1"
+def test_revert_now_goes_back_without_waiting(client, screen):
+    _set(client, 1280, 720, 60.0)
+    assert client.post("/api/settings/display/revert").json() == {"ok": True, "reverted": True}
+    assert screen.changes()[-1] == (1920, 1080, 60.0) and display._pending is None
 
 
 # ── two changes inside one confirmation window ──────────────────────────────
 
-def test_a_refused_second_mode_leaves_the_first_its_way_back(client, xrandr, monkeypatch):
-    """Finding 13 of the 2026-09-04 audit, and the worst shape it takes.
-
-    The rollback is the whole feature, and it was given up before anyone knew
-    whether there was anything to replace it with: `_cancel_pending()` ran
-    first, so a second change the compositor then REFUSED left the first —
-    still unconfirmed, possibly on a screen showing nothing — with no timer and
-    no way back at all. Two requests during the twelve seconds, from two
-    clients or one screen reopened, and the safety net was gone while the risk
-    stayed.
-    """
-    applied: list[dict] = []
-
-    async def apply(backend, output, mode):
-        applied.append(dict(mode))
-        # 1280x720 is the one this box refuses today.
-        if (mode["width"], mode["height"]) == (1280, 720):
-            return False, "mode rejected"
-        return True, ""
-    monkeypatch.setattr(display, "_apply", apply)
-
-    first = client.post("/api/settings/display/mode",
-                        json={"width": 1680, "height": 1050, "rate": 59.95})
-    assert first.status_code == 200 and first.json()["changed"]
-    assert display._pending is not None
-
-    # Nobody has confirmed. The screen is now 1680x1050, and 1920x1080 is the
-    # last mode anyone was known to be able to read.
-    xrandr["query"] = QUERY.replace("   1920x1080     60.00*+", "   1920x1080     60.00 +") \
-                           .replace("   1680x1050     59.95", "   1680x1050     59.95*")
-
-    refused = client.post("/api/settings/display/mode",
-                          json={"width": 1280, "height": 720, "rate": 60.0})
-    assert refused.status_code == 500
-
+def test_a_refused_second_mode_leaves_the_first_its_way_back(client, screen):
+    """The rollback must not be given up before its replacement exists."""
+    assert _set(client, 1680, 1050, 59.0).json()["changed"]
+    screen.refuse = {(1280, 720)}
+    assert _set(client, 1280, 720, 60.0).status_code == 500
     assert display._pending is not None, "the first change lost its rollback"
+    assert (display._pending["previous"]["width"], display._pending["previous"]["height"]) \
+        == (1920, 1080)
+
+
+def test_a_second_change_comes_back_to_the_last_confirmed_mode(client, screen):
+    _set(client, 1680, 1050, 59.0)
+    _set(client, 1280, 720, 60.0)
     assert display._pending["previous"]["width"] == 1920
-    assert display._pending["previous"]["height"] == 1080
 
 
-def test_a_second_change_comes_back_to_the_last_confirmed_mode(client, xrandr, monkeypatch):
-    """Not to the one on screen, which nobody has said they can see."""
-    monkeypatch.setattr(display, "_apply", _always_ok())
-
-    client.post("/api/settings/display/mode",
-                json={"width": 1680, "height": 1050, "rate": 59.95})
-    xrandr["query"] = QUERY.replace("   1920x1080     60.00*+", "   1920x1080     60.00 +") \
-                           .replace("   1680x1050     59.95", "   1680x1050     59.95*")
-    client.post("/api/settings/display/mode",
-                json={"width": 1280, "height": 720, "rate": 60.0})
-
-    assert display._pending["previous"]["width"] == 1920, \
-        "the way back is the last mode somebody confirmed, not the last one applied"
-
-
-def test_a_confirmed_mode_becomes_the_one_to_come_back_to(client, xrandr, monkeypatch):
-    """And once it is confirmed, it is what the next change falls back to."""
-    monkeypatch.setattr(display, "_apply", _always_ok())
-
-    client.post("/api/settings/display/mode",
-                json={"width": 1680, "height": 1050, "rate": 59.95})
+def test_a_confirmed_mode_becomes_the_one_to_come_back_to(client, screen):
+    _set(client, 1680, 1050, 59.0)
     client.post("/api/settings/display/confirm")
-    assert display._pending is None
-
-    xrandr["query"] = QUERY.replace("   1920x1080     60.00*+", "   1920x1080     60.00 +") \
-                           .replace("   1680x1050     59.95", "   1680x1050     59.95*")
-    client.post("/api/settings/display/mode",
-                json={"width": 1280, "height": 720, "rate": 60.0})
+    _set(client, 1280, 720, 60.0)
     assert display._pending["previous"]["width"] == 1680
-
-
-def _always_ok():
-    async def apply(backend, output, mode):
-        return True, ""
-    return apply
 
 
 # ── the mode the player chose, kept ─────────────────────────────────────────
 
-def test_a_confirmed_mode_is_written_down(client, xrandr, monkeypatch, tmp_path):
-    """Nothing used to write it down at all.
-
-    `gamecore-xsetup` pins 1080p for the X server SDDM starts, before any
-    session. A player who picked 1280x720 in the settings — and confirmed it,
-    on a screen they could read — found 1080p again at the next boot, with
-    nothing on screen to say why.
-    """
+def test_a_confirmed_mode_is_written_down(client, screen, monkeypatch, tmp_path):
     monkeypatch.setattr(display, "config_dir", lambda: tmp_path)
-    monkeypatch.setattr(display, "_apply", _always_ok())
-
-    client.post("/api/settings/display/mode",
-                json={"width": 1280, "height": 720, "rate": 60.0})
+    _set(client, 1280, 720, 60.0)
     assert display.preferred_mode() is None, "an unconfirmed mode was persisted"
-
     client.post("/api/settings/display/confirm")
-    assert display.preferred_mode() == {
-        "width": 1280, "height": 720, "rate": 60.0, "output": "HDMI-A-1"}
+    assert display.preferred_mode() == {"width": 1280, "height": 720, "rate": 60.0,
+                                        "output": OUTPUT}
 
 
-def test_a_mode_that_was_never_confirmed_is_not_remembered(client, xrandr, monkeypatch, tmp_path):
-    """Confirmation is the difference between a mode that works and one the
-    compositor merely accepted: somebody read the screen and pressed a button
-    on it. Persisting an unconfirmed mode would persist the black screens the
-    revert exists to undo."""
+def test_a_mode_that_was_never_confirmed_is_not_remembered(client, screen, monkeypatch, tmp_path):
     monkeypatch.setattr(display, "config_dir", lambda: tmp_path)
-    monkeypatch.setattr(display, "_apply", _always_ok())
-
-    client.post("/api/settings/display/mode",
-                json={"width": 1280, "height": 720, "rate": 60.0})
-    # The timer fires instead of a confirmation.
+    _set(client, 1280, 720, 60.0)
     asyncio.run(display._revert_after(0.01, display._pending["previous"]))
     assert display.preferred_mode() is None
 
@@ -414,42 +189,12 @@ def test_the_interface_scale_is_remembered_and_only_a_listed_size_is_taken(clien
     client.post("/api/settings/display/scale", json={"scale": 1.0})
 
 
-def test_a_kscreen_doctor_that_never_answers_falls_back_to_xrandr(monkeypatch):
-    """On the reference box `kscreen-doctor -o` never returns from the service.
-    Unbounded, the Display page waited forever and showed Scale alone."""
-    import time
-
-    class _Proc:
-        def __init__(self, argv):
-            self.args, self.returncode = argv, 0
-
-        async def communicate(self):
-            if self.args[0] == "kscreen-doctor":
-                await asyncio.sleep(60)
-            return QUERY.encode(), b""
-
-        def kill(self):
-            self.returncode = -9
-
-        async def wait(self):
-            return self.returncode
-
-    async def fake_exec(*argv, **kw):
-        return _Proc(list(argv))
-
-    async def no_display():
-        return {}
-
-    monkeypatch.setattr(display, "PROBE_SECS", 0.2)
-    monkeypatch.setattr(display, "_kscreen_hangs", False)
-    monkeypatch.setattr(display, "_kscreen_available", lambda: True)
-    monkeypatch.setattr(display, "_wayland_env", lambda: {})
-    monkeypatch.setattr(display, "display_env", no_display)
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    started = time.monotonic()
-    data = asyncio.run(display.read_state())
-    assert time.monotonic() - started < 2
-    assert data["backend"] == "xrandr"
-    assert data["current"] == {"width": 1920, "height": 1080, "rate": 60.00}
-    # and the next read does not wait on it again
-    assert display._kscreen_hangs is True
+def test_the_real_display_reads_without_changing_anything():
+    output = platform_display.primary_output()
+    if not output:
+        pytest.skip("no display attached to this machine's desktop")
+    current = platform_display.current_mode(output)
+    assert current is not None
+    modes = platform_display.modes(output)
+    assert any(m["width"] == current["width"] and m["height"] == current["height"]
+               for m in modes)

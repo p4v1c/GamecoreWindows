@@ -16,6 +16,7 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `wifi.py`       | Wi-Fi scan, join, leave, saved profiles   | `nmcli dev wifi`              |
 | `radios.py`     | Wi-Fi and Bluetooth radio switches        | `nmcli radio`, rfkill         |
 | `bluetooth.py`  | paired devices, scan, pair, unpair        | `bluetoothctl`                |
+| `display.py`    | display modes, monitor active             | `xrandr`, `kscreen-doctor`    |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """

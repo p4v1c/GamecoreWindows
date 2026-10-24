@@ -77,7 +77,7 @@ async def on_resume() -> None:
     rest_mode.woke()
     await _step("screen", standby.exit_standby())
     await _step("wait for the link", display_ready.wait_for_display())
-    # After the link: xrandr cannot see an output the kernel has not re-sensed.
+    # After the link: Windows lists no mode for an output it has not re-sensed.
     await _step("display mode", display.restore_preferred())
     # The link is up before the picture: the TV still says "no signal" a moment.
     await asyncio.sleep(max(0.0, float(standby.load_config().get("wake_settle_secs", 0))))

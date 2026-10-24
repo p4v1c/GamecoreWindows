@@ -208,7 +208,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`; each step isolated |
 | `wake_source.remember()` / `report()` | `event_count` of every `/sys/class/wakeup/wakeup*` on `PrepareForSleep(true)`, compared first thing after the wake; logs `wake_source: woken by <name> (<USB product>) +N` (+ `/sys/power/pm_wakeup_irq` when set). `moved()` is pure |
 | `resume.announce_sleep()` / `is_sleeping()` | `power:sleeping` on `PrepareForSleep(true)`; true until `power:resumed` |
-| `display_ready.wait_for_display(settle, root, max_wait)` | poll `/sys/class/drm/card*-*` (`status`, `enabled`, `dpms`) every 200 ms until one connector is lit, `WAIT_MAX_SECS` = 10 s; no DRM at all means no wait. `connector_ready()` is pure |
+| `display_ready.wait_for_display(settle, probe, max_wait)` | polls `platform/display.py` `display_ready()` (an active monitor on an adapter attached to the desktop) every 200 ms, `WAIT_MAX_SECS` = 10 s; `probe` is injectable for tests |
 | `bt_wake.pads_to_arm(objects, roster_macs)` | **pure**: paired devices with `Icon` input-gaming or a roster MAC, never keyboard/mouse, whose `WakeAllowed` is false |
 | `bt_wake.others_to_disarm(objects)` | **pure**: paired devices whose `Icon` is in `NOT_PADS` (keyboard, mouse, tablet) and `WakeAllowed` is true; `set_wake_permissions()` sets them false in the same pass that arms the pads |
 | `bt_wake.pads_to_turn_off(objects, roster_macs)` / `turn_off_pads()` | **pure** / edge: connected paired pads (same pad rule as `pads_to_arm`); `Device1.Disconnect` on each, concurrently, `BUSCTL_SECS` each; returns how many |
@@ -853,8 +853,12 @@ serves. Looked up by name, never joined into a path.
 ### `display.py` — mode switching with a revert timer
 
 `state()`, `set_mode()`, `confirm()`, `revert_now()`, `ui_scale()`,
-`set_scale()`, `preferred_mode()`. The timer lives in the backend because a
-refused mode blanks the settings screen that would otherwise run it.
+`set_scale()`, `preferred_mode()`, `restore_preferred()`. The timer lives in
+the backend because a refused mode blanks the settings screen that would
+otherwise run it. A mode is applied for the session only; `confirm()` writes it
+to `display.json` and to Windows' registry (`apply_mode(..., persist=True)`),
+so an unconfirmed mode never survives a restart. `backend` is always
+`"windows"`.
 
 ### `paths.py` — the two roots
 
@@ -895,10 +899,11 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `forget(ssid, interface_guid)` | Native Wifi `WlanDeleteProfile` on the profile named after the SSID (netsh exits 0 whether or not it found it) | `nmcli con delete` |
 | `radios.py` | `enabled(kind)`, `set_enabled(kind, on)`, `read_state(state)` | WinRT `Radio` for `WIFI` and `BLUETOOTH`: the quick-settings switches; `RadioBlocked` when disabled below Windows | `nmcli radio wifi`, rfkill |
 | `bluetooth.py` | `paired_devices()`, `scan(seconds)`, `pair(mac)`, `unpair(mac)`, `format_address(raw)` | WinRT association endpoints of the classic and LE protocols (address, connected, paired); a scan watches both for `seconds` and drops unnamed LE advertisers (random-address phones and beacons, 20 of 28 in one measured scan); pairing answers Windows' confirm / display-PIN requests | `bluetoothctl` |
+| `display.py` | `primary_output()`, `modes(output)`, `current_mode(output)`, `apply_mode(output, w, h, rate, persist)`, `display_ready()`, `unique_modes(raw)` | Win32 `EnumDisplaySettingsW` / `ChangeDisplaySettingsExW` on the primary display; one mode per size and whole-hertz rate (Windows lists each once per scaling option); `persist` = `CDS_UPDATEREGISTRY` with `CDS_NORESET` (registry only, no second mode change) | `xrandr`, `kscreen-doctor`, `/sys/class/drm` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
