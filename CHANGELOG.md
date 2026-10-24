@@ -2,7 +2,7 @@
 
 **This is not the release log.** Every push to `main` is tagged and published
 automatically with generated notes — read those for "what changed":
-<https://github.com/p4v1c/GamecoreRenew/releases>. Duplicating them here would
+<https://github.com/p4v1c/GamecoreWindows/releases>. Duplicating them here would
 produce a second source of truth that goes stale on the next push, which is the
 failure mode this project keeps paying for.
 
@@ -16,6 +16,16 @@ are the auto-incremented tags.
 ---
 
 ## Unreleased
+
+- Windows edition, updates: Settings → Update installs this repository's
+  releases (`p4v1c/GamecoreWindows`, `gamecore-ota.zip`), never the Linux
+  original's. The archive's SHA-256 is checked; GameCore restarts to swap its
+  folder and puts the previous version back by itself if the new one does
+  not start. By hand, from an elevated PowerShell:
+  `& 'C:\Program Files\GameCore\update\apply-update.ps1' -Rollback`.
+  The first release, `v0.1.0`, is cut when this change reaches `main`. A box gets updates only once `install\install.ps1` has installed it.
+  The Linux updater and its root pieces (`update/linux.sh`, the sudoers
+  step, `gamecore-restart` and its unit) are gone.
 
 - Windows edition, Rest mode: the box sleeps through Windows (S3 sleep, or
   the screen switched off on a Modern Standby PC) and closes every game

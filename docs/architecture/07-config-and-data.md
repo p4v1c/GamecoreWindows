@@ -152,7 +152,7 @@ each was wrong on the day the two trees first differed:
 |---|---|---|
 | the backend | `gamecore-backend.service` (drop-in `userdata.conf`) | the whole point; nothing else matters until this is set |
 | Electron | `gamecore-ui.service` (same drop-in) — `bootBackground()` joins `config/theme.json` onto it | reads the abandoned copy; boots to the old theme's colour |
-| `update/linux.sh` | inherited from the backend that spawns it (the Settings button); **the backend's unit** when typed at a shell, which has none | the catalogue merge went into `$GAMECORE_PATH/config/systems.json` — the abandoned copy — so the live grid never gained a new emulator, a repaired launcher or a console list again. Fixed: the merge is handed both roots |
+| `update/windows.py` | inherited from the backend that spawns it (the Settings button); `%ProgramData%\GameCore\session.env` when typed at a prompt, which has none | the catalogue merge went into `$GAMECORE_PATH/config/systems.json` — the abandoned copy — so the live grid never gained a new emulator, a repaired launcher or a console list again. Fixed: the merge is handed both roots |
 | `gamecore-addon` | **the backend's unit**, when the caller's shell has none | typed at a shell, and the shell has no `GAMECORE_DATA`. It used to fall straight back to the install: the first `update` after the move would have handed every addon's `install.sh` the old root and baked it into their units. ROM uploads into the tree the box no longer reads |
 | each addon's unit | rewritten by `gamecore-addon update` from what the CLI knows | stays on the old root until `update` is run again |
 | `/usr/local/bin/gamecore-addon` itself | — it is a root-owned copy that only `install/arch.sh` writes | the OTA cannot refresh it and now says so, with the command. A copy from before the split does not know `GAMECORE_DATA` at all |
@@ -339,7 +339,7 @@ GameCore does **not** currently relocate saves onto an external disk.
 |---|---|---|---|
 | `systems.json` | installer, from `install/generated/systems.json.dist` | `routers/systems.py` | **yes** |
 | `apps.json` | installer, from `install/generated/apps.json.dist` | `routers/systems.py` | **yes** |
-| `themes/` | shipped + `update/linux.sh` (adds only what is missing) | `services/themes.py` | **yes** |
+| `themes/` | shipped + `update/finish.py` (adds what is missing, replaces what the release ships newer) | `services/themes.py` | **yes** |
 | `theme.json` | `services/themes.set_active()`, atomically | `services/themes.get_active()` | no |
 | `addons.json` | `gamecore-addon` CLI | `routers/addons.py` | no |
 | `standby.json` | `POST /api/standby/config`, atomically | `services/standby.py` | no |

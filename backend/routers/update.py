@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import re
+import sys
 from fastapi import APIRouter, HTTPException
 import httpx
 
@@ -13,7 +14,8 @@ router = APIRouter(prefix="/update", tags=["update"])
 log = logging.getLogger(__name__)
 
 _GH_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-_UPDATE_TIMEOUT = 600.0  # 10 min hard cap on the update script
+# 10 min hard cap on stage 1 (download, check, unpack); stage 2 runs detached.
+_UPDATE_TIMEOUT = 600.0
 
 
 def _version_int(tag: str) -> int:
@@ -53,11 +55,10 @@ async def check_update():
 # The task handle is the busy check, same as routers/addons.py: testing and
 # assigning it with no await in between is what makes it atomic.
 #
-# update/linux.sh used to work in a fixed /tmp/gamecore_ota that it wiped on
-# entry, and rsync'd from into GAMECORE_PATH. Nothing stopped a second run: the
-# UI's `installing` flag is local to UpdatePage, so navigating away and back
-# re-mounted it, reset the flag, and re-enabled the button while the first run
-# was still going. Clicking again ran `rm -rf` under the live rsync.
+# The Linux updater worked in a fixed directory it wiped on entry. Nothing
+# stopped a second run: the UI's `installing` flag is local to UpdatePage, so
+# navigating away and back re-enabled the button, and the second run wiped the
+# first one's files mid-copy. update/windows.py also takes a lock.
 _current: asyncio.Task | None = None
 
 
@@ -73,10 +74,15 @@ def update_status():
 
 @router.post("/apply")
 async def apply_update():
-    """Run the platform update script in background, stream progress via WebSocket."""
+    """Run update/windows.py (stage 1) in background, stream progress via WebSocket.
+
+    `update:done` success means the release is checked and unpacked: stage 2
+    then stops GameCore, swaps the code root and restarts it.
+    """
     global _current
-    script = GAMECORE_ROOT / "update" / "linux.sh"
-    cmd = ["bash", str(script)]
+    script = GAMECORE_ROOT / "update" / "windows.py"
+    # The backend's own interpreter: the installation's venv.
+    cmd = [sys.executable, str(script), "install"]
 
     if not script.exists():
         raise HTTPException(404, f"Update script not found: {script}")
@@ -89,9 +95,6 @@ async def apply_update():
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            # Its own process group, so the timeout below can take the whole
-            # tree with it rather than just bash.
-            start_new_session=True,
         )
 
         async def _pump() -> None:
@@ -111,9 +114,8 @@ async def apply_update():
             await ws.broadcast("update:done", {"success": code == 0, "code": code})
         except asyncio.TimeoutError:
             log.warning("update script timed out after %ss — killing", _UPDATE_TIMEOUT)
-            # The whole process group, not just bash. Killing the shell alone
-            # left its rsync, pip and npm running inside GAMECORE_PATH while
-            # the UI had already been told the update was aborted.
+            # The whole tree: killing the parent alone left its children
+            # writing while the UI had already been told the update was aborted.
             await kill_process_group(proc)
             try:
                 await proc.wait()

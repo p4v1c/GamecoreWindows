@@ -57,11 +57,16 @@ function Invoke-GcNative {
         [Parameter(Mandatory)][string]$FilePath,
         [string[]]$ArgumentList = @()
     )
-    $output = & $FilePath @ArgumentList 2>&1
+    # Windows PowerShell turns each stderr line into an error record, and under
+    # 'Stop' the first one (a pip warning) throws although the program succeeded.
+    $ErrorActionPreference = 'Continue'
+    $output = @(& $FilePath @ArgumentList 2>&1)
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath $($ArgumentList -join ' ') exited with $LASTEXITCODE`: $($output -join ' ')"
+        throw "$FilePath $($ArgumentList -join ' ') exited with $LASTEXITCODE`: $(($output | ForEach-Object { "$_" }) -join ' ')"
     }
-    return $output
+    # stdout only: callers parse it (a version line), and a warning is not an answer.
+    return @($output | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
 }
 
 function Test-GcElevated {

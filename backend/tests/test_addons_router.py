@@ -129,7 +129,7 @@ def test_the_installed_cli_is_preferred_and_the_argv_is_exact(client, fake_cli,
 
 def test_a_box_without_the_installed_cli_falls_back_into_the_checkout(
         client, fake_cli, monkeypatch):
-    """Development, or an install that never ran setup-update-permissions.sh.
+    """Development, or an install whose CLI is not on PATH.
 
     It runs the script in the tree and lets it fail on its own terms, rather
     than pretending there is nothing to run.
@@ -154,28 +154,12 @@ def test_every_lifecycle_verb_reaches_the_cli_under_its_own_name(
 def test_the_addon_cli_is_not_run_through_sudo(client, fake_cli):
     """Pinned deliberately, and it is the opposite of routers/catalog.py.
 
-    `gamecore-emu` installs Flatpaks and system packages, so it goes through
-    the one narrow sudoers rule setup-update-permissions.sh writes. An addon
-    installs USER-level units and needs no privilege, and no sudoers rule names
-    `gamecore-addon` — so adding `sudo -n` here would not tighten anything, it
-    would make every addon install fail instantly with "a password is
-    required", on every installed box, since `-n` never prompts.
-
-    The two facts are asserted together on purpose: whichever one changes
-    first, this test is where the other one gets read.
+    An addon installs its own service and needs no extra privilege: `sudo -n`
+    here would make every addon install fail with "a password is required",
+    since `-n` never prompts.
     """
     assert client.post("/api/addons/rom-manager/install").status_code == 200
     assert "sudo" not in fake_cli[0], fake_cli[0]
-
-    rules = (ROOT / "install/steps/setup-update-permissions.sh").read_text(
-        encoding="utf-8")
-    granted = [line for line in rules.splitlines()
-               if "NOPASSWD" in line and "gamecore-addon" in line
-               and not line.lstrip().startswith("#")]
-    assert granted == [], (
-        "gamecore-addon now has a sudoers rule — if that is deliberate, the "
-        "argv above has to gain `sudo -n` in the same commit:\n"
-        + "\n".join(granted))
 
 
 # ── two operations at once ─────────────────────────────────────────────────

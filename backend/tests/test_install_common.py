@@ -144,3 +144,16 @@ def test_the_example_install_conf_resolves_to_the_defaults(tmp_path):
     assert result["s"]["port"] == "8765" and result["s"]["lan"] == "8443"
     assert result["s"]["autologon"] is True and result["s"]["ssh"] is True
     assert result["s"]["code"].endswith(r"\GameCore") and result["s"]["password"] == "none"
+
+
+def test_a_warning_on_stderr_does_not_fail_a_native_program_that_succeeded(tmp_path):
+    """Windows PowerShell made each stderr line an error record, and under 'Stop'
+    the first one threw: an npm or pip warning failed the install step."""
+    noisy = "[Console]::Error.WriteLine('a warning'); 'the answer'"
+    result = run_ps(tmp_path, rf"""
+        $GcTest['out'] = @(Invoke-GcNative '{POWERSHELL}' @('-NoProfile', '-Command', "{noisy}"))
+        try {{ Invoke-GcNative '{POWERSHELL}' @('-NoProfile', '-Command', "[Console]::Error.WriteLine('bad'); exit 3") | Out-Null }}
+        catch {{ $GcTest['error'] = $_.Exception.Message }}
+    """)
+    assert result["out"] == ["the answer"]
+    assert "exited with 3" in result["error"] and "bad" in result["error"]

@@ -4,7 +4,8 @@
     usage:  next_version.py [previous-tag]
 
 Reads the previous tag from the argument, or from `git describe` when none is
-given, and prints the tag the next release should carry.
+given, and prints the tag the next release should carry. With no tag at all,
+that is the first release of the Windows edition, `v0.1.0` (dev log D2).
 
 ## The scheme
 
@@ -21,7 +22,7 @@ in a settings screen rather than something you look up.
 ## Ordering is preserved, which is the part that matters
 
 Every consumer of these numbers compares them as a tuple of three integers —
-`routers/update.py:_version_int`, `update/linux.sh:key()`, the theme delivery
+`routers/update.py:_version_int`, `update/windows.py:version_key`, the theme delivery
 loop. A carry keeps that ordering: `1.0.182` normalises to `1.1.82`, and
 `(1, 1, 82) > (1, 0, 182)` because the comparison is left to right, not by
 magnitude of the last field. So a box running the old numbering still sees the
@@ -55,13 +56,15 @@ CEILING = (99, 9, 99)
 BASE = (100, 10, 100)
 
 _TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+#: The first release when the repository has no tag yet (dev log D1, D2).
+FIRST_VERSION = "v0.1.0"
 
 
 def parse(tag: str) -> tuple[int, int, int]:
     """`v1.0.182` → `(1, 0, 182)`. Raises on anything else.
 
     Deliberately strict, unlike the readers in `routers/update.py` and
-    `update/linux.sh`: those parse whatever GitHub hands them and must never
+    `update/windows.py`: those parse whatever GitHub hands them and must never
     raise on a malformed remote tag. This one names the tag this repository is
     about to create, and a version nobody meant is worth stopping for.
     """
@@ -98,8 +101,8 @@ def next_version(previous: str) -> str:
     return "v%d.%d.%d" % normalise((prev[0], prev[1], prev[2] + 1))
 
 
-def _latest_tag() -> str:
-    """The newest tag reachable from HEAD.
+def _latest_tag() -> str | None:
+    """The newest tag reachable from HEAD; None when there is none.
 
     `git describe` rather than the API: this runs in CI right after a checkout
     with `fetch-depth: 0`, so the tags are local, and asking GitHub would make
@@ -110,15 +113,14 @@ def _latest_tag() -> str:
         capture_output=True, text=True,
     )
     if out.returncode != 0 or not out.stdout.strip():
-        # No tag at all: the first release of a fresh clone of history.
-        return "v1.0.0"
+        return None
     return out.stdout.strip()
 
 
 def main(argv: list[str]) -> int:
     try:
         previous = argv[1] if len(argv) > 1 else _latest_tag()
-        print(next_version(previous))
+        print(next_version(previous) if previous else FIRST_VERSION)
     except (ValueError, OverflowError) as e:
         print(f"next_version: {e}", file=sys.stderr)
         return 1

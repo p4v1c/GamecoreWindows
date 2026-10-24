@@ -117,6 +117,16 @@ variable the step also uses shadows it: the harness's own table is `$GcTest`.
 Each case starts a `powershell.exe` (about half a second). The details are in
 [11](architecture/11-install-script-seams.md#tests).
 
+## The updater and the release
+
+| File | What it proves |
+|---|---|
+| `test_ota_stage_one.py` | `update/windows.py` against a local HTTP server: SHA-256 (asset and GitHub digest), refusals (no checksum, wrong VERSION, incomplete archive, a path outside the archive, a source checkout, no space), the lock, the plan handed to stage 2, the job breakaway fallback |
+| `test_ota_stage_two.py` | `update/apply-update.ps1` on real folders in `tmp_path`, processes, Caddy, the task, the probe and pip faked: the swap and the carried pieces, pip only on changed requirements, automatic rollback (no answer, pip fails), a process that will not stop, `-Rollback` by hand, stderr warnings not fatal |
+| `test_ota_merge_roots.py` | `windows.py finish` merges into the data root's `systems.json`, never the code root's |
+| `test_release_package.py` | `scripts/package-release.py` on the tracked tree: everything stage 1 and the installer need is in the archive, nothing installed or the player's is; `release.yml` publishes from pushes to `main` only, queued, after the checks |
+| `test_update.py` | the endpoint: one update at a time, stage 1 run with the backend's interpreter, the timeout kills the tree |
+
 ## The suite used to be decorative
 
 Every test file kept its whole body inside a `main()` behind

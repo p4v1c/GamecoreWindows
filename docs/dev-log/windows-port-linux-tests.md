@@ -11,15 +11,15 @@ Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
 (`backend/tests/posix_boundary.py`) until the packs are rewritten. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 24/10/2026 (step 7): 178 test items in 31 files, by step. Step 7
+Measured on 24/10/2026 (step 8): 154 test items in 23 files, by step. Step 7
 removed its installer and console-session items with their code (`arch.sh`,
 `uninstall.sh`, the X/SDDM session scripts) or replaced them
 (`test_gamecore_session.py`, `test_install_media_index.py`); the Linux packs'
-items moved to 11:
+items moved to 11. Step 8 removed its 24 items with `update/linux.sh` and the
+sudoers step, or ported them (`test_update.py`, `test_ota_merge_roots.py`):
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
-| 8 | OTA updater and release workflow | 24 | `update/linux.sh` in bash, rsync, `systemctl` |
 | 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
 | 11 | not a port step: the Linux packs and their install pipeline, rewritten for Windows after the port (owner, 19/10) | 142 | Flatpak, uinput, `fcntl`, `/proc`, systemd user units, the bash `gamecore-emu` CLI |
@@ -50,14 +50,6 @@ rest of the file runs on Windows.
 | 11 | `catalog/melonds/tests/test_profile_saves.py` | `test_another_profile_points_player_one_saves_and_states_at_its_folder`, `test_switching_profiles_never_keeps_the_previous_folder`, `test_a_later_player_folder_creates_its_instance_section` | Linux pack: melonDS ini paths |
 | 11 | `catalog/rpcs3/tests/test_smart_launch.py` | all (40) | Linux pack: `fcntl` |
 | 11 | `catalog/switch/tests/test_eden_saves.py` | `test_a_profile_reads_its_own_eden_folder`, `test_eden_stopped_mid_profile_gives_the_primarys_parked_folder`, `test_a_profile_import_lands_in_the_profiles_folders` | Linux pack: symlinks in the Ryujinx tree |
-| 8 | `backend/tests/test_boot_review_fixes.py` | `test_ota_restarts_the_owner_of_the_ui`, `test_ota_requires_the_one_time_preparation` | `update/linux.sh` in bash |
-| 8 | `backend/tests/test_installer_file_references.py` | `test_the_permissions_step_installs_both_of_its_artefacts` | `setup-update-permissions.sh` (the OTA's sudoers step) still names the console-session helpers removed at step 7 |
-| 8 | `backend/tests/test_ota_failure_restores.py` | all (2) | `update/linux.sh` with rsync |
-| 8 | `backend/tests/test_ota_merge_roots.py` | `test_a_new_system_whose_emulator_is_absent_stays_off_the_grid`, `test_the_updater_reads_the_data_root_from_the_backend_unit_when_the_shell_has_none`, `test_the_updater_keeps_an_explicit_data_root_and_the_old_default` | `update/linux.sh`, flatpak/pacman stubs, `systemctl` |
-| 8 | `backend/tests/test_ota_over_old_layout.py` | all (5) | `update/linux.sh` with rsync, `git archive` |
-| 8 | `backend/tests/test_ota_permission_drift.py` | `test_every_granted_privilege_is_one_the_updater_can_report`, `test_the_updater_still_parses_and_lints` | sudoers rules, `update/linux.sh` |
-| 8 | `backend/tests/test_update.py` | `test_a_second_apply_is_refused_with_409`, `test_apply_is_allowed_again_once_the_previous_run_finished`, `test_killing_the_shell_takes_its_children_with_it` | bash `update/linux.sh`, process group kill |
-| 8 | `backend/tests/test_update_retires_shared.py` | `test_the_orphan_is_moved_out_of_the_themes_directory`, `test_it_is_recoverable_rather_than_gone`, `test_running_it_twice_is_not_an_error`, `test_a_second_run_does_not_destroy_the_first_snapshot_it_cannot_replace`, `test_a_shared_directory_this_project_did_not_ship_is_left_alone`, `test_nothing_else_under_themes_is_touched` | bash `update/linux.sh` |
 | 9 | `backend/tests/test_addon_contract.py` | all (9) | bash `gamecore-addon` CLI, systemd units |
 | 10 | `backend/tests/test_migration.py` | `test_a_symlink_is_named_and_not_copied`, `test_a_destination_this_user_cannot_create_is_planned_but_not_written` | `migrate-userdata.py` (`/opt` to `/userdata`), POSIX modes |
 | 10 | `backend/tests/test_system_split.py` | `test_the_command_dry_runs_by_default` | `split-systems.py` refuses root with `geteuid` |

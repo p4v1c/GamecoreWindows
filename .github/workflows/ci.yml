@@ -1,8 +1,8 @@
 name: CI
 
 # The checks every pull request and every push to main must pass, on the OS the
-# console runs. No release here: publishing is release.yml's job, and it does
-# not exist yet in the Windows edition (port step 8, docs/dev-log/windows-port.md).
+# console runs. No release here: release.yml calls this workflow first and
+# publishes only when it is green.
 #
 # A suite is never added with continue-on-error: a red step means red.
 
@@ -10,6 +10,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -54,14 +55,16 @@ jobs:
           ruff check .
           shellcheck -S warning $(git ls-files '*.sh') $(grep -l '^#!/usr/bin/env bash' install/bin/*)
 
-      # The installer runs on Windows PowerShell 5.1, the one every PC has.
+      # The installer and the updater run on Windows PowerShell 5.1, the one every PC has.
       - name: Lint - PowerShell (PSScriptAnalyzer)
         shell: powershell
         run: |
           if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
             Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force -Scope CurrentUser
           }
-          $found = Invoke-ScriptAnalyzer -Path install -Recurse -Settings install\PSScriptAnalyzerSettings.psd1
+          $found = @('install', 'update') | ForEach-Object {
+            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings install\PSScriptAnalyzerSettings.psd1
+          }
           $found | Format-Table -AutoSize RuleName, ScriptName, Line, Message | Out-String -Width 300
           if ($found) { exit 1 }
 

@@ -10,7 +10,10 @@ $script:GcCodeExcludedDirs = @('.git', '.github', 'node_modules', '.venv', '__py
     '.pytest_cache', 'emu', 'logs', 'docs')
 
 function Get-GcShellSource {
+    <# A checkout's packed shell, or shell\ in a release archive (scripts/package-release.py). #>
     param([Parameter(Mandatory)][string]$SourceRoot)
+    $released = Join-Path $SourceRoot 'shell'
+    if (Test-Path -LiteralPath (Join-Path $released 'GameCore.exe')) { return $released }
     return Join-Path $SourceRoot 'electron\dist\win-unpacked'
 }
 

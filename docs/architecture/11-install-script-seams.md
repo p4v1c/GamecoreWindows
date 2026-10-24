@@ -33,7 +33,7 @@ console user's even when UAC asks for another account's password.
 
 | Step (`install/steps/`) | Does | Uninstall |
 |---|---|---|
-| `copy-code-root.ps1` | builds the frontend and the shell when the source has neither (needs npm), then `robocopy` of the source to the code root (no `.git`, `node_modules`, `.venv`, `docs`, data folders) and of `electron\dist\win-unpacked` to `<code>\shell` | removes the code root, only if this install created it |
+| `copy-code-root.ps1` | builds the frontend and the shell when the source has neither (needs npm), then `robocopy` of the source to the code root (no `.git`, `node_modules`, `.venv`, `docs`, data folders) and of the packed shell to `<code>\shell` (`electron\dist\win-unpacked` in a checkout, `shell\` in a release archive) | removes the code root, only if this install created it |
 | `install-python.ps1` | CPython 3.12.10 from its NuGet package (SHA-512 pinned) into `<code>\python`, a venv in `<code>\.venv`, `backend\requirements.txt` (re-run when its hash changes) | goes with the code root |
 | `create-data-root.ps1` | `config`, `config\themes`, `emu`, `emu\covers`, `logs`; seeds each bundled theme whose folder is absent or empty; gives the console user Modify | **never** touches the data root |
 | `write-session-env.ps1` | `%ProgramData%\GameCore\session.env`: both roots, the port, the scraper keys; Administrators and SYSTEM only; a key empty in `install.conf` keeps the value already written | removes it |

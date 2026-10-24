@@ -12,8 +12,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = [ROOT / "update" / "linux.sh",
-           *sorted((ROOT / "install" / "steps").glob("*.sh"))]
+SCRIPTS = sorted((ROOT / "install" / "steps").glob("*.sh"))
 OPEN = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]+)\1")
 
 

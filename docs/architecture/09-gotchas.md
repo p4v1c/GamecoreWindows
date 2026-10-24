@@ -298,27 +298,39 @@ The OTA archive used to ship `frontend/dist` **without** `frontend/src`. A box
 therefore ran a CI-fresh bundle on top of sources frozen at first install, and
 nothing reported the drift.
 
-That holds until something rebuilds *on the box* — `update/linux.sh`'s own
-fallback when a release ships no `dist/`, or a hand-run `npm run build`. Either
-regenerates `dist/` from months-old sources and silently reverts the UI.
+That holds until something rebuilds *on the box* (the Linux updater's own
+fallback when a release shipped no `dist/`, or a hand-run `npm run build`).
+Either regenerates `dist/` from months-old sources and silently reverts the UI.
 
 It cost a real feature: the "Scan mapping" button shipped in v1.0.62 was
 missing from a box running v1.0.66, while its backend route was live and
 answering the whole time.
 
-The archive now ships `frontend/` whole and `linux.sh` mirrors `frontend/src/`
-with `--delete`. **Keep it that way**, and remember the consequence: local
-edits to a box's frontend are erased by the next update. Push them.
+The archive ships `frontend/` whole (`scripts/package-release.py`) and the
+update swaps the whole code root. **Keep it that way**, and remember the
+consequence: local edits to a box's code root are gone after the next update
+(they wait in `<code>.prev` until the one after). Push them.
 
-**The updater must not restart the services itself.**
-`update/linux.sh` runs inside the backend's cgroup. It starts the detached
-`gamecore-restart.service` with `--no-block` instead — a direct
-`systemctl restart` would kill the script mid-update.
+**The updater cannot replace the code root from inside it.**
+Windows refuses to rename a folder a running program lives in, and the
+session, the backend, the shell and Caddy all run from `<code>`. Stage 1
+(`update/windows.py`, run by the backend) only downloads and unpacks beside
+it; stage 2 (`update/apply-update.ps1`) runs detached from the work folder,
+stops them all, swaps, restarts ([13](13-release-and-ota.md)).
 
-**`VERSION` is written by the updater, not by git.**
-The repo pins `v1.0.0`; the real version lives in the tags and in the file the
-OTA writes. That is why `VERSION` always shows as modified in `git status` on a
-box.
+**Stop the shell with TerminateProcess, never `WM_CLOSE`.**
+A plain close makes the kiosk shell rebuild its window instead of leaving
+(found at port step 4); stage 2 uses `Stop-Process -Force`, like `taskkill /F`.
+
+**Windows PowerShell turns stderr into errors.**
+Under `$ErrorActionPreference = 'Stop'`, `& program 2>&1` throws on the first
+line a program writes to stderr, even when it exits 0: an npm or pip warning
+failed the install step, and would have rolled a good update back.
+`Invoke-GcNative` and `Invoke-GcUpdateNative` relax it around the call.
+
+**`VERSION` comes from the release archive, not from git.**
+The repository pins `v0.0.0` (a checkout, older than every release); the real
+version lives in the tags and in the archive's `VERSION`.
 
 **`rsync -a` implies `-t`, so "is it newer than me?" is not a freshness test.**
 A file the OTA installs arrives carrying the mtime it had *in the archive*, which

@@ -118,6 +118,10 @@ HISTORICAL = {
     "install/arch.sh",
     "install/uninstall.sh",
     "install/steps/setup-gamecore-session.sh",
+    # The Linux OTA, replaced at port step 8 by update/windows.py and
+    # update/apply-update.ps1. Docs still cite it for the Linux box's history
+    # (rsync excludes, mtimes, the security notes) and for the import.
+    "update/linux.sh",
 }
 
 INLINE_CODE = re.compile(r"`([^`\n]+)`")

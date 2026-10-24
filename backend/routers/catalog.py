@@ -220,7 +220,7 @@ def busy():
 # ── the catalogue's own update channel ─────────────────────────────────────
 #
 # Separate from routers/update.py on purpose. That one ships the application:
-# it runs update/linux.sh, rsyncs a tree and can restart services. This one
+# it runs update/windows.py, swaps the code root and restarts GameCore. This one
 # only ever writes pack.json files into the OTA tier, and that difference is
 # what makes a 24-hour turnaround on a dead app id safe to automate.
 #
