@@ -252,7 +252,7 @@ Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
 
 | | Before (main at `dd4b82e`) | After |
 |---|---|---|
-| pytest passed | 2 456 | 2 491 |
+| pytest passed | 2 456 | 2 494 (CI, Python 3.12: 2 492 passed, 86 skipped) |
 | pytest skipped | 112 | 84 |
 | vitest | 755 | 755 |
 | Electron bench | 44 | 44 |
