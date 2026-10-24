@@ -45,8 +45,13 @@ CREATE_NO_WINDOW = 0x08000000
 
 MUTEX_NAME = "Local\\GameCoreSession"
 SHOW_EVENT_NAME = "Local\\GameCoreSessionShowInterface"
+ERROR_ACCESS_DENIED = 5
 ERROR_ALREADY_EXISTS = 183
-SYNCHRONIZE_AND_MODIFY = 0x00100000 | 0x0002
+SYNCHRONIZE = 0x00100000
+SYNCHRONIZE_AND_MODIFY = SYNCHRONIZE | 0x0002
+# SYSTEM and Administrators: all; interactive users: wait and set (0x100003
+# covers both a mutex's and an event's state access); medium label, no write-up.
+OBJECT_SDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x100003;;;IU)S:(ML;;NW;;;ME)"
 LOG_CAP_BYTES = 1_000_000
 
 
@@ -210,26 +215,52 @@ def spawn_process(argv: list[str], env: dict[str, str], cwd: Path, log_path: Pat
                                 creationflags=CREATE_NO_WINDOW if hidden else 0)
 
 
-class SingleInstance:
-    """The first copy in a session owns a mutex; later copies set its "show" event and leave."""
+class _SecurityAttributes(ctypes.Structure):
+    _fields_ = [("nLength", ctypes.c_ulong), ("lpSecurityDescriptor", ctypes.c_void_p),
+                ("bInheritHandle", ctypes.c_int)]
 
-    def __init__(self, kernel32=None):
-        self._k = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
-        self._k.CreateMutexW.restype = ctypes.c_void_p
-        self._k.CreateEventW.restype = ctypes.c_void_p
-        self._k.OpenEventW.restype = ctypes.c_void_p
+
+class SingleInstance:
+    """The first copy in a session owns a mutex; later copies set its "show" event and leave.
+
+    The first copy runs elevated (the logon task), the shortcut does not: both
+    objects carry a descriptor that lets the session's unelevated user see the
+    mutex and set the event (medium label, no write-up), or the shortcut would
+    start a second backend.
+    """
+
+    def __init__(self, mutex_name: str = MUTEX_NAME, event_name: str = SHOW_EVENT_NAME):
+        self._k = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._a = ctypes.WinDLL("advapi32", use_last_error=True)
+        for name in ("CreateMutexW", "OpenMutexW", "CreateEventW", "OpenEventW"):
+            getattr(self._k, name).restype = ctypes.c_void_p
+        self._mutex_name, self._event_name = mutex_name, event_name
         self._mutex = None
         self._event = None
 
+    def _attributes(self) -> _SecurityAttributes:
+        descriptor = ctypes.c_void_p()
+        if not self._a.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                OBJECT_SDDL, 1, ctypes.byref(descriptor), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, 0)
+
     def acquire(self) -> bool:
-        self._mutex = self._k.CreateMutexW(None, False, MUTEX_NAME)
+        existing = self._k.OpenMutexW(SYNCHRONIZE, False, self._mutex_name)
+        if existing:
+            self._k.CloseHandle(ctypes.c_void_p(existing))
+            return False
+        if ctypes.get_last_error() == ERROR_ACCESS_DENIED:
+            return False                # there, and owned by a more privileged copy
+        attributes = self._attributes()
+        self._mutex = self._k.CreateMutexW(ctypes.byref(attributes), False, self._mutex_name)
         if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
             return False
-        self._event = self._k.CreateEventW(None, False, False, SHOW_EVENT_NAME)
+        self._event = self._k.CreateEventW(ctypes.byref(attributes), False, False, self._event_name)
         return True
 
     def ask_first_copy_to_show(self) -> bool:
-        event = self._k.OpenEventW(SYNCHRONIZE_AND_MODIFY, False, SHOW_EVENT_NAME)
+        event = self._k.OpenEventW(SYNCHRONIZE_AND_MODIFY, False, self._event_name)
         if not event:
             return False
         try:

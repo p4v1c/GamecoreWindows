@@ -35,18 +35,20 @@ function Write-GcWarning {
 }
 
 function Invoke-GcChange {
-    <# Run $Action unless this is a dry run; either way the change is listed. #>
+    <# Run $GcChangeAction unless this is a dry run; either way the change is listed. #>
+    # Prefixed names: the block runs in this scope, so a parameter called
+    # $Action would hide the caller's $action inside it.
     param(
-        [Parameter(Mandatory)][string]$Description,
-        [Parameter(Mandatory)][scriptblock]$Action
+        [Parameter(Mandatory)][string]$GcChangeDescription,
+        [Parameter(Mandatory)][scriptblock]$GcChangeAction
     )
-    $script:GcChanges.Add($Description)
+    $script:GcChanges.Add($GcChangeDescription)
     if ($script:GcDryRun) {
-        Write-Host "   would: $Description" -ForegroundColor DarkGray
+        Write-Host "   would: $GcChangeDescription" -ForegroundColor DarkGray
         return
     }
-    Write-Host "   $Description"
-    & $Action
+    Write-Host "   $GcChangeDescription"
+    & $GcChangeAction
 }
 
 function Invoke-GcNative {

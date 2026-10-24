@@ -117,6 +117,10 @@ def test_firewall_uninstall_removes_only_the_rules_it_made(tmp_path):
 
 TASK_FAKES = r"""
     $script:task = $null
+    $script:shortcut = Join-Path $env:GAMECORE_STATE_DIR 'GameCore.lnk'
+    function Get-GcShortcutPaths { @($script:shortcut) }
+    function New-GcShortcut { param($Path, $Action, $Icon)
+        Note 'shortcut' @{ path = $Path; exe = $Action.Execute; args = $Action.Arguments; icon = $Icon } }
     function Get-ScheduledTask { param($TaskPath, $TaskName, $ErrorAction) $script:task }
     function New-ScheduledTaskAction { param($Execute, $Argument, $WorkingDirectory)
         @{ Execute = $Execute; Arguments = $Argument; WorkingDirectory = $WorkingDirectory } }
@@ -144,6 +148,10 @@ def test_the_session_task_runs_the_launcher_elevated_at_the_console_users_sign_i
     assert task["trigger"]["AtLogOn"] is True and task["trigger"]["User"].endswith("\\player")
     assert task["principal"]["RunLevel"] == "Highest" and task["principal"]["LogonType"] == "Interactive"
     assert task["settings"] == {"Battery": True, "Limit": "00:00:00", "Instances": "IgnoreNew"}
+    [shortcut] = calls(result, "shortcut")
+    assert shortcut["exe"] == task["action"]["Execute"] and shortcut["args"] == task["action"]["Arguments"]
+    assert shortcut["icon"] == code + "\\shell\\GameCore.exe"
+    assert result["manifest"]["register-session-task"][shortcut["path"]] is True
 
 
 def test_a_session_task_already_right_is_not_registered_again(tmp_path):
@@ -153,10 +161,28 @@ def test_a_session_task_already_right_is_not_registered_again(tmp_path):
             Actions = @([pscustomobject]@{{ Execute = '{code}\.venv\Scripts\pythonw.exe'
                 Arguments = '"{code}\install\bin\gamecore-session"' }})
             Principal = [pscustomobject]@{{ RunLevel = 'Highest'; UserId = 'PC\player' }} }}
+        New-Item -ItemType Directory -Force (Split-Path $script:shortcut) | Out-Null
+        [IO.File]::WriteAllText($script:shortcut, 'lnk')
         Install-GcSessionTask {settings_ps(tmp_path)}
     """)
-    assert calls(result, "register") == []
+    assert calls(result, "register") == [] and calls(result, "shortcut") == []
     assert result["changes"] == []
+
+
+def test_uninstall_removes_the_shortcuts_it_made_and_the_task(tmp_path):
+    shortcut = tmp_path / "state" / "GameCore.lnk"
+    shortcut.parent.mkdir(parents=True)
+    shortcut.write_text("lnk")
+    result = run_ps(tmp_path, TASK_FAKES + rf"""
+        $script:task = [pscustomobject]@{{ Actions = @() }}
+        function Stop-ScheduledTask {{ param($TaskPath, $TaskName, $ErrorAction) }}
+        function Unregister-ScheduledTask {{ param($TaskPath, $TaskName, $Confirm) Note 'unregister' "$TaskPath$TaskName" }}
+        function Stop-GcSessionProcesses {{ param($CodeRoot) Note 'stop' $CodeRoot }}
+        Uninstall-GcSessionTask @{{ '{shortcut}' = $true }} {settings_ps(tmp_path)}
+    """)
+    assert not shortcut.exists()
+    assert calls(result, "unregister") == ["\\GameCore\\Session"]
+    assert calls(result, "stop") == [str(tmp_path / "code")]
 
 
 CADDY_FAKES = r"""

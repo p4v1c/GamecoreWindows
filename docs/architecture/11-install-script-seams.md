@@ -43,7 +43,7 @@ console user's even when UAC asks for another account's password.
 | `configure-power.ps1` | in every power plan: power button = sleep, wake timers off, no password on wake, USB selective suspend off; Fast Startup off | puts every value back |
 | `set-wifi-location.ps1` | build 26100+ (24H2) only: location access for desktop apps, or the Wi-Fi scan is empty | puts the values back |
 | `configure-autologon.ps1` | automatic sign-in: Winlogon `AutoAdminLogon`, `DefaultUserName`; the password, typed at the console, as the LSA secret `DefaultPassword` (never in the registry in clear, never in `install.conf`); Windows Hello-only sign-in off | deletes the secret, restores the values |
-| `register-session-task.ps1` | the `\GameCore\Session` logon task ([1](01-runtime-topology.md#the-logon-task-the-services-the-files-they-read)) | removes the task and stops every process running from the code root |
+| `register-session-task.ps1` | the `\GameCore\Session` logon task ([1](01-runtime-topology.md#the-logon-task-the-services-the-files-they-read)), and a `GameCore` shortcut on the public desktop and in the Start menu (the way back from Desktop mode) | removes the shortcuts it made, the task, and stops every process running from the code root |
 | `build-media-index.ps1` | the offline metadata index (LaunchBox dump, 234 MB) into `<data>\emu\gamescrape`, through `gamescrape.py --refresh`; skipped when present, with `MEDIA_INDEX=0`, or under 700 MB free; a failed build is a warning | kept with the data |
 
 A failed step is reported and the next one runs: a degraded install that says
@@ -74,7 +74,9 @@ fake function that notes its arguments (a function wins over a cmdlet of the
 same name). Files go to the test's tmp folder; `GAMECORE_STATE_DIR` moves the
 record and `session.env` there. `test_install_entry.py` runs `install.ps1
 -DryRun` and `uninstall.ps1 -DryRun` for real and checks they create nothing.
-The `.ps1` files stay ASCII: Windows PowerShell reads a file without a BOM in
+`Invoke-GcChange` runs its block in its own scope, so its parameters carry a
+`GcChange` prefix: one called `$Action` hid a step's own `$action` inside the
+block. The `.ps1` files stay ASCII: Windows PowerShell reads a file without a BOM in
 the ANSI code page.
 
 ## What has not been run

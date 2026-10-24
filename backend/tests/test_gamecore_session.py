@@ -246,3 +246,16 @@ def test_without_its_env_file_it_exits_and_leaves_a_note(tmp_path):
                          env={**os.environ, gs.ENV_FILE_OVERRIDE: str(env_file)}, timeout=60)
     assert out.returncode == 2
     assert "install.ps1" in (env_file.parent / "session-error.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="named kernel objects are a Windows mechanism")
+def test_a_second_copy_finds_the_first_and_wakes_it(tmp_path):
+    names = {"mutex_name": rf"Local\GameCoreTest-{os.getpid()}-{tmp_path.name}",
+             "event_name": rf"Local\GameCoreTestShow-{os.getpid()}-{tmp_path.name}"}
+    first, second = gs.SingleInstance(**names), gs.SingleInstance(**names)
+    assert first.acquire() is True
+    assert first.show_requested(0) is False
+    assert second.acquire() is False
+    assert second.ask_first_copy_to_show() is True
+    assert first.show_requested(0) is True
+    assert first.show_requested(0) is False       # auto-reset: one press, one show

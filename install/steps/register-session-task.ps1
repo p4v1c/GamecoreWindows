@@ -43,12 +43,41 @@ function Register-GcSessionTask {
         -Description 'GameCore: the backend and the interface, in the console session' -Force | Out-Null
 }
 
+function Get-GcShortcutPaths {
+    <# The way back from Desktop mode: the desktop the player lands on, and the Start menu. #>
+    return @(
+        (Join-Path $env:PUBLIC 'Desktop\GameCore.lnk'),
+        (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\GameCore.lnk')
+    )
+}
+
+function New-GcShortcut {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Action, [Parameter(Mandatory)][string]$Icon)
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut($Path)
+    $link.TargetPath = $Action.Execute
+    $link.Arguments = $Action.Arguments
+    $link.WorkingDirectory = $Action.WorkingDirectory
+    $link.IconLocation = "$Icon,0"
+    $link.Description = 'Back to GameCore'
+    $link.Save()
+}
+
 function Install-GcSessionTask {
     param([Parameter(Mandatory)]$Settings)
-    if (Test-GcSessionTask $Settings) { return }
-    Set-GcRecord 'register-session-task' 'task' "$script:GcTaskPath$script:GcTaskName"
-    Invoke-GcChange "register the $script:GcTaskPath$script:GcTaskName logon task for $($Settings.ConsoleUser), elevated" {
-        Register-GcSessionTask $Settings
+    if (-not (Test-GcSessionTask $Settings)) {
+        Set-GcRecord 'register-session-task' 'task' "$script:GcTaskPath$script:GcTaskName"
+        Invoke-GcChange "register the $script:GcTaskPath$script:GcTaskName logon task for $($Settings.ConsoleUser), elevated" {
+            Register-GcSessionTask $Settings
+        }
+    }
+    # Unelevated: a second gamecore-session only asks the running one to show the interface.
+    $action = Get-GcSessionAction $Settings.CodeRoot
+    $icon = Join-Path $Settings.CodeRoot 'shell\GameCore.exe'
+    foreach ($path in (Get-GcShortcutPaths)) {
+        if (Test-Path -LiteralPath $path) { continue }
+        Set-GcRecord 'register-session-task' $path $true
+        Invoke-GcChange "create the GameCore shortcut $path" { New-GcShortcut $path $action $icon }
     }
 }
 
@@ -63,6 +92,11 @@ function Stop-GcSessionProcesses {
 
 function Uninstall-GcSessionTask {
     param($Record, [Parameter(Mandatory)]$Settings)
+    foreach ($path in (Get-GcShortcutPaths)) {
+        if ($null -ne $Record -and $Record.ContainsKey($path) -and (Test-Path -LiteralPath $path)) {
+            Invoke-GcChange "remove the shortcut $path" { Remove-Item -LiteralPath $path -Force }
+        }
+    }
     $task = Get-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -ErrorAction SilentlyContinue
     if ($null -eq $task) { return }
     Invoke-GcChange "remove the $script:GcTaskPath$script:GcTaskName task" {
