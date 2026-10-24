@@ -10,6 +10,7 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `filesystem.py` | directory links                           | `os.symlink`, `os.readlink`   |
 | `processes.py`  | boot identity, process start time         | `/proc` reads                 |
 | `media_types.py`| content types of what is served           | `/etc/mime.types`             |
+| `audio.py`      | audio outputs, volume                     | `wpctl`                       |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """

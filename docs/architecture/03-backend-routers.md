@@ -326,9 +326,12 @@ SSID beginning with `-` is refused rather than escaped: the SSID is positional
 with nothing marking the end of the options, such a network is vanishingly rare,
 and guessing at `nmcli`'s option parsing is not worth being clever about.
 
-### `settings/audio.py`
+### `settings/audio.py` — Core Audio
 
-`get_audio()`, `list_sinks()`, `set_volume(req)`, `set_sink(req)`.
+`get_audio()`, `list_sinks()`, `set_volume(req)`, `set_sink(req)`. The calls are
+in [`platform/audio.py`](04-backend-services.md#platform--every-call-into-windows);
+a sink `id` is the Windows endpoint id string. A Core Audio refusal answers an
+empty list, volume 100, or `{ok: false, error}`: the page shows what it has.
 
 ### `settings/bluetooth.py` — `bluetoothctl`
 

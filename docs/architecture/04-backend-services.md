@@ -888,10 +888,11 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `window_control.py` | `top_level_windows(pids)`, `windows_of_executables(names)` | `EnumWindows` by owner pid / by process image, visible unowned app windows | `_NET_CLIENT_LIST` + `_NET_WM_PID` / `WM_CLASS` |
 | | `bring_to_front(hwnd)` | `SetForegroundWindow`; when refused, again with `AttachThreadInput` to the foreground thread, never to a frozen one (`SendMessageTimeoutW` probe) | `_NET_ACTIVE_WINDOW` |
 | | `make_borderless_fullscreen(hwnd)`, `covers_its_monitor(hwnd)` | frame styles off (`SetWindowLongPtrW`), `SetWindowPos` over the monitor (`SWP_ASYNCWINDOWPOS`), in per-monitor DPI | `_NET_WM_STATE_FULLSCREEN` |
+| `audio.py` | `list_outputs()`, `get_volume()`, `set_volume(percent)`, `set_default_output(id)` | active render endpoints and the default one (pycaw over Core Audio); the default is set for every role through `IPolicyConfig`. COM is initialised once per worker thread and never released: comtypes frees its pointers at garbage collection, after which `CoUninitialize` crashed the process | `wpctl` (PipeWire) |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
