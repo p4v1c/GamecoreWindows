@@ -44,6 +44,7 @@ console user's even when UAC asks for another account's password.
 | `set-wifi-location.ps1` | build 26100+ (24H2) only: location access for desktop apps, or the Wi-Fi scan is empty | puts the values back |
 | `configure-autologon.ps1` | automatic sign-in: Winlogon `AutoAdminLogon`, `DefaultUserName`; the password, typed at the console, as the LSA secret `DefaultPassword` (never in the registry in clear, never in `install.conf`); Windows Hello-only sign-in off | deletes the secret, restores the values |
 | `register-session-task.ps1` | the `\GameCore\Session` logon task ([1](01-runtime-topology.md#the-logon-task-the-services-the-files-they-read)) | removes the task and stops every process running from the code root |
+| `build-media-index.ps1` | the offline metadata index (LaunchBox dump, 234 MB) into `<data>\emu\gamescrape`, through `gamescrape.py --refresh`; skipped when present, with `MEDIA_INDEX=0`, or under 700 MB free; a failed build is a warning | kept with the data |
 
 A failed step is reported and the next one runs: a degraded install that says
 what failed beats an install aborted halfway. The summary lists the failures;

@@ -34,7 +34,7 @@ def test_a_dry_run_plans_every_step_and_writes_nothing(tmp_path):
     assert _headings(out.stdout) == [
         "copy-code-root", "install-python", "create-data-root", "write-session-env", "set-web-password",
         "install-caddy", "configure-firewall", "install-openssh", "configure-power", "set-wifi-location",
-        "configure-autologon", "register-session-task"]
+        "configure-autologon", "register-session-task", "build-media-index"]
     assert "would: copy" in out.stdout and "would: register the \\GameCore\\Session logon task" in out.stdout
     assert list(tmp_path.iterdir()) == [], "a dry run created files"
     assert out.returncode == 0, out.stdout
@@ -68,7 +68,8 @@ def test_uninstall_runs_the_steps_backwards_and_keeps_the_record_in_a_dry_run(tm
     (tmp_path / "code").mkdir()
     out = _run("uninstall.ps1", "-DryRun", state_dir=state)
     headings = _headings(out.stdout)
-    assert headings[0] == "register-session-task" and headings[-1] == "copy-code-root", out.stdout + out.stderr
+    assert headings[0] == "build-media-index" and headings[-1] == "copy-code-root", out.stdout + out.stderr
+    assert headings.index("register-session-task") < headings.index("copy-code-root")
     assert f"would: remove {tmp_path / 'code'}" in out.stdout
     assert "Your data is still in" in out.stdout
     assert (tmp_path / "code").is_dir() and (state / "install-manifest.json").exists()

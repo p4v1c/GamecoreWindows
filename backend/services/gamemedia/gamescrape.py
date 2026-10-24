@@ -182,7 +182,7 @@ def resolve_index_dir(explicit: str | None = None):
     installation and the player's data are separate trees. Reading the
     environment here rather than importing `services/paths.py` is deliberate
     and is the one exception `backend/tests/test_paths.py` grants: this file
-    is run as a plain script by `install/steps/build-media-index.sh`, where a
+    is run as a plain script by `install/steps/build-media-index.ps1`, where a
     package-relative import has no package to resolve against. The fallback
     keeps it agreeing with `gamemedia/__init__.py`, which does go through
     paths.py — the two must name the same directory or the backend reports a

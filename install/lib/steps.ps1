@@ -14,6 +14,8 @@ $script:GcSteps = @(
     [pscustomobject]@{ Name = 'set-wifi-location';     Install = 'Install-GcWifiLocation'; Uninstall = 'Uninstall-GcWifiLocation' }
     [pscustomobject]@{ Name = 'configure-autologon';   Install = 'Install-GcAutologon';   Uninstall = 'Uninstall-GcAutologon' }
     [pscustomobject]@{ Name = 'register-session-task'; Install = 'Install-GcSessionTask'; Uninstall = 'Uninstall-GcSessionTask' }
+    # Last: the long download runs after every question has been asked.
+    [pscustomobject]@{ Name = 'build-media-index';     Install = 'Install-GcMediaIndex';  Uninstall = 'Uninstall-GcMediaIndex' }
 )
 
 foreach ($step in $script:GcSteps) {

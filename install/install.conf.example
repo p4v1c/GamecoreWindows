@@ -29,6 +29,11 @@ AUTOLOGON=1
 # 1 = install and start OpenSSH Server, reachable from private networks only.
 SSH=1
 
+# 1 = build the offline metadata index (LaunchBox dump, 234 MB download):
+# titles, synopses and covers with no account. 0 = skip; build it later with
+#   .\install\install.ps1 -Only build-media-index
+MEDIA_INDEX=1
+
 # Optional API keys - leave empty to skip.
 TGDB_API_KEY=''
 
