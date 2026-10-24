@@ -341,7 +341,9 @@ def main(argv: list[str] | None = None) -> int:
             from finish import finish                    # update/finish.py, the new release's
             return finish(args.root, args.data, say)
         return install(args)
-    except UpdateError as e:
+    except (UpdateError, OSError, zipfile.BadZipFile) as e:
+        # A corrupt archive or a full disk ends here too, said in one line the
+        # interface can show, never as a traceback.
         say(f"ERROR: {e}")
         return 1
 

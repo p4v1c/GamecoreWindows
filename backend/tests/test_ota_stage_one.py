@@ -176,6 +176,15 @@ def test_an_incomplete_release_is_refused(box, tmp_path, capsys):
     assert "missing: shell/GameCore.exe" in capsys.readouterr().out
 
 
+def test_a_corrupt_archive_is_one_error_line_not_a_traceback(box, capsys):
+    blob = b"not a zip at all"
+    box["routes"]["/ota.zip"] = blob
+    box["routes"]["/ota.zip.sha256"] = hashlib.sha256(blob).hexdigest().encode()
+    assert box["run"]() == 1
+    assert "[update] ERROR:" in capsys.readouterr().out
+    assert box["launched"] == []
+
+
 def test_an_entry_outside_the_archive_folder_is_refused(tmp_path):
     archive = tmp_path / "evil.zip"
     with zipfile.ZipFile(archive, "w") as z:
