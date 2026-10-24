@@ -331,16 +331,19 @@ in [`platform/audio.py`](04-backend-services.md#platform--every-call-into-window
 a sink `id` is the Windows endpoint id string. A Core Audio refusal answers an
 empty list, volume 100, or `{ok: false, error}`: the page shows what it has.
 
-### `settings/bluetooth.py` — `bluetoothctl`
+### `settings/bluetooth.py` — WinRT
 
-`list_devices()`, `start_scan()` (scans 10 s, answers what is in range and not
-paired), `pair_device`, `connect_device`, `disconnect_device`, `remove_device(mac)`.
+`list_devices()`, `start_scan()` (scans `SCAN_SECS`, answers what is in range
+and not paired), `pair_device` (bounded by `PAIR_SECS`), `connect_device`,
+`disconnect_device`, `remove_device(mac)` (unpairs, then reads the paired list
+back). The calls are in [`platform/bluetooth.py`](04-backend-services.md#platform--every-call-into-windows).
 
-> Pairing runs one *interactive* `bluetoothctl --agent=NoInputNoOutput`
-> (`_pair_with_agent`): in direct subcommand mode (`-- pair`) bluetoothctl 5.87
-> registers no agent, and bluetoothd refused every device that needed a
-> confirmation or an authorization ("No agent available"). A `(yes/no)`
-> prompt is answered yes: the player picked the device.
+> Windows connects a paired device when the device asks (a pad switched on)
+> and has no call to force or drop one device's link: `/connect` answers ok
+> only for a device already connected and says how to connect the others;
+> `/disconnect` answers ok only for one already down. Pairing accepts Windows'
+> confirmation itself; a device that wants a typed PIN is refused with that
+> reason.
 
 > Bluetooth device names are attacker-controlled strings that reach the UI.
 > They are one of the reasons `escHtml()` exists in Electron.

@@ -7,9 +7,8 @@ with its step named (`linux_until_port`, [`../TESTING.md`](../TESTING.md)) and i
 disagree.
 
 Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
-(Bluetooth, audio, installer), which run on Windows through the
-`posix_boundary` fixture (`backend/tests/posix_boundary.py`) until steps 5
-and 7. Step 3 removed its process half (`os.killpg`, the signals): the
+(the installer), which run on Windows through the `posix_boundary` fixture
+(`backend/tests/posix_boundary.py`) until step 7. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
 Measured on 20/10/2026 (step 4): 371 test items in 51 files, by step:
@@ -30,7 +29,6 @@ rest of the file runs on Windows.
 | Step | File | Marked tests | Linux mechanism |
 |---|---|---|---|
 | 5 | `backend/tests/test_battery.py` | `test_a_mouse_battery_is_not_a_controller` | sysfs `power_supply` names hold `:` |
-| 5 | `backend/tests/test_bluetooth_router.py` | `test_pairing_registers_an_agent_and_confirms_the_passkey` | pairing drives an interactive `bluetoothctl` session |
 | 5 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink |
 | 5 | `backend/tests/test_storage.py` | `test_the_link_points_at_wherever_the_disk_landed`, `test_replugging_repoints_the_link_instead_of_failing`, `test_a_link_left_over_from_a_previous_session_is_found`, `test_a_romspath_under_the_stable_link_resolves_onto_the_disk`, `test_the_scanner_reads_nothing_from_a_disk_that_has_gone`, `test_a_busy_disk_reports_why_rather_than_a_generic_failure` | `lsblk`/`udisksctl`, `/run/media` symlinks |
 | 5 | `backend/tests/test_storage_monitor.py` | `test_a_disk_plugged_in_is_mounted_linked_and_announced`, `test_the_mount_point_is_re_read_rather_than_guessed`, `test_a_disk_that_arrives_already_mounted_still_gets_its_link`, `test_a_websocket_that_throws_does_not_stop_disks_being_noticed` | `lsblk`/`udisksctl`, `/run/media` symlinks |

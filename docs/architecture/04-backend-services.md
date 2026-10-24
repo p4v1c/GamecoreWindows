@@ -894,10 +894,11 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `wifi.py` | `scan(rescan)`, `connect(ssid, password)`, `disconnect()`, `connected_ssid()`, `adapter_guid()`, `access()` | WinRT `WiFiAdapter`: one row per access point (signal 0-100 from dBm, security label, channel from the frequency), joins with a `PasswordCredential`, `(ok, wrong_password, error)` | `nmcli dev wifi` |
 | | `forget(ssid, interface_guid)` | Native Wifi `WlanDeleteProfile` on the profile named after the SSID (netsh exits 0 whether or not it found it) | `nmcli con delete` |
 | `radios.py` | `enabled(kind)`, `set_enabled(kind, on)`, `read_state(state)` | WinRT `Radio` for `WIFI` and `BLUETOOTH`: the quick-settings switches; `RadioBlocked` when disabled below Windows | `nmcli radio wifi`, rfkill |
+| `bluetooth.py` | `paired_devices()`, `scan(seconds)`, `pair(mac)`, `unpair(mac)`, `format_address(raw)` | WinRT association endpoints of the classic and LE protocols (address, connected, paired); a scan watches both for `seconds` and drops unnamed LE advertisers (random-address phones and beacons, 20 of 28 in one measured scan); pairing answers Windows' confirm / display-PIN requests | `bluetoothctl` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 

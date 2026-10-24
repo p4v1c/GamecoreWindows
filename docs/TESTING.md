@@ -39,7 +39,7 @@ linux_until_port_module(7)                       # a module Windows cannot impor
   on Windows. Pure logic in a Linux service is made to run, not marked: fake
   the OS boundary. For uids that is the `posix_boundary` fixture
   (`backend/tests/posix_boundary.py`: `os.getuid`, `os.geteuid`), used by the
-  Bluetooth, audio and installer tests until steps 5 and 7.
+  installer tests until step 7.
 - Every use is listed in
   [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
   `test_linux_until_port.py` fails when the list and the source disagree.
