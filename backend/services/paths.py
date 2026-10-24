@@ -10,7 +10,7 @@ Two roots, deliberately separate:
                       Chosen at install: `Documents\GameCore` by default, or a
                       folder on another NTFS volume such as `D:\GameCoreData`.
 
-On Windows the installer always sets both (port step 7); the code root is
+On Windows the installer always sets both (`install/install.ps1`); the code root is
 not writable by the console user, so the default below only ever serves a
 checkout: development, the test suite, the read-only dev server. Paths are
 `pathlib` throughout, and Windows paths compare case-insensitively, as NTFS

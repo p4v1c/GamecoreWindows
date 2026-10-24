@@ -1,344 +1,322 @@
-#!/usr/bin/env bash
-# ================================================================
-#  gamecore-session — the console session itself.
-#
-#  Run by SDDM as the session command for /usr/share/xsessions/gamecore.desktop.
-#  It is what replaces "log into the machine's desktop, then draw the kiosk on
-#  top of it": there is no desktop behind GameCore any more, so there is
-#  nothing to see before it.
-#
-#  What it starts, and nothing else:
-#    · KWin (X11) as the compositor — the overlays, the fullscreen enforcer and
-#      the window monitor are all written against its behaviour;
-#    · gamecore-session.target, the user units that belong to this session.
-#
-#  What it deliberately does NOT start: plasmashell, its panels, its wallpaper,
-#  its session restore. Those are the seconds the player was watching.
-#
-#  X11 on purpose, and stated so it is not mistaken for an oversight: the bezel
-#  overlays, the fullscreen enforcer, gamecore-xsetup and the gamepad bridge
-#  are X11 code. Wayland is a separate piece of work, not a flag.
-# ================================================================
-set -u
+"""gamecore-session: the console session. Starts the backend, then the interface, and keeps both up.
 
-# Both, and the journal is the one that matters.
-#
-# `echo` alone goes to SDDM's session log, and on the reference box that file
-# is zero bytes — so `journalctl -t gamecore-session` answered "No entries"
-# for a session that had started four times. A session that cannot say what it
-# did is a session nobody can debug from an SSH prompt.
-log() {
-  echo "[gamecore-session] $*"
-  command -v logger >/dev/null 2>&1 && logger -t gamecore-session -- "$*" || true
-}
+Run by the `\\GameCore\\Session` logon task: elevated, in the console user's
+session, with `pythonw.exe` from the installation's venv (no console window).
+Run it again (the GameCore shortcut, coming back from the Windows desktop)
+and it asks the running copy to show the interface, then exits.
 
-# ── the session's own identity ───────────────────────────────────
-export XDG_SESSION_DESKTOP=gamecore
-export XDG_CURRENT_DESKTOP=GameCore
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+Stdlib only: it runs before anything else and must not depend on the backend.
 
-if [[ -z "${DISPLAY:-}" ]]; then
-  log "no DISPLAY — this session is started by the display manager, on X11."
-  exit 1
-fi
+    gamecore-session            start, or bring the interface back
+    gamecore-session --check    print the resolved settings and exit
+"""
+from __future__ import annotations
 
-# ── hand the environment over, rather than let anything guess it ──
-#
-# Two consumers, and they cannot be served the same way.
-#
-# The user manager gets it by import: the units of this session (the UI) and
-# the ones that outlive it (the gamepad bridge, the packs' layout daemons) all
-# read DISPLAY from there. Without this they inherit whatever the last session
-# left, which is how a daemon ends up talking to a display that no longer
-# exists.
-systemctl --user import-environment \
-  DISPLAY XAUTHORITY XDG_SESSION_ID XDG_SESSION_TYPE \
-  XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>/dev/null || true
+import argparse
+import ctypes
+import logging
+import os
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
 
-# The backend is a SYSTEM unit — deliberately, so the web interface and the
-# API survive without a graphical session — and a system unit cannot see any
-# of the above. It used to probe X for itself: a loop over every socket and
-# every cookie location, with a twenty-second bound in its unit, running on
-# every start whether or not anything needed a display.
-#
-# So the session writes it down instead, in the user's own runtime directory,
-# renewed at every login and removed on the way out. A file that is absent
-# means "no session", which is exactly what a headless box should look like.
-SESSION_ENV_DIR="$XDG_RUNTIME_DIR/gamecore"
-SESSION_ENV="$SESSION_ENV_DIR/session.env"
-# Set by the interface when the player picks Settings → Mode bureau, and read
-# by the teardown below. See the comment there for why the interface no longer
-# performs the switch itself.
-LEAVE_MARKER="$SESSION_ENV_DIR/leave-to-desktop"
-mkdir -p "$SESSION_ENV_DIR"
-chmod 700 "$SESSION_ENV_DIR" 2>/dev/null || true
-umask 077
-{
-  printf 'DISPLAY=%s\n' "$DISPLAY"
-  [[ -n "${XAUTHORITY:-}" ]] && printf 'XAUTHORITY=%s\n' "$XAUTHORITY"
-  printf 'XDG_SESSION_DESKTOP=%s\n' "$XDG_SESSION_DESKTOP"
-  printf 'STARTED=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-} > "$SESSION_ENV"
-# A marker left by a session that was killed before its teardown ran would
-# send the NEXT login straight back to the desktop.
-rm -f "$LEAVE_MARKER" 2>/dev/null || true
-log "session environment written to $SESSION_ENV (DISPLAY=$DISPLAY)"
+log = logging.getLogger("gamecore-session")
 
-# start-ui.sh applies the saved mode with this session’s actual display.
+# Written by install/steps/write-session-env.ps1; readable by administrators only,
+# since it carries the scraper credentials.
+DEFAULT_ENV_FILE = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "GameCore" / "session.env"
+ENV_FILE_OVERRIDE = "GAMECORE_SESSION_ENV"
 
-# ── teardown, whatever happens ───────────────────────────────────
-cleanup() {
-  log "session ending — stopping GameCore units"
-  # The compositor goes with the session. Left behind, it holds the X server
-  # and the next session finds a screen with somebody else's windows on it.
-  if [[ -n "${SUPERVISOR_PID:-}" ]]; then
-    pkill -P "$SUPERVISOR_PID" 2>/dev/null || true
-    kill "$SUPERVISOR_PID" 2>/dev/null || true
-  fi
-  systemctl --user stop gamecore-session.target 2>/dev/null || true
-  systemctl --user unset-environment \
-    DISPLAY XAUTHORITY XDG_SESSION_ID XDG_SESSION_TYPE \
-    XDG_SESSION_DESKTOP XDG_CURRENT_DESKTOP 2>/dev/null || true
-  rm -f "$SESSION_ENV" 2>/dev/null || true
+# systemd's Restart=on-failure / RestartSec=5 on the Linux units, plus a slower
+# pace after a burst: a console has nobody to run `systemctl reset-failed`.
+RESTART_DELAY_S = 5.0
+CRASH_BURST = 5
+CRASH_WINDOW_S = 120.0
+SLOW_RESTART_DELAY_S = 60.0
+POLL_S = 1.0
 
-  # ── the player asked for the desktop ───────────────────────────
-  #
-  # The switch is done HERE, and not by the interface that requested it.
-  #
-  # The interface used to run `sudo gamecore-session-select desktop` itself and
-  # then quit. On the reference box that call reached sudo — the journal has
-  # every invocation — and left the auto-login untouched, five times in a row,
-  # while the identical command run by hand from a shell, from a systemd user
-  # unit, and from the service's own working directory wrote the file every
-  # time. What the interface's attempts had in common is where they ran: inside
-  # `gamecore-ui.service`, whose cgroup systemd tears down the moment Electron
-  # exits — which is the very next thing the interface does.
-  #
-  # This runs in the session's own process, outside that cgroup, after the
-  # units are stopped and with nothing left to race. `--restart-dm` is part of
-  # it because writing the drop-in does not apply it: SDDM read its
-  # configuration when the daemon started and will otherwise log straight back
-  # into the session it already believes in.
-  if [[ -e "$LEAVE_MARKER" ]]; then
-    rm -f "$LEAVE_MARKER" 2>/dev/null || true
-    log "the player asked for the desktop — for this session, not for good"
-    local out
-    if out=$(sudo -n /usr/local/bin/gamecore-session-select desktop --once --restart-dm 2>&1); then
-      while IFS= read -r line; do log "  $line"; done <<< "$out"
-    else
-      log "the switch failed — this box will open GameCore again:"
-      while IFS= read -r line; do log "  $line"; done <<< "$out"
-    fi
-  fi
-}
-trap cleanup EXIT INT TERM
+# A child started with CREATE_NO_WINDOW owns a console that is never shown, and
+# every console program it runs (powercfg, wevtutil, the SDL probes) inherits
+# it instead of flashing a window of its own over the TV.
+CREATE_NO_WINDOW = 0x08000000
 
-# ── the compositor ───────────────────────────────────────────────
-#
-# Supervised in the background, and never allowed to end the session by itself.
-#
-# Ending it would return to SDDM, which auto-logs straight back in: a login
-# loop, on a television, with no keyboard. So a compositor that will not stay
-# up costs the compositor — the interface is fullscreen and still visible, the
-# bezels and the window stacking are not — and says so in the journal, which is
-# a box someone can still fix.
-# KWin first, and openbox as the last resort.
-#
-# KWin is the target: the bezel overlay asks for the `screen-saver` layer
-# precisely because KWin puts a fullscreen emulator above an ordinary
-# always-on-top window, and that behaviour is what the overlay code was written
-# against.
-#
-# openbox is not a compositor and is not equivalent — but it IS a window
-# manager, and the difference that matters here is between "a window manager
-# whose stacking is not the one we tuned for" and "no window manager at all".
-# The second is what this box would have got: recent Plasma ships KWin's X11
-# binary in a separate `kwin-x11` package, and a machine running Plasma on
-# Wayland does not have it. The session would have started GameCore on a bare
-# X server — the interface shows, the bezels stack at random and a fullscreen
-# emulator answers to nobody.
-# The candidates, in order of preference. Overridable so a test can decide what
-# this machine appears to have — without it, a test for "no KWin here" would
-# have to hide a real binary from PATH, and the one that tried launched the
-# developer's actual KWin against a display that does not exist.
-WM_CANDIDATES="${GAMECORE_WM_CANDIDATES:-kwin_x11 kwin openbox}"
+MUTEX_NAME = "Local\\GameCoreSession"
+SHOW_EVENT_NAME = "Local\\GameCoreSessionShowInterface"
+ERROR_ACCESS_DENIED = 5
+ERROR_ALREADY_EXISTS = 183
+SYNCHRONIZE = 0x00100000
+SYNCHRONIZE_AND_MODIFY = SYNCHRONIZE | 0x0002
+# SYSTEM and Administrators: all; interactive users: wait and set (0x100003
+# covers both a mutex's and an event's state access); medium label, no write-up.
+OBJECT_SDDL = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x100003;;;IU)S:(ML;;NW;;;ME)"
+LOG_CAP_BYTES = 1_000_000
 
-# ── the window manager's own keyboard, taken away ────────────────
-#
-# A console is not a desktop with a game on it. Alt+Tab walking to whatever is
-# behind the interface, Meta opening a launcher, Alt+F4 closing the kiosk —
-# those are the window manager's defaults, and on a television they are the
-# player falling out of the console with no way back that a gamepad can reach.
-#
-# Written into a config directory of the session's own, and handed ONLY to the
-# window manager process. Not exported into the session: the interface, the
-# gamepad bridge and the packs' layout daemons all read $XDG_CONFIG_HOME for
-# their own settings, and moving it under them would lose every one. This is
-# the smallest blast radius that still reaches the process doing the grabbing.
-#
-# The player's own ~/.config is never touched. The same account boots a desktop
-# session on this box, and a kiosk that rewrote the desktop's key bindings
-# would be a far worse bug than the one being fixed.
-WM_CONFIG_HOME="$SESSION_ENV_DIR/wm"
 
-write_wm_config() {
-  mkdir -p "$WM_CONFIG_HOME/openbox" || return 1
+class SessionError(Exception):
+    """A setting the session cannot start without."""
 
-  # KWin reads these two out of $XDG_CONFIG_HOME. `none,none,` is the documented
-  # way to say "this action has no key", as opposed to omitting the line, which
-  # leaves the compiled-in default in place.
-  {
-    echo '[kwin]'
-    for action in \
-      'Walk Through Windows' 'Walk Through Windows (Reverse)' \
-      'Walk Through Windows Alternative' 'Walk Through Windows Alternative (Reverse)' \
-      'Walk Through Windows of Current Application' \
-      'Walk Through Windows of Current Application (Reverse)' \
-      'Window Close' 'Window Operations Menu' 'Window Minimize' 'Window Maximize' \
-      'Window Fullscreen' 'Window Quick Tile Left' 'Window Quick Tile Right' \
-      'Kill Window' 'Suspend Compositing' 'Show Desktop' \
-      'Expose' 'ExposeAll' 'ExposeClass' \
-      'Switch to Next Desktop' 'Switch to Previous Desktop' \
-      'Switch One Desktop Down' 'Switch One Desktop Up' \
-      'Switch One Desktop to the Left' 'Switch One Desktop to the Right'
-    do
-      printf '%s=none,none,\n' "$action"
-    done
-  } > "$WM_CONFIG_HOME/kglobalshortcutsrc"
 
-  {
-    # Meta on its own opens Plasma's launcher. There is no Plasma here, but the
-    # binding is KWin's and it is spelled out rather than left to chance.
-    echo '[ModifierOnlyShortcuts]'
-    echo 'Meta='
-    echo
-    echo '[Windows]'
-    # No focus stealing prevention games, and no window switching by mouse
-    # wheel on the desktop — there is no desktop.
-    echo 'RollOverDesktops=false'
-    echo
-    # The theme draws the handovers. KWin's window animations zoomed and faded
-    # the interface in over them on each suspend, and morphed the game window.
-    echo '[Plugins]'
-    for effect in fade glide scale fullscreen; do
-      printf '%sEnabled=false\n' "$effect"
-    done
-  } > "$WM_CONFIG_HOME/kwinrc"
+@dataclass
+class Settings:
+    root: Path
+    data: Path
+    port: str
+    env: dict[str, str]
 
-  # openbox keeps its bindings in its own file, and an empty <keyboard> is a
-  # window manager with no keyboard at all. It is passed by path below, so this
-  # works whatever openbox would otherwise have read.
-  cat > "$WM_CONFIG_HOME/openbox/rc.xml" <<'RC'
-<?xml version="1.0" encoding="UTF-8"?>
-<openbox_config xmlns="http://openbox.org/3.4/rc">
-  <!-- A console session: the window manager has no key bindings, because every
-       one of them is a way out of the interface that a gamepad cannot undo. -->
-  <keyboard></keyboard>
-  <mouse></mouse>
-</openbox_config>
-RC
-}
+    @property
+    def logs(self) -> Path:
+        return self.data / "logs" / "session"
 
-if write_wm_config; then
-  log "window manager key bindings disabled for this session ($WM_CONFIG_HOME)"
-else
-  log "WARNING: could not write the window manager config — Alt+Tab may leave the console."
-fi
+    def backend_argv(self) -> list[str]:
+        python = self.root / ".venv" / "Scripts" / "python.exe"
+        return [str(python), "-m", "uvicorn", "backend.main:app",
+                "--host", "127.0.0.1", "--port", self.port]
 
-COMPOSITOR="${GAMECORE_COMPOSITOR:-}"
-COMPOSITOR_KIND="compositor"
-if [[ -z "$COMPOSITOR" ]]; then
-  for candidate in $WM_CANDIDATES; do
-    if command -v "$candidate" >/dev/null 2>&1; then COMPOSITOR="$candidate"; break; fi
-  done
-fi
-if [[ "$COMPOSITOR" == openbox || "$COMPOSITOR" == *"/openbox" ]]; then
-  COMPOSITOR_KIND="window manager"
-  log "no KWin for X11 on this machine — falling back to openbox."
-  log "  the interface and the games are fine; the bezels are tuned for KWin."
-  log "  for the intended behaviour:  sudo pacman -S kwin-x11"
-fi
+    def interface_argv(self) -> list[str]:
+        return [str(self.root / "shell" / "GameCore.exe")]
 
-# Set by the supervisor when the compositor exits cleanly, which is the only
-# compositor exit that means "the player is leaving".
-COMPOSITOR_LEFT="$SESSION_ENV_DIR/compositor-left"
-rm -f "$COMPOSITOR_LEFT" 2>/dev/null || true
+    def backend_env(self) -> dict[str, str]:
+        # UTF-8 mode, as every installed Python tool runs (dev log D14).
+        return {**self.env, "PYTHONUTF8": "1"}
 
-# The window manager, started with the locked configuration and nothing else
-# changed. `env` rather than an export, so $XDG_CONFIG_HOME is redirected for
-# this process alone — see write_wm_config for why that matters.
-start_wm() {
-  if [[ "$COMPOSITOR_KIND" == "window manager" ]]; then
-    # openbox takes the file by path, which is the only way to be sure it is
-    # the one being read.
-    env XDG_CONFIG_HOME="$WM_CONFIG_HOME" \
-      "$COMPOSITOR" --config-file "$WM_CONFIG_HOME/openbox/rc.xml" &
-  else
-    env XDG_CONFIG_HOME="$WM_CONFIG_HOME" "$COMPOSITOR" &
-  fi
-}
+    def interface_env(self) -> dict[str, str]:
+        # Unset, the shell is a checkout run by hand and starts its own backend (D24).
+        return {**self.env, "GAMECORE_MANAGED": "1"}
 
-supervise_compositor() {
-  local restarts=0 window_start=$SECONDS status
-  while :; do
-    log "starting $COMPOSITOR_KIND: $COMPOSITOR"
-    start_wm
-    wait $! ; status=$?
-    if [[ $status -eq 0 ]]; then
-      log "$COMPOSITOR_KIND exited cleanly"
-      : > "$COMPOSITOR_LEFT"
-      return 0
-    fi
-    (( SECONDS - window_start > 60 )) && { restarts=0; window_start=$SECONDS; }
-    restarts=$(( restarts + 1 ))
-    if (( restarts > 3 )); then
-      log "$COMPOSITOR_KIND failed $restarts times in a minute (last status $status)."
-      log "  carrying on without one: the interface stays up, the bezels do not."
-      return 1
-    fi
-    log "$COMPOSITOR_KIND died (status $status) — restart $restarts of 3"
-    sleep 1
-  done
-}
 
-if [[ -z "$COMPOSITOR" ]]; then
-  log "no window manager on this machine — running without one."
-  log "  the interface will show; bezels and window stacking will not."
-  log "  install one:  sudo pacman -S kwin-x11"
-  SUPERVISOR_PID=""
-else
-  supervise_compositor &
-  SUPERVISOR_PID=$!
-fi
+def parse_env_file(text: str) -> dict[str, str]:
+    """`KEY=value` lines; `#` comments and blank lines skipped. Values are taken raw, unquoted."""
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
 
-# ── the session's own units ──────────────────────────────────────
-if ! systemctl --user start gamecore-session.target; then
-  log "gamecore-session.target refused to start."
-  log "  see: journalctl --user -u gamecore-ui.service"
-fi
 
-# ── what keeps the session alive ─────────────────────────────────
-#
-# Two things can end it, and both have to be watched: the player leaving
-# (Settings → Desktop quits the interface) and the compositor exiting cleanly.
-# Neither is a timer — the poll below is supervision, not a countdown, and it
-# decides nothing except when this script has nothing left to wait for.
-log "session up"
-while :; do
-  [[ -e "$COMPOSITOR_LEFT" ]] && { log "the compositor was closed — ending the session"; break; }
-  if [[ -n "$SUPERVISOR_PID" ]] && ! kill -0 "$SUPERVISOR_PID" 2>/dev/null; then
-    # The supervisor gave up (a compositor that will not stay up). The session
-    # continues without one; the interface is what the player came for.
-    SUPERVISOR_PID=""
-  fi
-  if ! systemctl --user is-active --quiet gamecore-ui.service; then
-    # Also true for the seconds between two restarts, so it is confirmed once
-    # rather than acted on immediately.
-    sleep 3
-    if ! systemctl --user is-active --quiet gamecore-ui.service; then
-      log "the interface is no longer running — ending the session"
-      break
-    fi
-  fi
-  sleep 2
-done
+def load_settings(env_file: Path, base_env: dict[str, str]) -> Settings:
+    """Merge the installer's file over the process environment. Raises SessionError."""
+    try:
+        values = parse_env_file(env_file.read_text(encoding="utf-8-sig"))
+    except OSError as e:
+        raise SessionError(f"cannot read {env_file}: {e.strerror or e}. "
+                           "Re-run install\\install.ps1 to write it.") from e
+    env = {**base_env, **values}
+    missing = [k for k in ("GAMECORE_PATH", "GAMECORE_DATA") if not env.get(k)]
+    if missing:
+        raise SessionError(f"{env_file} does not set {', '.join(missing)}")
+    env.setdefault("GAMECORE_BACKEND_PORT", "8765")
+    return Settings(root=Path(env["GAMECORE_PATH"]), data=Path(env["GAMECORE_DATA"]),
+                    port=env["GAMECORE_BACKEND_PORT"], env=env)
+
+
+@dataclass
+class Child:
+    """One supervised program: what to run, and when it may run again."""
+    name: str
+    argv: list[str]
+    env: dict[str, str]
+    log_name: str
+    hidden: bool
+    restart_on_clean_exit: bool
+    proc: object | None = None
+    crashes: list[float] = field(default_factory=list)
+    next_start: float = 0.0
+    stopped_by_player: bool = False
+
+
+Spawn = Callable[[list[str], dict[str, str], Path, Path, bool], object]
+
+
+class Supervisor:
+    """Keeps the backend and the interface running. Every effect is injected, so tests drive it."""
+
+    def __init__(self, settings: Settings, spawn: Spawn,
+                 clock: Callable[[], float] = time.monotonic):
+        self.settings = settings
+        self._spawn = spawn
+        self._clock = clock
+        self.backend = Child("backend", settings.backend_argv(), settings.backend_env(),
+                             "backend-console.log", hidden=True, restart_on_clean_exit=True)
+        self.interface = Child("interface", settings.interface_argv(), settings.interface_env(),
+                               "interface-console.log", hidden=False, restart_on_clean_exit=False)
+
+    def start(self) -> None:
+        """Backend first; the interface right after, since it waits for /api/ready itself."""
+        self._start(self.backend)
+        self._start(self.interface)
+
+    def show_interface(self) -> None:
+        """The player came back from the desktop: start the interface unless it runs."""
+        child = self.interface
+        if child.proc is not None and child.proc.poll() is None:
+            return
+        child.stopped_by_player = False
+        child.next_start = 0.0
+        self._start(child)
+
+    def tick(self) -> None:
+        for child in (self.backend, self.interface):
+            self._check(child)
+
+    def _check(self, child: Child) -> None:
+        now = self._clock()
+        if child.proc is None:
+            if not child.stopped_by_player and now >= child.next_start:
+                self._start(child)
+            return
+        code = child.proc.poll()
+        if code is None:
+            return
+        child.proc = None
+        if code == 0 and not child.restart_on_clean_exit:
+            # The shell exits 0 only when the player chose Desktop mode.
+            log.info("%s exited cleanly: left to the Windows desktop", child.name)
+            child.stopped_by_player = True
+            return
+        child.crashes = [t for t in child.crashes if now - t < CRASH_WINDOW_S] + [now]
+        delay = SLOW_RESTART_DELAY_S if len(child.crashes) >= CRASH_BURST else RESTART_DELAY_S
+        child.next_start = now + delay
+        log.warning("%s exited with code %s; restarting in %.0f s", child.name, code, delay)
+
+    def _start(self, child: Child) -> None:
+        logs = self.settings.logs
+        try:
+            child.proc = self._spawn(child.argv, child.env, self.settings.root,
+                                     logs / child.log_name, child.hidden)
+            log.info("%s started: %s", child.name, " ".join(child.argv))
+        except OSError as e:
+            child.proc = None
+            child.next_start = self._clock() + RESTART_DELAY_S
+            log.error("%s could not start: %s", child.name, e)
+
+
+def _cap(path: Path) -> None:
+    """Keep one previous log: a crash trace survives one restart, the folder stays small."""
+    try:
+        if path.stat().st_size > LOG_CAP_BYTES:
+            path.replace(path.with_suffix(path.suffix + ".1"))
+    except OSError:
+        pass
+
+
+def spawn_process(argv: list[str], env: dict[str, str], cwd: Path, log_path: Path,
+                  hidden: bool) -> subprocess.Popen:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    _cap(log_path)
+    with open(log_path, "ab") as out:
+        return subprocess.Popen(argv, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
+                                stdout=out, stderr=subprocess.STDOUT,
+                                creationflags=CREATE_NO_WINDOW if hidden else 0)
+
+
+class _SecurityAttributes(ctypes.Structure):
+    _fields_ = [("nLength", ctypes.c_ulong), ("lpSecurityDescriptor", ctypes.c_void_p),
+                ("bInheritHandle", ctypes.c_int)]
+
+
+class SingleInstance:
+    """The first copy in a session owns a mutex; later copies set its "show" event and leave.
+
+    The first copy runs elevated (the logon task), the shortcut does not: both
+    objects carry a descriptor that lets the session's unelevated user see the
+    mutex and set the event (medium label, no write-up), or the shortcut would
+    start a second backend.
+    """
+
+    def __init__(self, mutex_name: str = MUTEX_NAME, event_name: str = SHOW_EVENT_NAME):
+        self._k = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._a = ctypes.WinDLL("advapi32", use_last_error=True)
+        for name in ("CreateMutexW", "OpenMutexW", "CreateEventW", "OpenEventW"):
+            getattr(self._k, name).restype = ctypes.c_void_p
+        self._mutex_name, self._event_name = mutex_name, event_name
+        self._mutex = None
+        self._event = None
+
+    def _attributes(self) -> _SecurityAttributes:
+        descriptor = ctypes.c_void_p()
+        if not self._a.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                OBJECT_SDDL, 1, ctypes.byref(descriptor), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), descriptor, 0)
+
+    def acquire(self) -> bool:
+        existing = self._k.OpenMutexW(SYNCHRONIZE, False, self._mutex_name)
+        if existing:
+            self._k.CloseHandle(ctypes.c_void_p(existing))
+            return False
+        if ctypes.get_last_error() == ERROR_ACCESS_DENIED:
+            return False                # there, and owned by a more privileged copy
+        attributes = self._attributes()
+        self._mutex = self._k.CreateMutexW(ctypes.byref(attributes), False, self._mutex_name)
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            return False
+        self._event = self._k.CreateEventW(ctypes.byref(attributes), False, False, self._event_name)
+        return True
+
+    def ask_first_copy_to_show(self) -> bool:
+        event = self._k.OpenEventW(SYNCHRONIZE_AND_MODIFY, False, self._event_name)
+        if not event:
+            return False
+        try:
+            return bool(self._k.SetEvent(ctypes.c_void_p(event)))
+        finally:
+            self._k.CloseHandle(ctypes.c_void_p(event))
+
+    def show_requested(self, timeout_ms: int) -> bool:
+        return self._k.WaitForSingleObject(ctypes.c_void_p(self._event), timeout_ms) == 0
+
+
+def _setup_logging(settings: Settings) -> None:
+    settings.logs.mkdir(parents=True, exist_ok=True)
+    path = settings.logs / "session.log"
+    _cap(path)
+    logging.basicConfig(filename=path, encoding="utf-8", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+
+
+def run(settings: Settings) -> int:
+    instance = SingleInstance()
+    if not instance.acquire():
+        shown = instance.ask_first_copy_to_show()
+        log.info("already running; asked it to show the interface (%s)", shown)
+        return 0 if shown else 1
+    supervisor = Supervisor(settings, spawn_process)
+    supervisor.start()
+    while True:
+        if instance.show_requested(int(POLL_S * 1000)):
+            supervisor.show_interface()
+        supervisor.tick()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="gamecore-session", description=__doc__.splitlines()[0])
+    parser.add_argument("--check", action="store_true", help="print the resolved settings and exit")
+    args = parser.parse_args(argv)
+    env_file = Path(os.environ.get(ENV_FILE_OVERRIDE) or DEFAULT_ENV_FILE)
+    try:
+        settings = load_settings(env_file, dict(os.environ))
+    except SessionError as e:
+        # pythonw has no stderr: the note next to the env file is what the owner finds.
+        print(f"gamecore-session: {e}", file=sys.stderr)
+        try:
+            (env_file.parent / "session-error.log").write_text(f"{e}\n", encoding="utf-8")
+        except OSError:
+            pass
+        return 2
+    if args.check:
+        print(f"code root  {settings.root}\ndata root  {settings.data}\nport       {settings.port}\n"
+              f"backend    {' '.join(settings.backend_argv())}\n"
+              f"interface  {' '.join(settings.interface_argv())}")
+        return 0
+    _setup_logging(settings)
+    return run(settings)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -6,8 +6,9 @@ What runs, where it listens, who starts it, and in what order.
 
 | Process | Started by | Listens | Owns |
 |---|---|---|---|
-| **Backend** | `gamecore-backend.service` (system unit); on Windows a logon task in the console session ([below](#on-windows-the-backend-runs-in-the-console-users-session)) | `127.0.0.1:8765` | the emulator process, playtime DB, covers, standby, evdev |
-| **Electron** | `gamecore-ui.service` (system unit) | — | the kiosk window, HUD toasts |
+| **Session** | the `\GameCore\Session` logon task, elevated, in the console user's session | — | `install/bin/gamecore-session`: starts the two below and restarts them |
+| **Backend** | the session, with a console that is never shown | `127.0.0.1:8765` | the emulator process, playtime DB, covers, standby, pads (SDL2) |
+| **Electron** | the session, with `GAMECORE_MANAGED=1` | — | the kiosk window, HUD toasts |
 | **The emulator** | Backend, `platform/jobs.py` `spawn()` | — | its own Job Object (the whole process tree) |
 
 Plus, out of band:
@@ -18,8 +19,10 @@ Plus, out of band:
 | rpcs3-manager | `gamecore-addon-rpcs3-manager.service` | `127.0.0.1:8771` |
 | save-manager | `gamecore-addon-save-manager.service` | `127.0.0.1:8772` |
 | bios-manager | `gamecore-addon-bios-manager.service` | `127.0.0.1:8773` |
-| Caddy | `caddy.service` | `:8443` — **the only LAN-facing port** |
+| Caddy | `GameCoreCaddy` Windows service | `:8443` — **the only LAN-facing port** |
+| OpenSSH | `sshd` Windows service (optional feature) | `:22`, private networks only |
 
+The addon rows are the Linux units until the addons are ported (port step 9).
 Ports 8770-8799 are reserved for addons. Vite (`:5173`) exists in development
 only.
 
@@ -75,21 +78,22 @@ endpoint, assume the LAN can never call it — and see [9](09-gotchas.md) for wh
 
 ```mermaid
 sequenceDiagram
-    participant sd as systemd
+    participant wl as Windows sign-in
+    participant gs as gamecore-session
     participant be as backend
     participant el as Electron
     participant ui as React
 
-    sd->>be: start gamecore-backend.service
-    be->>be: lifespan() → init_db()
-    be->>be: create_task ×4<br/>gamepad_monitor · battery · standby · prefetch
-    Note over be: uvicorn now serving 127.0.0.1:8765
-    sd->>el: start gamecore-ui.service (after display-manager)
-    el->>el: backendAlive()? else startBackend()
-    el->>el: createWindow() → loadURL(localhost:8765)
+    wl->>gs: \GameCore\Session at logon (elevated)
+    gs->>be: python -m uvicorn (hidden console)
+    gs->>el: shell\GameCore.exe, GAMECORE_MANAGED=1
+    el->>el: createWindow() → boot screen
+    be->>be: lifespan() → init_db(), background tasks
+    el->>be: GET /api/ready until 200
+    el->>be: POST /api/standby/desktop {active: false}
+    el->>el: loadURL(127.0.0.1:8765)
     be-->>ui: frontend/dist (SPA)
     ui->>be: WS /ws  +  GET /api/systems, /api/sysinfo…
-    Note over ui: Splash plays while data loads,<br/>then Home is already populated
 ```
 
 `backend/main.py:lifespan()` is the single place background tasks are created
@@ -102,11 +106,9 @@ standby_task  = asyncio.create_task(standby.run())
 prefetch_task = asyncio.create_task(prefetch.run())
 ```
 
-Electron's `startBackend()` is a **fallback for development only**: on a
-managed box systemd owns the backend, and Electron never competes for the port.
-"Managed" is read from `INVOCATION_ID`, which systemd sets in every service it
-runs — `start-ui.sh` is the unit's `ExecStart`, so Electron inherits it.
-`GAMECORE_MANAGED` overrides it either way.
+Electron's `startBackend()` is a **fallback for development only**: on an
+installed PC the session owns the backend, and Electron never competes for the
+port. "Managed" is `GAMECORE_MANAGED=1`, set by `gamecore-session` (dev log D24).
 
 ## When the interface appears
 
@@ -157,45 +159,27 @@ Three separate channels, deliberately:
    cannot do (reboot, shut down, hide the window while a game plays).
    `preload.js` exposes a fixed set of methods and nothing else; `nodeIntegration` is off.
 
-## Systemd units
+## The logon task, the services, the files they read
 
-`gamecore-backend.service` — system unit, written by `install/arch.sh`:
+Written by `install/install.ps1` ([11](11-install-script-seams.md)):
 
-```ini
-Environment=GAMECORE_PATH=/opt/GameCore
-ExecStart=/opt/GameCore/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8765
-```
+| Piece | What | Why this form |
+|---|---|---|
+| `\GameCore\Session` | scheduled task: at the console user's sign-in, highest privileges, `.venv\Scripts\pythonw.exe install\bin\gamecore-session` | a window opens only in its own process's session; a service lives in session 0 (D8). Elevated: games inherit it, the wake settings need it (D36) |
+| `gamecore-session` | starts the backend (`python -m uvicorn backend.main:app --host 127.0.0.1`), then the shell (`<code>\shell\GameCore.exe`) at once, since the shell waits for `/api/ready` itself; restarts either 5 s after a crash, 60 s after five in two minutes. A clean exit of the shell is Desktop mode and is not undone; the `GameCore` shortcut runs `gamecore-session` again, unelevated, and it only asks the running copy to start the shell (a named mutex and event whose descriptor lets the unelevated user see and set them) | the Linux units' `Restart=on-failure`, without a "failed" state nobody can reset on a console |
+| `%ProgramData%\GameCore\session.env` | `GAMECORE_PATH`, `GAMECORE_DATA`, `GAMECORE_BACKEND_PORT`, the scraper keys; Administrators and SYSTEM only | the Linux unit's `Environment=` lines and its `override.conf` drop-in, in one file |
+| `GameCoreCaddy` | Windows service, automatic, restarted on failure: `caddy\caddy.exe run --config install\system\Caddyfile`; `XDG_DATA_HOME` = `%ProgramData%\GameCore\caddy` (the local CA) | web access works before anyone signs in |
+| `sshd` | the OpenSSH Server optional feature, automatic | as on the Linux box |
+| `GameCore - Web access`, `GameCore - SSH` | inbound firewall rules, TCP 8443 and 22, Private profile only | the backend binds 127.0.0.1 and needs none |
+| `%ProgramData%\GameCore\install-manifest.json` | what each step changed and the values it replaced | `install/uninstall.ps1` puts them back |
 
-The TheGamesDB key is added as a local drop-in
-(`systemctl edit gamecore-backend` → `Environment=THEGAMESDB_API_KEY=…`), never
-committed.
+The backend's console is created with `CREATE_NO_WINDOW`: every console program
+it runs (powercfg, wevtutil, tasklist, the SDL probes) inherits that hidden
+console instead of flashing a window over the TV.
 
-On a box with a separate data root — what the ISO produces — the installer adds
-a second drop-in, `10-data.conf`, with `Environment=GAMECORE_DATA=/userdata`.
-That one variable is the split: `GAMECORE_PATH` is code (root-owned, replaced
-wholesale by an OTA), `GAMECORE_DATA` is everything the player accumulates
-(`config/`, `emu/`, `assets/logos/`, `addons/`). When the
-drop-in is absent, `backend/services/paths.py` falls back to `GAMECORE_PATH` — the
-pre-split single-root layout every older box still runs. The unit drop-in is
-the **source of truth** for the data root: `gamecore-ui.service` gets the same
-`Environment=` line, and the three consumers that cannot inherit it — the
-updater, the `gamecore-addon` CLI, addon units — each read it back from
-`systemctl cat gamecore-backend` rather than guessing
-([13-release-and-ota.md](13-release-and-ota.md) shows the exact mechanism).
-The Flatpak sandbox is the seventh consumer, and the one that fails silently:
-each emulator's override must list the data root
-(`flatpak override --user --filesystem=/userdata`), or every ROM under it is
-"not found" from inside the sandbox while every path check on the host passes
-([09-gotchas.md](09-gotchas.md)).
-
-`gamecore-ui.service` — starts `electron/start-ui.sh` after the display
-manager. That wrapper is not decoration: it exports `XDG_RUNTIME_DIR` (without
-it Chromium has **no audio at all** under a systemd service) and probes
-`:1`, `:0`, `:2` with `xdpyinfo` to find the live X display, plus the matching
-`XAUTHORITY` cookie under `/run/user/<uid>/`.
-
-Addons are **user** units (`systemctl --user`), so they inherit the graphical
-session and stop with it.
+Logs: `<data>\logs\session\session.log` (the session itself),
+`backend-console.log` and `interface-console.log` (what the two print), each
+kept with one previous copy (`.1`).
 
 Rest mode needs no root piece on Windows: the elevated backend holds the
 shutdown privilege and sets which devices may wake the PC itself, see
@@ -209,8 +193,8 @@ A window opens on the desktop of the session its process belongs to, and only
 the active console session is on the TV. A Windows service lives in session 0,
 which has no visible desktop, so the backend is **not** a service: it runs in
 the console user's session, started at logon by a scheduled task with highest
-privileges, restarted by a watchdog (the task and the watchdog are step 7;
-dev-log D8). A game it starts inherits that desktop; nothing is rebuilt.
+privileges, restarted by `gamecore-session` ([above](#the-logon-task-the-services-the-files-they-read);
+dev log D8). A game it starts inherits that desktop; nothing is rebuilt.
 
 `session.launch_blocker()` (`backend/services/session.py`, over
 `backend/services/platform/console_session.py`: `ProcessIdToSessionId`,
@@ -221,47 +205,13 @@ Desktop). `session.desktop()` names the session, the user and the primary
 display (`EnumDisplayDevicesW`) for logs. The display is not checked: a TV
 that is off still lists its output.
 
-### On Linux (until step 7)
+### The console user's desktop
 
-SDDM auto-logs the gaming user into **the machine's own X11 desktop session**,
-and `gamecore-ui.service` draws the kiosk over it. The whole stack is X11-only —
-the (since removed) bezel overlays, the fullscreen enforcer, `gamecore-xsetup`'s 1080p pin and
-the gamepad→keyboard bridge's window detection all speak X11 — so a Wayland
-session is not a supported target.
-
-The session name is **not hardcoded anywhere**. `install/bin/gamecore-session-select
-pick-desktop --x11` ranks what `/usr/share/xsessions/` offers (Plasma first,
-then the other full desktops), `install/arch.sh` writes the winner into
-`/etc/sddm.conf.d/zz-gamecore-autologin.conf` and records it in
-`/var/lib/gamecore/manifest.env` as `KIOSK_SESSION`. `check-install.sh` reads it
-back from there rather than comparing to a literal.
-
-> The kiosk used to get a bare openbox session installed for the purpose. That
-> was the wrong half of the requirement: GameCore needs X11, not an empty
-> session. Hosting it on the desktop costs nothing and means **closing the kiosk
-> reveals a usable desktop** — under openbox it revealed a root window with no
-> panel and no menu, reported as a black screen.
-
-`zz-` in that filename is load-bearing. SDDM reads `/etc/sddm.conf.d/*` in name
-order and the **last** `[Autologin]` wins; Manjaro Plasma ships
-`kde_settings.conf`, and `k` sorts before `z`. The installer also strips the
-competing `User`/`Session`/`Relogin` keys out of that file (keeping a backup in
-the manifest directory), because the Login Screen KCM rewrites it whenever
-someone opens it.
-
-The console session (`install/bin/gamecore-session`) hands `kwin_x11` a config
-directory of its own, `$XDG_RUNTIME_DIR/gamecore/wm`: no window-manager key
-bindings, and none of KWin's window animations (`fade`, `glide`, `scale`,
-`fullscreen`). The theme draws the handovers; KWin's zoomed and faded the
-interface in over them on every suspend, because the kiosk window is unmapped
-while a game runs.
-
-`sudo gamecore-session-select desktop` / `… gamecore` toggles the kiosk. There is
-only one session, so it changes **no SDDM configuration at all** — it is
-`systemctl enable|disable --now gamecore-ui.service` behind an argument-narrow
-sudoers rule. `enable`/`disable`, never `start`/`stop`: the unit is enabled at
-install, so merely stopping it brought the kiosk back over the desktop at the
-next boot.
+Explorer stays the console user's shell: GameCore's kiosk window covers it, and
+Desktop mode leaves the kiosk for it (`electron/desktop.js`). Replacing the
+shell for that user (Winlogon `Shell`) would boot without Explorer, but an
+`explorer.exe` started later may then open a folder window instead of the
+desktop Desktop mode needs; untested, so not done (dev log, open questions).
 
 ## Environment reconstruction
 
@@ -269,8 +219,7 @@ On Windows the backend already runs in the console user's session, so a game
 gets the backend's own environment. `session.display_env()`
 (`backend/services/session.py`) adds one variable:
 `SDL_GAMECONTROLLERCONFIG_FILE`, the served controller database
-(`configgen/mapping_db.py`). `electron/start-ui.sh` (the UI) is replaced at
-step 4.
+(`configgen/mapping_db.py`).
 
 ## Development topology
 

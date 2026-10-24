@@ -39,7 +39,9 @@ document is `electron/boot/boot.html` — from disk, with no backend, no network
 and no bundle. The window is created `show: false` and presented on
 `ready-to-show`, so its first visible frame is that document rather than white.
 
-The interface is then loaded into the SAME window (`presentApp()`). Not a
+Once the backend answers, the shell posts `/api/standby/desktop` `{active: false}`
+(a start is often a return from Desktop mode) and the interface is loaded into
+the SAME window (`presentApp()`). Not a
 second window: the frame between two documents is painted with the window's own
 `backgroundColor`, which is the ground the boot screen uses, whereas two
 windows would leave the compositor to decide which is on top and which has the
@@ -90,7 +92,7 @@ X-wide; on Windows a game hides its own pointer.
 |---|---|
 | `system:reboot` | `exec('shutdown /r /t 0')` (`electron/power.js`) |
 | `system:shutdown` | `exec('shutdown /s /t 0')` (`electron/power.js`) |
-| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): starts `explorer.exe` when `tasklist` shows none in this session, then `app.quit()`; the check is bounded by `LEAVE_DEADLINE_MS` (5 s) |
+| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), starts `explorer.exe` when `tasklist` shows none in this session, then `app.quit()`; the check is bounded by `LEAVE_DEADLINE_MS` (5 s) |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
 

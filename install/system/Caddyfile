@@ -1,22 +1,23 @@
-# GameCore — reverse proxy: the ONLY GameCore port exposed to the LAN.
+# GameCore - reverse proxy: the ONLY GameCore port exposed to the LAN.
 #
-# Installed as-is to /etc/caddy/Caddyfile by install/arch.sh — no
-# per-box templating: the site is a catch-all and certificates are
-# minted ON DEMAND for whatever address the client used (LAN IP that
-# changes when the box moves networks, Tailscale IP, MagicDNS name…).
-# Every leaf chains to the same local root CA, so devices that
-# installed it once keep working wherever the box lands.
+# Run as-is by the GameCoreCaddy service (install/steps/install-caddy.ps1), no
+# per-box templating: the site is a catch-all and certificates are minted ON
+# DEMAND for whatever address the client used (LAN IP that changes when the box
+# moves networks, Tailscale IP, MagicDNS name...). Every leaf chains to the same
+# local root CA, so devices that installed it once keep working wherever the
+# box lands.
 #
-# TLS: `tls internal` — Caddy's local CA signs the cert. The box itself
-# trusts it via `caddy trust` (run by arch.sh); other devices install the
-# root CA once from https://<ip>:8443/gc/ca.crt (link + QR on /login).
+# TLS: `tls internal` - Caddy's local CA signs the cert. Its files live under
+# XDG_DATA_HOME, which the service sets to %ProgramData%\GameCore\caddy. Other
+# devices install the root CA once from https://<ip>:8443/gc/ca.crt (link + QR
+# on /login).
 #
 # Auth: every route except the public ones below goes through
-# forward_auth → the core's /api/auth/verify (shared login, phase 3).
-# The TV never goes through Caddy (Electron → localhost:8765 directly).
+# forward_auth -> the core's /api/auth/verify (shared login, phase 3).
+# The TV never goes through Caddy (Electron -> 127.0.0.1:8765 directly).
 
 # Only :8443 may listen on the LAN — no automatic HTTP->HTTPS redirect
-# listener on :80 (ss -tlnp must show a single exposed GameCore port).
+# listener on :80 (one exposed GameCore port, and one firewall rule for it).
 {
 	auto_https disable_redirects
 	# Gate for on-demand issuance. This used to ask Caddy's own admin API,
@@ -36,7 +37,7 @@ https://:8443 {
 
 	# ── Public: root CA download (bootstrap client trust) ──────────────
 	handle /gc/ca.crt {
-		root * /var/lib/caddy/pki/authorities/local
+		root * {$XDG_DATA_HOME}/caddy/pki/authorities/local
 		rewrite * /root.crt
 		header Content-Type application/pem-certificate-chain
 		header Content-Disposition "attachment; filename=gamecore-ca.crt"
@@ -97,7 +98,7 @@ https://:8443 {
 		# one GameCore port on the LAN rule exists precisely to stop that. It is
 		# loopback-only now and reachable here instead, behind the same login.
 		# Same no-strip contract as the addons: EmberTV takes BASE_PATH=/twitch
-		# (set in its unit by install/arch.sh) and strips the prefix itself.
+		# (set by its pack) and strips the prefix itself.
 		# The TV does not come through here — its kiosk opens localhost:8097.
 		# start-tv.sh hands EmberTV a self-signed cert, so this hop speaks HTTPS;
 		# skip verification on it, the connection never leaves loopback.

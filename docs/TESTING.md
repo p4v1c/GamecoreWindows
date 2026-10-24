@@ -28,18 +28,19 @@ stay, marked with that step, and are skipped on Windows with the step named:
 
 ```python
 @pytest.mark.linux_until_port(5)                 # one test
-pytestmark = pytest.mark.linux_until_port(7)     # every test in the module
-linux_until_port_module(7)                       # a module Windows cannot import (pwd, fcntl):
+pytestmark = pytest.mark.linux_until_port(8)     # every test in the module
+linux_until_port_module(11)                      # a module Windows cannot import (pwd, fcntl):
                                                  # call it before those imports
 ```
 
-- The step must be 3-10 (`backend/tests/linux_until_port.py`); anything else
-  fails the collection.
+- The step must be 3-10, or 11 for the Linux packs, rewritten for Windows after
+  the port (`backend/tests/linux_until_port.py`); anything else fails the
+  collection.
 - Mark the test that needs Linux, not its file, when the rest of the file runs
   on Windows. Pure logic in a Linux service is made to run, not marked: fake
   the OS boundary. For uids that is the `posix_boundary` fixture
   (`backend/tests/posix_boundary.py`: `os.getuid`, `os.geteuid`), used by the
-  installer tests until step 7.
+  pack-installer tests until the packs are rewritten.
 - Every use is listed in
   [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
   `test_linux_until_port.py` fails when the list and the source disagree.
@@ -103,6 +104,18 @@ home".
   `platform/media_types.py` pins what GameCore serves.
 - The event loop's self-pipe is a socket pair built with `connect()`; patch
   `socket.connect` only once the app runs (`test_boot_ready.py`).
+
+## The PowerShell installer
+
+`backend/tests/test_install_*.py` drive `install/` through
+`backend/tests/powershell_harness.py`: each case is a script that dot-sources
+the installer, defines fake functions for every cmdlet and program the step
+calls (a function shadows a cmdlet of the same name), and prints what the fakes
+noted as JSON. Nothing reaches the machine: files go to `tmp_path`, and
+`GAMECORE_STATE_DIR` moves the install record there. A fake that defines a
+variable the step also uses shadows it: the harness's own table is `$GcTest`.
+Each case starts a `powershell.exe` (about half a second). The details are in
+[11](architecture/11-install-script-seams.md#tests).
 
 ## The suite used to be decorative
 

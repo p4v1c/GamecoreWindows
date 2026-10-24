@@ -55,7 +55,7 @@ def test_primary_profile_leaves_the_config_byte_identical(box):
     assert not target.with_name("melonDS.toml.bak-ctrlmodel").exists()
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_another_profile_points_player_one_saves_and_states_at_its_folder(box):
     target, root = box
     sam = root / "b0b0" / "melonds"
@@ -67,7 +67,7 @@ def test_another_profile_points_player_one_saves_and_states_at_its_folder(box):
     assert changed == [f'SaveFilePath = "{sam}"', f'SavestatePath = "{sam}"']
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_switching_profiles_never_keeps_the_previous_folder(box):
     target, root = box
     ana, sam = root / "a1a1" / "melonds", root / "b0b0" / "melonds"
@@ -112,7 +112,7 @@ def test_players_two_to_four_keep_their_paths_and_blank_saves(box, tmp_path):
     assert (roms / "Game.sav.2").read_bytes() == b"\xff" * 8
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_later_player_folder_creates_its_instance_section(box):
     target, root = box
     p2 = root / "c2c2" / "melonds"

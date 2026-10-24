@@ -21,7 +21,7 @@ drawn.
 | 8 | [Controller pipeline](08-controller-pipeline.md) | SDL, GUIDs, per-emulator config writers, snapshots, the mapping wizard |
 | 9 | [Gotchas](09-gotchas.md) | The invariants that are easy to break, and why they exist |
 | 10 | [Catalogue & install](10-catalog-and-install.md) | `catalog/<id>/` — one directory per system or app, and how a box is built from it |
-| 11 | [Install-script seams](11-install-script-seams.md) | How `arch.sh` and `uninstall.sh` would be split, and what must be true first |
+| 11 | [The installer](11-install-script-seams.md) | `install.ps1`, one step per file, the record `uninstall.ps1` reads, how it is tested |
 | 12 | [The addon contract](12-addon-contract.md) | `api: 1` — the **public** contract third-party addons must satisfy |
 | 13 | [Release & OTA](13-release-and-ota.md) | What a push to `main` sets in motion, what reaches a box, and how to go back |
 
@@ -34,8 +34,8 @@ Looking for something specific:
 - *"What events can the UI listen to?"* → [5](05-frontend.md#the-websocket-event-table)
 - *"How do I add an emulator or an app?"* → [10](10-catalog-and-install.md#6-adding-an-emulator)
 - *"What installs EmberTV / the Firefox kiosk profiles?"* → [10](10-catalog-and-install.md#3-the-install-pipeline)
-- *"Why is `arch.sh` one long script, and can I split it?"* → [11](11-install-script-seams.md)
-- *"Which session does the box log into?"* → [1](01-runtime-topology.md#the-session-the-kiosk-runs-in)
+- *"What does the installer change on the PC, and how is it undone?"* → [11](11-install-script-seams.md)
+- *"What starts GameCore at sign-in?"* → [1](01-runtime-topology.md#the-logon-task-the-services-the-files-they-read)
 - *"I write an addon — where am I allowed to write?"* → [12](12-addon-contract.md)
 - *"What happens when I merge to `main`, and how do I undo it?"* → [13](13-release-and-ota.md)
 - *"Why is `lib/xenia` classified two different ways?"* → [7](07-config-and-data.md#the-two-roots-drawn--including-what-is-still-ambiguous)

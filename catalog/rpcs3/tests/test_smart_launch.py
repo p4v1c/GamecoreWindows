@@ -26,7 +26,7 @@ import pytest
 
 from backend.tests.linux_until_port import linux_until_port_module
 
-linux_until_port_module(7)  # rpcs3_smart imports fcntl (flock)
+linux_until_port_module(11)  # rpcs3_smart imports fcntl (flock)
 
 HERE = Path(__file__).resolve().parent
 PACK = HERE.parent

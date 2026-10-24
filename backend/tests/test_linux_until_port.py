@@ -81,7 +81,7 @@ def test_the_dev_log_lists_exactly_the_marked_tests():
     assert docs - source == set(), f"in {LIST.name} but not marked: {sorted(docs - source)}"
 
 
-@pytest.mark.parametrize("step", [None, 1, 2, 11])
+@pytest.mark.parametrize("step", [None, 1, 2, 12])
 def test_a_step_that_removes_no_linux_code_is_refused(step):
     with pytest.raises(pytest.UsageError):
         lup.reason(step)
@@ -91,6 +91,10 @@ def test_the_reason_names_the_step():
     assert lup.reason(3) == "Linux code, replaced at Windows port step 3"
 
 
+def test_the_packs_are_named_as_such_not_as_a_port_step():
+    assert lup.reason(lup.PACKS) == "Linux pack code, replaced when the packs are rewritten for Windows"
+
+
 def test_a_module_that_cannot_import_on_windows_is_skipped_with_its_step():
-    with pytest.raises(pytest.skip.Exception, match="step 7"):
-        lup.linux_until_port_module(7)
+    with pytest.raises(pytest.skip.Exception, match="step 8"):
+        lup.linux_until_port_module(8)

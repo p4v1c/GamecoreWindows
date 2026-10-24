@@ -1,258 +1,261 @@
-"""`gamecore-session` — the console session, run for real against stubs.
+"""`gamecore-session`: the console session the logon task starts.
 
-This is the script SDDM executes instead of logging into a desktop. Everything
-it talks to is replaced here: `systemctl` records what it was asked, the
-compositor is a shell script that behaves as the test needs, and the runtime
-directory is a temporary one. Nothing starts a compositor, a session or a unit
-on the machine running this.
+Driven through its Supervisor with a fake spawn and a fake clock: nothing here
+starts a backend or an interface. What is pinned, each a failure only a TV
+would show:
 
-What is pinned, and why each one is a failure that would only ever be found on
-a television:
-
-  · **it ends when the player leaves, and not before.** A session that exits on
-    a compositor crash returns to SDDM, which auto-logs straight back in — a
-    login loop with no keyboard to break it.
-  · **it hands the environment over rather than letting anything guess it.** The
-    user manager gets DISPLAY by import; the backend, which is a system unit
-    and cannot see any of that, gets a file written at login and removed at
-    logout.
-  · **it starts a compositor and nothing else.** No plasmashell, no panel, no
-    wallpaper: those are the seconds the owner was watching.
+  · the backend gets UTF-8 mode and both roots, and a console nobody sees;
+  · the interface gets GAMECORE_MANAGED=1, or it starts a second backend;
+  · a crash restarts, a player leaving for the desktop does not.
 """
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
+import os
 import subprocess
-import textwrap
+import sys
 from pathlib import Path
 
 import pytest
 
-
 REPO = Path(__file__).resolve().parents[2]
-SESSION = REPO / "install" / "bin" / "gamecore-session"
+SCRIPT = REPO / "install" / "bin" / "gamecore-session"
 
 
-def _stub(path: Path, body: str) -> None:
-    path.write_text("#!/usr/bin/env bash\n" + textwrap.dedent(body))
-    path.chmod(0o755)
+def _load():
+    loader = importlib.machinery.SourceFileLoader("gamecore_session", str(SCRIPT))
+    spec = importlib.util.spec_from_loader("gamecore_session", loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["gamecore_session"] = module    # dataclasses look the module up
+    loader.exec_module(module)
+    return module
+
+
+gs = _load()
+
+
+class FakeProc:
+    def __init__(self):
+        self.code = None
+
+    def poll(self):
+        return self.code
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
 
 
 @pytest.fixture
-def box(tmp_path):
-    """A machine with a systemd, a compositor and nothing else."""
-    binds = tmp_path / "bin"
-    binds.mkdir()
-    calls = tmp_path / "systemctl.log"
-    runtime = tmp_path / "run"
-    runtime.mkdir()
-
-    # `is-active` answers from a file the test owns, so a scenario can decide
-    # when the interface stops.
-    (tmp_path / "ui-active").write_text("yes")
-    _stub(binds / "systemctl", f"""
-        echo "$*" >> {calls}
-        for arg in "$@"; do
-          if [[ "$arg" == "is-active" ]]; then
-            [[ "$(cat {tmp_path}/ui-active)" == "yes" ]] && exit 0 || exit 1
-          fi
-        done
-        exit 0
-    """)
-
-    def run(compositor_body: str | None = None, timeout: float = 30,
-            pick_its_own: bool = False,
-            candidates: str | None = None) -> subprocess.CompletedProcess:
-        env = {
-            # The stubs come FIRST, and that is not tidiness: without a
-            # systemctl of its own the script talks to the real user manager
-            # and can start a second interface on the machine running the test.
-            "PATH": f"{binds}:/usr/bin:/bin",
-            "HOME": str(tmp_path),
-            "DISPLAY": ":9",
-            "XAUTHORITY": str(tmp_path / "cookie"),
-            "XDG_RUNTIME_DIR": str(runtime),
-        }
-        if compositor_body is not None:
-            _stub(binds / "fake-compositor", compositor_body)
-        if not pick_its_own:
-            env["GAMECORE_COMPOSITOR"] = str(binds / "fake-compositor")
-        if candidates is not None:
-            # What this machine appears to have. Without it a test for "no KWin
-            # here" would have to hide a real binary from PATH — and the one
-            # that tried launched the developer's actual KWin against a display
-            # that does not exist.
-            env["GAMECORE_WM_CANDIDATES"] = candidates
-        return subprocess.run(["bash", str(SESSION)], env=env, text=True,
-                              capture_output=True, timeout=timeout)
-
-    return {"run": run, "calls": calls, "runtime": runtime, "tmp": tmp_path,
-            "bin": binds,
-            "ui_stops": lambda: (tmp_path / "ui-active").write_text("no")}
+def settings(tmp_path):
+    env_file = tmp_path / "session.env"
+    env_file.write_text("# written by the installer\n"
+                        f"GAMECORE_PATH={tmp_path / 'code'}\n"
+                        f"GAMECORE_DATA={tmp_path / 'data'}\n"
+                        "GAMECORE_BACKEND_PORT=8765\n"
+                        "THEGAMESDB_API_KEY=k=with=equals\n", encoding="utf-8")
+    return gs.load_settings(env_file, {"PATH": "C:\\Windows"})
 
 
-def _asked(box) -> str:
-    return box["calls"].read_text() if box["calls"].exists() else ""
+@pytest.fixture
+def started(settings):
+    spawned = []
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        proc = FakeProc()
+        spawned.append({"argv": argv, "env": env, "cwd": cwd, "log": log_path,
+                        "hidden": hidden, "proc": proc})
+        return proc
+
+    clock = Clock()
+    sup = gs.Supervisor(settings, spawn, clock=clock)
+    sup.start()
+    return sup, spawned, clock
 
 
-# ── the environment, handed over rather than guessed ────────────────────────
-
-@pytest.mark.linux_until_port(7)
-def test_the_session_writes_its_environment_where_the_backend_can_read_it(box):
-    """The backend is a system unit — deliberately, so the API survives without
-    a graphical session — and a system unit sees nothing of one. It used to
-    probe X for itself: every socket against every cookie location, with a
-    twenty-second bound in its unit, on every start."""
-    seen = box["runtime"] / "gamecore" / "session.env"
-    box["run"]("""
-        # Read the file while the session is up, then leave cleanly.
-        cp "$XDG_RUNTIME_DIR/gamecore/session.env" "$XDG_RUNTIME_DIR/seen.env"
-        exit 0
-    """)
-    written = (box["runtime"] / "seen.env").read_text()
-    assert "DISPLAY=:9" in written
-    assert "XAUTHORITY=" in written
-    assert not seen.exists(), "the session left its environment behind for the next one"
+def test_the_env_file_is_read_raw_with_comments_skipped():
+    values = gs.parse_env_file("# c\n\nA=1\nB = two words \nC=x=y\nnot a line\n")
+    assert values == {"A": "1", "B": "two words", "C": "x=y"}
 
 
-@pytest.mark.linux_until_port(7)
-def test_the_user_manager_is_told_and_then_untold(box):
-    box["run"]("exit 0")
-    asked = _asked(box)
-    assert "import-environment" in asked and "DISPLAY" in asked
-    assert "unset-environment" in asked, (
-        "a daemon started next would inherit a display that no longer exists")
+def test_a_bom_from_notepad_does_not_hide_the_first_key(tmp_path):
+    env_file = tmp_path / "session.env"
+    env_file.write_bytes(b"\xef\xbb\xbfGAMECORE_PATH=C:\\gc\nGAMECORE_DATA=D:\\data\n")
+    assert gs.load_settings(env_file, {}).root == Path("C:\\gc")
 
 
-# ── what it starts ──────────────────────────────────────────────────────────
-
-@pytest.mark.linux_until_port(7)
-def test_it_starts_the_session_target_and_stops_it_on_the_way_out(box):
-    box["run"]("exit 0")
-    asked = _asked(box)
-    assert "start gamecore-session.target" in asked
-    assert "stop gamecore-session.target" in asked
+def test_a_missing_env_file_says_how_to_get_one(tmp_path):
+    with pytest.raises(gs.SessionError, match="install.ps1"):
+        gs.load_settings(tmp_path / "absent.env", {})
 
 
-def _code(path: Path) -> str:
-    """The script with its comments stripped — what it DOES, not what it says.
-
-    The prose names the very things the check below forbids, because saying
-    what a file deliberately does not do is half of why it is readable.
-    """
-    return "\n".join(line.split("#", 1)[0] for line in path.read_text().splitlines())
+def test_an_env_file_without_the_roots_is_refused(tmp_path):
+    env_file = tmp_path / "session.env"
+    env_file.write_text("GAMECORE_PATH=C:\\gc\n", encoding="utf-8")
+    with pytest.raises(gs.SessionError, match="GAMECORE_DATA"):
+        gs.load_settings(env_file, {})
 
 
-def test_it_starts_a_compositor_and_nothing_resembling_a_desktop(box):
-    """No plasmashell, no panel, no wallpaper, no session restore."""
-    box["run"]("exit 0")
-    source = _code(SESSION)
-    for forbidden in ("plasmashell", "plasma_session", "startplasma", "plasma-workspace"):
-        assert forbidden not in source, f"the console session starts {forbidden}"
+def test_the_backend_runs_the_venv_uvicorn_on_loopback_with_a_hidden_console(started, settings):
+    _, spawned, _ = started
+    backend = spawned[0]
+    assert backend["argv"][0] == str(settings.root / ".venv" / "Scripts" / "python.exe")
+    assert backend["argv"][1:] == ["-m", "uvicorn", "backend.main:app",
+                                   "--host", "127.0.0.1", "--port", "8765"]
+    assert backend["hidden"] is True
+    assert backend["cwd"] == settings.root
+    assert backend["log"] == settings.data / "logs" / "session" / "backend-console.log"
 
 
-@pytest.mark.linux_until_port(7)
-def test_without_a_display_it_says_so_instead_of_starting(box, tmp_path):
-    r = subprocess.run(["bash", str(SESSION)], text=True, capture_output=True, timeout=30,
-                       env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
-                            "XDG_RUNTIME_DIR": str(tmp_path)})
-    assert r.returncode != 0
-    assert "DISPLAY" in r.stdout + r.stderr
+def test_the_backend_gets_utf8_mode_the_roots_and_the_secrets(started, settings):
+    env = started[1][0]["env"]
+    assert env["PYTHONUTF8"] == "1"
+    assert env["GAMECORE_PATH"] == str(settings.root)
+    assert env["GAMECORE_DATA"] == str(settings.data)
+    assert env["THEGAMESDB_API_KEY"] == "k=with=equals"
+    assert env["PATH"] == "C:\\Windows"
+    assert "GAMECORE_MANAGED" not in env
 
 
-# ── what ends it, and what must not ─────────────────────────────────────────
-
-@pytest.mark.linux_until_port(7)
-def test_a_compositor_that_exits_cleanly_ends_the_session(box):
-    """That is the player leaving — Settings → Desktop closes the session."""
-    r = box["run"]("exit 0")
-    assert r.returncode == 0
-    assert "ending the session" in r.stdout
+def test_the_interface_is_told_its_backend_is_managed(started, settings):
+    interface = started[1][1]
+    assert interface["argv"] == [str(settings.root / "shell" / "GameCore.exe")]
+    assert interface["env"]["GAMECORE_MANAGED"] == "1"
+    assert interface["hidden"] is False
 
 
-@pytest.mark.linux_until_port(7)
-def test_a_compositor_that_keeps_crashing_does_not_end_the_session(box):
-    """The one that would be a login loop on a television.
-
-    SDDM auto-logs in, so a session that exits comes straight back — for ever,
-    with no keyboard to break it. The compositor is restarted a bounded number
-    of times and then given up on: the interface is fullscreen and still
-    visible, the bezels and the stacking are not, and the journal says which.
-    """
-    r = box["run"](f"""
-        echo x >> {box['tmp']}/crashes
-        # The interface "stops" once the compositor has been given up on, so
-        # this test ends by the OTHER route rather than by a timeout.
-        if [[ $(wc -l < {box['tmp']}/crashes) -ge 4 ]]; then
-          echo no > {box['tmp']}/ui-active
-        fi
-        exit 1
-    """)
-    crashes = (box["tmp"] / "crashes").read_text().splitlines()
-    assert len(crashes) == 4, f"restarted {len(crashes)} times, expected 3 retries then a stop"
-    assert "carrying on without one" in r.stdout
-    assert "ending the session" in r.stdout
+def test_a_backend_crash_restarts_after_the_delay(started):
+    sup, spawned, clock = started
+    spawned[0]["proc"].code = 1
+    sup.tick()
+    assert len(spawned) == 2
+    clock.now += gs.RESTART_DELAY_S - 0.1
+    sup.tick()
+    assert len(spawned) == 2
+    clock.now += 0.2
+    sup.tick()
+    assert len(spawned) == 3 and spawned[2]["argv"] == spawned[0]["argv"]
 
 
-@pytest.mark.linux_until_port(7)
-def test_the_interface_stopping_ends_the_session(box):
-    """Quitting GameCore leaves an X server with nobody drawing on it; the
-    session has to go with it."""
-    box["ui_stops"]()
-    # `exec` frees the pipes this test reads: a background compositor holding
-    # them open makes the test wait for the compositor rather than for the
-    # session, which is how this test first "failed" against a script that was
-    # behaving perfectly.
-    r = box["run"]("exec >/dev/null 2>&1; sleep 60", timeout=40)
-    assert "no longer running" in r.stdout
+def test_a_backend_that_keeps_crashing_is_retried_slower_not_abandoned(started):
+    sup, spawned, clock = started
+    for _ in range(gs.CRASH_BURST):
+        current = [s for s in spawned if s["argv"] == spawned[0]["argv"]][-1]
+        current["proc"].code = 1
+        sup.tick()
+        clock.now += gs.RESTART_DELAY_S
+        sup.tick()
+    backends = [s for s in spawned if s["argv"] == spawned[0]["argv"]]
+    assert len(backends) == gs.CRASH_BURST       # the last crash waits the slow delay
+    clock.now += gs.SLOW_RESTART_DELAY_S
+    sup.tick()
+    assert len([s for s in spawned if s["argv"] == spawned[0]["argv"]]) == gs.CRASH_BURST + 1
 
 
-# ── what manages the windows ────────────────────────────────────────────────
-#
-# Recent Plasma ships KWin's X11 binary in its own `kwin-x11` package, so a box
-# running Plasma on WAYLAND has `kwin_wayland` and no `kwin_x11` at all. The
-# reference box was exactly that, and was one command away from arming a
-# console session with no window manager: the interface shows — so it looks
-# like it worked — and then the bezels stack at random and a fullscreen
-# emulator answers to nobody.
-
-@pytest.mark.linux_until_port(7)
-def test_openbox_is_taken_when_there_is_no_kwin_for_x11(box):
-    """Not an equivalent, and the code says so: openbox is a window manager,
-    not the compositor the overlays were tuned against. The difference that
-    matters is against NO window manager at all."""
-    _stub(box["bin"] / "openbox", "exit 0")     # exits cleanly: the session ends
-    # Two names this machine does not have, then openbox — the shape of a box
-    # running Plasma on Wayland, which has kwin_wayland and no kwin_x11 at all.
-    # Named rather than hidden from PATH: the real kwin_x11 IS on this
-    # developer's machine, and an earlier version of this test launched it.
-    r = box["run"](pick_its_own=True, candidates="kwin_x11_absent kwin_absent openbox")
-    assert "falling back to openbox" in r.stdout
-    assert "pacman -S kwin-x11" in r.stdout, "the way to the intended behaviour is not named"
-    assert "starting window manager:" in r.stdout
+def test_a_backend_that_exits_cleanly_is_restarted_too(started):
+    sup, spawned, clock = started
+    spawned[0]["proc"].code = 0
+    sup.tick()
+    clock.now += gs.RESTART_DELAY_S
+    sup.tick()
+    assert len(spawned) == 3
 
 
-@pytest.mark.linux_until_port(7)
-def test_kwin_is_preferred_over_the_fallback(box):
-    _stub(box["bin"] / "fake_kwin", "exit 0")
-    _stub(box["bin"] / "openbox", "exit 0")
-    r = box["run"](pick_its_own=True, candidates="fake_kwin openbox")
-    assert "starting compositor:" in r.stdout
-    assert "falling back to openbox" not in r.stdout
+def test_an_interface_crash_restarts_it(started):
+    sup, spawned, clock = started
+    spawned[1]["proc"].code = 3221225477      # 0xC0000005, an access violation
+    sup.tick()
+    clock.now += gs.RESTART_DELAY_S
+    sup.tick()
+    assert len(spawned) == 3 and spawned[2]["argv"] == spawned[1]["argv"]
 
 
-@pytest.mark.linux_until_port(7)
-def test_no_window_manager_at_all_is_said_out_loud_and_survivable(box):
-    """It still starts — a console with no bezels beats no console — but the
-    journal has to carry both the reason and the fix."""
-    box["ui_stops"]()                            # so the session ends by itself
-    r = box["run"](pick_its_own=True, candidates="nothing-here")
-    assert "no window manager" in r.stdout
-    assert "pacman -S kwin-x11" in r.stdout
-    assert "no longer running" in r.stdout, "the session did not end on its own"
+def test_leaving_for_the_desktop_is_not_undone(started):
+    sup, spawned, clock = started
+    spawned[1]["proc"].code = 0
+    sup.tick()
+    clock.now += 3600
+    sup.tick()
+    assert len(spawned) == 2
 
 
-def test_the_default_order_prefers_kwin_and_keeps_a_fallback():
-    """The list itself, since the tests above are free to override it."""
-    line = [ln for ln in SESSION.read_text().splitlines()
-            if ln.startswith("WM_CANDIDATES=")]
-    assert line and "kwin_x11 kwin openbox" in line[0], line
+def test_coming_back_from_the_desktop_starts_the_interface(started):
+    sup, spawned, _ = started
+    spawned[1]["proc"].code = 0
+    sup.tick()
+    sup.show_interface()
+    assert len(spawned) == 3 and spawned[2]["env"]["GAMECORE_MANAGED"] == "1"
+
+
+def test_asking_to_show_a_running_interface_starts_nothing(started):
+    sup, spawned, _ = started
+    sup.show_interface()
+    assert len(spawned) == 2
+
+
+def test_a_program_that_cannot_start_is_retried(settings):
+    attempts = []
+    clock = Clock()
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        attempts.append(argv)
+        if len(attempts) == 1:
+            raise FileNotFoundError(2, "not found")
+        return FakeProc()
+
+    sup = gs.Supervisor(settings, spawn, clock=clock)
+    sup.start()
+    clock.now += gs.RESTART_DELAY_S
+    sup.tick()
+    assert attempts[0] == attempts[2] == settings.backend_argv()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="CREATE_NO_WINDOW is a Windows flag")
+def test_a_hidden_child_has_a_console_without_a_window(tmp_path):
+    """Its own console programs inherit it, so none flashes a window over the TV."""
+    probe = ("import ctypes; k = ctypes.windll.kernel32; "
+             "print(bool(k.GetConsoleCP()), bool(k.GetConsoleWindow()))")
+    proc = gs.spawn_process([sys.executable, "-c", probe], dict(os.environ), tmp_path,
+                            tmp_path / "logs" / "out.log", hidden=True)
+    assert proc.wait(timeout=30) == 0
+    assert (tmp_path / "logs" / "out.log").read_text().split() == ["True", "False"]
+
+
+def test_the_check_flag_prints_the_settings_without_starting_anything(tmp_path):
+    env_file = tmp_path / "session.env"
+    env_file.write_text(f"GAMECORE_PATH={tmp_path}\nGAMECORE_DATA={tmp_path / 'd'}\n",
+                        encoding="utf-8")
+    out = subprocess.run([sys.executable, str(SCRIPT), "--check"], capture_output=True,
+                         text=True, env={**os.environ, gs.ENV_FILE_OVERRIDE: str(env_file)},
+                         timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert "GAMECORE_MANAGED" not in out.stdout
+    assert str(tmp_path / "shell" / "GameCore.exe") in out.stdout
+    assert not (tmp_path / "d").exists()
+
+
+def test_without_its_env_file_it_exits_and_leaves_a_note(tmp_path):
+    env_file = tmp_path / "GameCore" / "session.env"
+    env_file.parent.mkdir()
+    out = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True,
+                         env={**os.environ, gs.ENV_FILE_OVERRIDE: str(env_file)}, timeout=60)
+    assert out.returncode == 2
+    assert "install.ps1" in (env_file.parent / "session-error.log").read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="named kernel objects are a Windows mechanism")
+def test_a_second_copy_finds_the_first_and_wakes_it(tmp_path):
+    names = {"mutex_name": rf"Local\GameCoreTest-{os.getpid()}-{tmp_path.name}",
+             "event_name": rf"Local\GameCoreTestShow-{os.getpid()}-{tmp_path.name}"}
+    first, second = gs.SingleInstance(**names), gs.SingleInstance(**names)
+    assert first.acquire() is True
+    assert first.show_requested(0) is False
+    assert second.acquire() is False
+    assert second.ask_first_copy_to_show() is True
+    assert first.show_requested(0) is True
+    assert first.show_requested(0) is False       # auto-reset: one press, one show

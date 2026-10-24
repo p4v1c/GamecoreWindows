@@ -1,5 +1,4 @@
 """Real shell entry points on staged machines; no host tools are called."""
-import json
 import os
 from pathlib import Path
 import subprocess
@@ -73,32 +72,3 @@ def test_preflight_precedes_download_and_deployment():
     assert text.index('bash "$UPDATE_DIR/check-session-prerequisites.sh"') < text.index('curl -sf')
 
 
-@pytest.mark.linux_until_port(7)
-@pytest.mark.parametrize("current,late", [("1920x1080", False), ("1280x720", False), ("1920x1080", True)])
-def test_graphical_start_applies_only_the_confirmed_mode(tmp_path, current, late):
-    config = tmp_path / "config"
-    config.mkdir()
-    (config / "display.json").write_text(json.dumps({"width": 1280, "height": 720, "rate": 60}))
-    calls, count = tmp_path / "calls", tmp_path / "count"
-    outputs = "HDMI-1 connected primary\n   1920x1080 60.00{}\n   1280x720 60.00{}\n".format(
-        "*" if current == "1920x1080" else "", "*" if current == "1280x720" else "")
-    script(tmp_path / "bin/xrandr", f'''
-printf '%s\\n' "$*" >> '{calls}'
-if [[ "$*" == --query ]]; then
-  if [[ '{late}' == True && ! -e '{count}' ]]; then
-    touch '{count}'
-    echo 'HDMI-1 disconnected'
-  else
-    printf '%s' '{outputs}'
-  fi
-fi
-''')
-    command = ["bash", str(REPO / "install/bin/gamecore-xsetup")]
-    # The old SDDM hook must not change a mode at all.
-    subprocess.run(command, env=environment(tmp_path), check=True)
-    assert not calls.exists()
-    subprocess.run([*command, "--session"], env=environment(tmp_path), check=True, timeout=10)
-    lines = calls.read_text().splitlines()
-    changes = [line for line in lines if line.startswith("--output")]
-    assert changes == ([] if current == "1280x720" else ["--output HDMI-1 --mode 1280x720 --rate 60.0"])
-    assert lines.count("--query") == (2 if late else 1)

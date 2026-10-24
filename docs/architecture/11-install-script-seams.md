@@ -1,106 +1,91 @@
-# Splitting the install scripts — the seams, and why they are not cut yet
+# The installer — `install.ps1`, its steps, and `uninstall.ps1`
 
-`install/arch.sh` is 1 632 lines and `install/uninstall.sh` is 902. Both are far
-outside the size the rest of this tree keeps to, and both were looked at as part
-of the quality pass that split `gamescrape.py` and `gamemedia.py`.
+`install/install.ps1` installs GameCore for Windows or brings an install up to
+date; `install/uninstall.ps1` puts the machine back. One file per step in
+`install/steps/`, shared helpers in `install/lib/common.ps1`, the step list in
+`install/lib/steps.ps1`. Windows PowerShell 5.1, which every Windows 10/11 has.
 
-They were **deliberately left whole**. This file records what the split would
-be, so the next person does not re-derive it, and — more importantly — what has
-to be true before anyone runs it.
+The Linux `arch.sh` was one long script by decision upstream: no test covered
+it and splitting it untested risked a half-installed box. The Windows one is
+split from the start and every step is tested (below).
 
-## Why not yet
+## Running it
 
-Three facts, and any one of them is enough:
+| Command | What |
+|---|---|
+| `.\install\install.ps1` | interactive: asks where the data goes, the web password, the Windows password for automatic sign-in |
+| `.\install\install.ps1 -ConfigFile install.conf -Unattended` | scripted, keys in `install/install.conf.example`; automatic sign-in is left for the owner |
+| `.\install\install.ps1 -DryRun` | prints every change it would make, makes none, needs no elevation |
+| `.\install\install.ps1 -Only configure-autologon` | one step (or several, comma-separated) |
+| `.\install\uninstall.ps1 [-DryRun]` | undo, from the record |
 
-- **No test covers either file.** The Python splits in the same pass were
-  provable: `test_covers.py` and `test_gamemedia.py` counted 73 tests before and
-  73 after, to the unit, which is what made "this changed nothing" a statement
-  rather than a hope. There is no equivalent here. `shellcheck -S warning` is
-  the only automated reader, and it checks for shell mistakes, not for whether
-  the install still installs.
-- **They run as root.** A sourcing order that is subtly wrong does not raise —
-  it writes a unit file, a sudoers rule or an SDDM config to the wrong place,
-  as root, on a machine that then reboots into it.
-- **A half-refactored install script is worse than a long one.** `arch.sh` warns
-  and carries on for a dozen recoverable failures and reports them in its
-  closing summary, on purpose: a missing emulator is a degraded box, an aborted
-  installer at 66 % is a machine that is neither installed nor clean. That
-  property is spread across the whole file and is exactly the kind of thing a
-  partial extraction breaks.
+`-CodeRoot`, `-DataRoot` and `-ConsoleUser` override `install.conf`. Defaults:
+`C:\Program Files\GameCore` for the code, `<Documents of the console user>\GameCore`
+for the data (dev log D6). A data root inside the code root, or relative, is
+refused (an update replaces the code root whole); one under OneDrive gets a
+warning: ROMs and saves would upload.
 
-**The prerequisite is a disposable VM**, and a fresh one per attempt: the only
-honest test of an installer is a machine that has never been installed. Doing it
-on a working box proves nothing, because the box already has everything the
-script would create. Cutting these files on the machine that *is* the
-installation target is the one way to turn a refactor into an outage.
+The script **elevates itself**: the settings are resolved first, in the user's
+own context, and handed to the elevated copy as arguments, so "Documents" is the
+console user's even when UAC asks for another account's password.
 
-## The seams, if a VM is available
+## The steps, in order
 
-`arch.sh` already announces its own structure — every phase opens with
-`msg "<name>"`, and those calls are the cut lines. The three worth taking first
-are the three that are self-contained, come late, and can each be re-run on an
-already-installed box without doing damage:
-
-| Phase | Lines (approx.) | Why it is a good first cut |
+| Step (`install/steps/`) | Does | Uninstall |
 |---|---|---|
-| `SDDM auto-login` | 964–1051 | Touches one subsystem and one config tree. Nothing later in the file depends on what it computes. |
-| `Caddy reverse-proxy (HTTPS :8443)` | 1052–1103 | Same shape: writes a Caddyfile and enables one unit. `uninstall.sh` already has its own matching Caddy section, so the pair moves together. |
-| `Node frontend build` + `Electron shell` | 1176–end | The tail of the script. Long, mechanical, and the only phases that shell out to npm. |
+| `copy-code-root.ps1` | builds the frontend and the shell when the source has neither (needs npm), then `robocopy` of the source to the code root (no `.git`, `node_modules`, `.venv`, `docs`, data folders) and of `electron\dist\win-unpacked` to `<code>\shell` | removes the code root, only if this install created it |
+| `install-python.ps1` | CPython 3.12.10 from its NuGet package (SHA-512 pinned) into `<code>\python`, a venv in `<code>\.venv`, `backend\requirements.txt` (re-run when its hash changes) | goes with the code root |
+| `create-data-root.ps1` | `config`, `config\themes`, `emu`, `emu\covers`, `logs`; seeds each bundled theme whose folder is absent or empty; gives the console user Modify | **never** touches the data root |
+| `write-session-env.ps1` | `%ProgramData%\GameCore\session.env`: both roots, the port, the scraper keys; Administrators and SYSTEM only; a key empty in `install.conf` keeps the value already written | removes it |
+| `set-web-password.ps1` | when `<data>\config\auth.json` is absent: `WEB_PASSWORD` or a prompt, handed to `backend.services.auth.set_password()` through the environment | kept with the data |
+| `install-caddy.ps1` | Caddy 2.11.7 (SHA-512 pinned) in `<code>\caddy`, the `GameCoreCaddy` service, its CA under `%ProgramData%\GameCore\caddy` | removes the service; the CA stays, so phones that trust it keep working after a reinstall |
+| `configure-firewall.ps1` | `GameCore - Web access` (TCP 8443) and `GameCore - SSH` (TCP 22), inbound, Private only | removes the rules it made |
+| `install-openssh.ps1` | the OpenSSH Server feature, `sshd` automatic and started, Windows' all-profile sshd rule disabled | removes the feature only if GameCore installed it; otherwise restores the start type |
+| `configure-power.ps1` | in every power plan: power button = sleep, wake timers off, no password on wake, USB selective suspend off; Fast Startup off | puts every value back |
+| `set-wifi-location.ps1` | build 26100+ (24H2) only: location access for desktop apps, or the Wi-Fi scan is empty | puts the values back |
+| `configure-autologon.ps1` | automatic sign-in: Winlogon `AutoAdminLogon`, `DefaultUserName`; the password, typed at the console, as the LSA secret `DefaultPassword` (never in the registry in clear, never in `install.conf`); Windows Hello-only sign-in off | deletes the secret, restores the values |
+| `register-session-task.ps1` | the `\GameCore\Session` logon task ([1](01-runtime-topology.md#the-logon-task-the-services-the-files-they-read)), and a `GameCore` shortcut on the public desktop and in the Start menu (the way back from Desktop mode) | removes the shortcuts it made, the task, and stops every process running from the code root |
+| `build-media-index.ps1` | the offline metadata index (LaunchBox dump, 234 MB) into `<data>\emu\gamescrape`, through `gamescrape.py --refresh`; skipped when present, with `MEDIA_INDEX=0`, or under 700 MB free; a failed build is a warning | kept with the data |
 
-Everything before `msg "System packages"` is preamble — colours, `warn`/`info`,
-`progress`, `git_sync`, the manifest recorders, `want_emu`/`want_app` — and it
-is what the extracted phases would need. So the split is:
+A failed step is reported and the next one runs: a degraded install that says
+what failed beats an install aborted halfway. The summary lists the failures;
+the exit code is 1 when there was one.
 
-```
-install/lib/common.sh      the helpers and the manifest recorders above
-install/phases/sddm.sh     one phase per file, sourced in order by arch.sh
-install/phases/caddy.sh
-install/phases/frontend.sh
-install/arch.sh            argument parsing, the phase order, the summary
-```
+## The record
 
-`arch.sh` keeps the phase ORDER and the closing summary, because the order is
-the one thing that is genuinely a property of the whole install, and the summary
-is what turns a degraded box into a diagnosable one.
+Every change goes through `Invoke-GcChange` (a dry run lists it and does
+nothing) and every value it replaces through `Set-GcRecord` into
+`%ProgramData%\GameCore\install-manifest.json`. A value already recorded is
+kept on a re-run: the record holds the PC's original setting, not GameCore's
+own from the previous run. `uninstall.ps1` runs the steps backwards from it and
+deletes a step's entry once undone; a step that fails keeps its entry, so the
+next run can retry.
 
-## What to check before believing it worked
+Re-running `install.ps1` changes only what differs: each step reads the current
+state first (power values through WMI `Win32_PowerSettingDataIndex`, since
+`powercfg`'s text is translated; tasks, services, rules and the registry by
+their own cmdlets).
 
-Not "the script exits 0". On a fresh VM, after a full run:
+## Tests
 
-- the box reaches the grid unaided after a reboot — that is the only end-to-end
-  assertion that matters, and it exercises SDDM, the units and Electron at once;
-- `install/uninstall.sh` still removes what `arch.sh` created. The two files
-  carry a shared, undocumented contract about what was written where, and it is
-  the first thing a split of only one of them breaks;
-- the closing summary still lists the recoverable failures. Extracting a phase
-  into a sourced file makes it easy to lose the `warn`-and-continue behaviour by
-  making the phase exit instead — and that failure looks exactly like success.
-- **the starting tree reaches a box whose data is outside the install.** The
-  first split installs did not: `arch.sh` seeded the player's starting tree
-  (the Linux bezels, the bundled themes) into
-  GAMECORE_PATH "when absent there", and on a split box `provision_userdata`
-  had already created the empty directories under GAMECORE_DATA — so nothing
-  was seeded. `seed_data_tree` now targets GAMECORE_DATA and seeds a
-  directory that is absent **or empty**; a populated one is the player's.
-  `backend/tests/test_installer_seeds_data_tree.py` runs the function out of
-  the script (Linux, removed with `arch.sh` at port step 7).
+`backend/tests/test_install_*.py` run the steps under pytest through
+`backend/tests/powershell_harness.py`: one `powershell.exe` per case, the step
+files dot-sourced, every cmdlet and native program a step calls replaced by a
+fake function that notes its arguments (a function wins over a cmdlet of the
+same name). Files go to the test's tmp folder; `GAMECORE_STATE_DIR` moves the
+record and `session.env` there. `test_install_entry.py` runs `install.ps1
+-DryRun` and `uninstall.ps1 -DryRun` for real and checks they create nothing.
+`Invoke-GcChange` runs its block in its own scope, so its parameters carry a
+`GcChange` prefix: one called `$Action` hid a step's own `$action` inside the
+block. The `.ps1` files stay ASCII: Windows PowerShell reads a file without a BOM in
+the ANSI code page.
 
-Two smaller things `arch.sh` decides from the same fact (data root ≠ install):
-the addons checkout is pre-created in `/opt/gamecore-addons` **only** on the
-old layout — on a split box the CLI clones under `$GAMECORE_DATA/addons/_repo`,
-mutable code on the data side — and the desktop shortcut's `Icon=` is the
-shipped logo (`frontend/src/assets/logo.png`, kept in sync by the OTA), not the
-theme's generic gamepad. The graphical installer asks for the data path
-(default `/userdata`) and refuses one nested inside the install.
+## What has not been run
 
-## Also noted, and also left alone
+The installer has never run for real: it changes the machine it runs on, and
+the only honest test is a PC that has never had GameCore. The dry run has, on
+the owner's PC. Owner actions and open questions are in the dev log.
 
-`install/steps/apply-multi-ds4.sh` names two emulators in plain text. It stays
-that way. It is a hardware workaround for multiple DualShock 4 pads, those two
-are the only ones whose `.ini` files share the SDL-0/Pad1 convention, and a
-schema field two packs out of seventeen would use — to serve a patch — costs
-more than it earns.
-
-The criterion is not "is it hardcoded", it is **"does it disappear without
-saying so"**. That script prints `SKIP — ini not found`. It fails in the open,
-which is all that is asked of it.
+Not ported yet: the graphical installer (`install/installer-gui`, Linux), the
+catalogue packs and their install pipeline, the addons (step 9), the OTA
+updater (step 8).

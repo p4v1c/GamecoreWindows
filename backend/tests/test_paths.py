@@ -42,7 +42,7 @@ BACKEND = REPO / "backend"
 # re-exports it for the imports that predate the split.
 #
 # gamescrape.py is the one real exception, and it is not laziness: it is run as
-# a plain script by install/steps/build-media-index.sh, so a relative import of
+# a plain script by install/steps/build-media-index.ps1, so a relative import of
 # paths.py has no package to resolve against. It reads the environment itself
 # and its resolve_index_dir() docstring says why.
 _EXEMPT = {

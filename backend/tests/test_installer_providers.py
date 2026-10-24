@@ -229,7 +229,7 @@ def test_a_pack_with_no_install_block_installs_nothing(packs, tmp_path):
 
 # ── sandbox policy ─────────────────────────────────────────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_emulator_policy_is_the_default(packs, tmp_path):
     flags = sandbox_flags(packs["rpcs3"], Context(gamecore_path=Path("/opt/GameCore")))
     assert flags == ["--filesystem=/opt/GameCore", "--device=all", "--socket=x11"]
@@ -382,7 +382,7 @@ def test_a_single_candidate_never_touches_the_network(flatpak_world, tmp_path, m
     assert asked == [], f"the remote was queried for a pack with no choice: {asked}"
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_sandbox_is_told_where_the_data_is_when_it_has_moved(packs):
     """The bug that stopped every Flatpak emulator on the reference box the
     evening its data moved to /userdata: the sandbox listed /opt/GameCore and

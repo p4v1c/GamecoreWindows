@@ -9,7 +9,7 @@ import pytest
 
 from backend.tests.linux_until_port import linux_until_port_module
 
-linux_until_port_module(7)  # imports fcntl: uinput
+linux_until_port_module(11)  # imports fcntl: uinput
 
 PACK = Path(__file__).resolve().parents[1]
 REPO = PACK.parents[1]

@@ -82,6 +82,10 @@ _UI_DARK_WAIT_SECS = 3.0
 _state = "active"
 _last_input = time.monotonic()
 
+# The player is on the Windows desktop (Settings → Desktop): Windows' own timers
+# decide there, and GameCore's screensaver would draw over somebody's desktop.
+_on_desktop = False
+
 
 def load_config() -> dict:
     try:
@@ -247,6 +251,22 @@ async def exit_standby() -> None:
     await ws.broadcast("standby:exit", {})
 
 
+async def set_desktop(active: bool) -> None:
+    """The shell left for the Windows desktop (True) or is back (False).
+
+    Leaving hands Windows its idle timers back and stops the watcher; coming
+    back takes them again when standby is on.
+    """
+    global _on_desktop, _last_input
+    _on_desktop = active
+    _last_input = time.monotonic()
+    if active:
+        await desktop_power.release()
+    elif load_config()["enabled"]:
+        await desktop_power.claim()
+    log.info("standby: %s the Windows desktop", "on" if active else "back from")
+
+
 async def resume_after_restart() -> None:
     """Undo, at startup, any standby the previous process left on the screen.
 
@@ -332,6 +352,9 @@ async def _tick(cfg: dict) -> None:
     global _last_input, _last_activity_signal
     from .process_manager import process_manager
 
+    if _on_desktop:
+        _last_input = time.monotonic()
+        return
     await _ensure_timers_owned(cfg["enabled"])
     if not cfg["enabled"]:
         # The clock stops with the switch, and this line is the fix.

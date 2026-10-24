@@ -51,7 +51,7 @@ from pathlib import Path
 try:
     import pwd
 except ImportError:     # Windows: the module still loads, so its OS-neutral parts
-    pwd = None          # are tested; the Linux providers go at port step 7.
+    pwd = None          # are tested; the Linux providers go with the Linux packs.
 
 from .. import usb_devices
 from .providers import Context, Result, _chown, _pacman_install, install

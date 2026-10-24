@@ -112,6 +112,12 @@ HISTORICAL = {
     # died at 66 % on a fresh machine, months later. It is the reason
     # test_installer_applier.py exists, and 10/TESTING both tell that story.
     "install/firefox-profiles/",
+    # The Linux installer and console session, removed at port step 7
+    # (install/install.ps1 replaced them). The architecture docs still describe
+    # the Linux box's mechanisms they set up, as history and for the import.
+    "install/arch.sh",
+    "install/uninstall.sh",
+    "install/steps/setup-gamecore-session.sh",
 }
 
 INLINE_CODE = re.compile(r"`([^`\n]+)`")

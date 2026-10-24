@@ -238,7 +238,7 @@ def test_a_running_emulator_refuses(tmp_path, monkeypatch):
 
 # ── whose Eden saves ────────────────────────────────────────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_profile_reads_its_own_eden_folder(tmp_path):
     root = tmp_path / "profile-saves"
     ryujinx, eden = tmp_path / "Ryujinx", _eden(tmp_path)
@@ -254,7 +254,7 @@ def test_the_primary_reads_edens_own_folder(tmp_path):
     assert es.eden_source(ryujinx, eden, tmp_path / "profile-saves") == eden / es.EDEN_SAVES
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_eden_stopped_mid_profile_gives_the_primarys_parked_folder(tmp_path):
     ryujinx, eden = tmp_path / "Ryujinx", _eden(tmp_path)
     saves = eden / es.EDEN_SAVES
@@ -264,7 +264,7 @@ def test_eden_stopped_mid_profile_gives_the_primarys_parked_folder(tmp_path):
     assert es.eden_source(ryujinx, eden, None) == parked
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_profile_import_lands_in_the_profiles_folders(tmp_path):
     """Through the links profile_saves placed: louis's saves stay louis's."""
     root, eden = tmp_path / "profile-saves", _eden(tmp_path)

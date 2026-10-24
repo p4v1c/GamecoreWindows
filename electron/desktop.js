@@ -2,9 +2,10 @@
 /**
  * Settings → Desktop mode: hand the screen back to the Windows desktop.
  *
- * The console user's session runs without Explorer (port step 7), so leaving
- * starts it when it is not running; GameCore then quits. Coming back is the
- * logon task at the next sign-in, or the GameCore shortcut.
+ * Explorer may not be running in the console session (it is the user's shell,
+ * but it can have been closed), so leaving starts it when it is not; GameCore
+ * then quits. Coming back is the logon task at the next sign-in, or running
+ * install\bin\gamecore-session again.
  *
  * Dependencies are handed in, so the VM bench can load this without Electron.
  */
@@ -21,12 +22,19 @@ function explorerRunning(execFile) {
   })
 }
 
-/** Start Explorer if needed, then call `quit` exactly once. */
-function leaveToDesktop({ execFile, spawn, quit, timers = { setTimeout }, log = console.warn }) {
+/**
+ * Tell the backend (`announce`), start Explorer if needed, then call `quit`
+ * exactly once. The deadline covers all of it.
+ */
+function leaveToDesktop({ execFile, spawn, quit, announce = () => {},
+  timers = { setTimeout }, log = console.warn }) {
   let left = false
   const leave = () => { if (!left) { left = true; quit() } }
   timers.setTimeout(leave, LEAVE_DEADLINE_MS)
-  return explorerRunning(execFile)
+  return Promise.resolve()
+    .then(announce)
+    .catch((err) => log('[desktop] could not tell the backend:', err.message))
+    .then(() => explorerRunning(execFile))
     .then((running) => {
       if (running) return
       spawn('explorer.exe', [], { detached: true, stdio: 'ignore' }).unref()

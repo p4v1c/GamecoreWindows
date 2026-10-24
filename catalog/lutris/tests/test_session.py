@@ -10,7 +10,7 @@ import pytest
 
 from backend.tests.linux_until_port import linux_until_port_module
 
-linux_until_port_module(7)  # lutris_xpad imports fcntl: uinput
+linux_until_port_module(11)  # lutris_xpad imports fcntl: uinput
 
 PACK = Path(__file__).resolve().parents[1]
 SCRIPT = PACK / "files" / "lutris_session.py"

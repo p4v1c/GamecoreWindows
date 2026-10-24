@@ -30,7 +30,7 @@ from pathlib import Path
 try:
     import pwd
 except ImportError:     # Windows: the module still loads, so its OS-neutral parts
-    pwd = None          # are tested; the Linux providers go at port step 7.
+    pwd = None          # are tested; the Linux providers go with the Linux packs.
 
 from ..catalog import appid
 from . import manifest

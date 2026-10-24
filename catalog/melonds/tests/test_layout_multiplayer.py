@@ -31,7 +31,7 @@ def test_l3_is_ignored_only_while_several_players_share_melonds(tmp_path):
     assert not melonds_config.in_multiplayer(99, str(tmp_path))      # already gone
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_launcher_marks_melonds_with_the_player_count(tmp_path):
     check = "import os, sys; sys.exit(0 if os.environ.get('GAMECORE_MELONDS_PLAYERS') == '2' else 5)"
     done = subprocess.run(
