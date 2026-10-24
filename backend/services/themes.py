@@ -1,8 +1,8 @@
 """Theme discovery and selection.
 
 A theme is a directory under config/themes/ holding a manifest, an ES module and
-its assets. config/ is already excluded from the OTA rsync, so themes survive an
-update without touching update/linux.sh.
+its assets. It lives in the data root, which an update does not replace;
+update/finish.py installs and upgrades the bundled ones there.
 
 Nothing here executes theme code — the browser imports the module. This module
 only reads manifests, validates them and remembers which theme is active.

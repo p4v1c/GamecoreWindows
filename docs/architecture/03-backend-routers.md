@@ -190,23 +190,22 @@ why the registry stays consistent whoever ran the command.
 | `_version_int(tag)` | — | tolerant `x.y.z` ordering — `v2.1.0-rc1` or a malformed tag must never crash the check |
 | `check_update()` | `GET /update/check` | queries the GitHub releases API |
 | `update_status()` | `GET /update/status` | `{running: bool}` — the backend is the source of truth |
-| `apply_update()` | `POST /update/apply` | spawns `update/linux.sh` in the background; **409** if one is already running |
+| `apply_update()` | `POST /update/apply` | runs `update/windows.py install` (stage 1) with the backend's interpreter in the background; **409** if one is already running. `update:done` success = the release is checked and unpacked; stage 2 then restarts GameCore ([13](13-release-and-ota.md)) |
 | `_run_update()` / `_pump()` | — | streams stdout line by line over the WebSocket, which is what the settings page renders live |
 
 Same busy check as `addons.py`: a module-level task handle, tested and assigned
-with no `await` in between, which is what makes it atomic. It is needed because
-`update/linux.sh` wipes its work directory on entry and rsyncs from it into
-`GAMECORE_PATH` — a second run did `rm -rf` underneath the first one's rsync.
-And it was easy to trigger: `installing` was `UpdatePage`'s own component state,
-so leaving the page and coming back re-mounted it as false and re-enabled the
-button, during minutes in which the screen does not change. `UpdatePage` now
-polls `/update/status` instead of trusting itself, and treats a 409 as "keep
-following the running update".
+with no `await` in between, which is what makes it atomic. The Linux updater
+wiped its work directory on entry, so a second run wiped the first one's files
+mid-copy; and it was easy to trigger: `installing` was `UpdatePage`'s own
+component state, so leaving the page and coming back re-enabled the button.
+`UpdatePage` now polls `/update/status` instead of trusting itself and treats a
+409 as "keep following the running update"; `update/windows.py` also takes a
+lock of its own.
 
-The script is spawned with `start_new_session=True` and the 10-minute timeout
-kills the **process group**, through the same helper `process_manager` uses to
-kill a game. Killing only `bash` left its `rsync`, `pip` and `npm` writing into
-`/opt/GameCore` after the UI had been told the update was aborted.
+The 10-minute timeout kills stage 1's whole **process tree**, through the same
+helper `process_manager` uses (`kill_process_group`): killing only the parent
+left its children writing after the UI had been told the update was aborted.
+Stage 2 is not in that tree's reach: stage 1 has exited by then.
 
 ## `themes.py` — the theme catalogue
 

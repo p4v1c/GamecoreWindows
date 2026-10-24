@@ -20,12 +20,14 @@ from .services import paths
 # have said so was being dropped. An env var in the unit file is enough.
 DEBUG = os.environ.get("GAMECORE_DEBUG", "").strip().lower() in ("1", "true", "yes", "on")
 
-# Version is read from the VERSION file at the repo root so OTA updates
-# only need to change that one file, not config.py.
+# Version is read from the VERSION file at the repo root: the release archive
+# carries its tag there. A checkout says v0.0.0, older than every release.
 _VERSION_FILE = Path(__file__).parent.parent / "VERSION"
-APP_VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "v1.0.0"
-GITHUB_REPO = "p4v1c/GamecoreRenew"
-UPDATE_ASSET = "gamecore-ota.tar.gz"
+APP_VERSION = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "v0.0.0"
+# This repository's releases, never the Linux original's: a Windows box that
+# followed p4v1c/GamecoreRenew would be offered Linux archives.
+GITHUB_REPO = "p4v1c/GamecoreWindows"
+UPDATE_ASSET = "gamecore-ota.zip"
 
 GAMECORE_ROOT = paths.GAMECORE_ROOT
 GAMECORE_DATA = paths.GAMECORE_DATA

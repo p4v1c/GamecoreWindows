@@ -172,6 +172,8 @@ Written by `install/install.ps1` ([11](11-install-script-seams.md)):
 | `sshd` | the OpenSSH Server optional feature, automatic | as on the Linux box |
 | `GameCore - Web access`, `GameCore - SSH` | inbound firewall rules, TCP 8443 and 22, Private profile only | the backend binds 127.0.0.1 and needs none |
 | `%ProgramData%\GameCore\install-manifest.json` | what each step changed and the values it replaced | `install/uninstall.ps1` puts them back |
+| `%ProgramData%\GameCore\update\` | the updater's work folder: `plan.json`, `update.lock`, `last-update.json` (the last update's outcome) | outside the code root, which an update renames ([13](13-release-and-ota.md)) |
+| `<code>.prev`, `<code>.failed` | beside the code root: the version before the last update, and one an update or a rollback set aside | the way back is a rename, not a copy |
 
 The backend's console is created with `CREATE_NO_WINDOW`: every console program
 it runs (powercfg, wevtutil, tasklist, the SDL probes) inherits that hidden
@@ -179,7 +181,7 @@ console instead of flashing a window over the TV.
 
 Logs: `<data>\logs\session\session.log` (the session itself),
 `backend-console.log` and `interface-console.log` (what the two print), each
-kept with one previous copy (`.1`).
+kept with one previous copy (`.1`). Updates log to `<data>\logs\update\update.log`.
 
 Rest mode needs no root piece on Windows: the elevated backend holds the
 shutdown privilege and sets which devices may wake the PC itself, see

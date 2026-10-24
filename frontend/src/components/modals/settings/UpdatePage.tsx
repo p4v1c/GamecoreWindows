@@ -60,7 +60,7 @@ export function UpdatePage({ onClose, onBack }: { onClose: () => void; onBack: (
   // Ask the backend whether an update is already running, on mount and then
   // periodically. `installing` alone was component state: leaving this page and
   // coming back re-mounted it as false, the Install button went live again, and
-  // a second run of update/linux.sh started on top of the first.
+  // a second update run started on top of the first.
   useEffect(() => {
     let alive = true
     const poll = async () => {

@@ -1,6 +1,6 @@
 """A shipped theme that changed must say so in its version, or no box gets it.
 
-`update/linux.sh` replaces a bundled theme only when the release declares a
+`update/finish.py` replaces a bundled theme only when the release declares a
 strictly newer `version` than the one already on the box — its own table says
 "both, same or older → left alone". That rule is deliberate and right: it is
 what stops an update from stamping on a theme somebody edited in place.
@@ -47,7 +47,7 @@ def _shipped_themes():
 
     `_`-prefixed directories used to be excluded here, on the reasoning that
     `list_themes()` skips them so nobody runs them. That reasoning was about the
-    PICKER and this test is about DELIVERY, and `update/linux.sh` walks every
+    PICKER and this test is about DELIVERY, and `update/finish.py` walks every
     directory under config/themes without caring about the prefix. The gap was
     not theoretical: `_shared/` held the settings screen both themes imported,
     its code was fixed, its version was not bumped, and the fix sat in the
@@ -116,7 +116,7 @@ def test_a_changed_theme_declares_a_new_version(theme, last_tag):
     now = json.loads((THEMES / theme / "theme.json").read_text()).get("version")
     assert now != was, (
         f"{rel} changed since {last_tag} but theme.json still says version "
-        f"{now!r}. update/linux.sh only replaces a bundled theme when the "
+        f"{now!r}. update/finish.py only replaces a bundled theme when the "
         f"release declares a NEWER version, so this edit would reach GitHub "
         f"and never reach an installed box — silently, with a green build."
     )

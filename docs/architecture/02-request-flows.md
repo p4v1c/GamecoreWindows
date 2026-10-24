@@ -167,24 +167,30 @@ HTTP call and **no ScreenScraper quota**, because the URL was already recorded.
 sequenceDiagram
     participant ui as UpdatePage
     participant r as routers/update.py
-    participant sh as update/linux.sh
+    participant s1 as update/windows.py
     participant gh as GitHub
-    participant sd as systemd
+    participant s2 as update/apply-update.ps1
 
     ui->>r: GET /api/update/check
     r->>gh: latest release
     r->>r: _version_int() — tolerant compare
     r-->>ui: {update_available, current, latest}
     ui->>r: POST /api/update/apply
-    r->>sh: spawn, _pump() streams stdout
-    r-->>ui: WS progress lines
-    sh->>gh: download gamecore-ota.tar.gz
-    sh->>sh: rsync -a --exclude .venv/ emu/ config/ emu-configs/ assets/{overlays,logos}/
-    sh->>sh: rsync --delete frontend/dist/ and frontend/src/
-    sh->>sh: write VERSION, pip install, clear Electron cache
-    sh->>sd: systemctl start --no-block gamecore-restart.service
-    Note over sh,sd: detached on purpose — the script lives in the<br/>backend's cgroup and would otherwise kill itself
+    r->>s1: spawn (venv python), _pump() streams stdout
+    r-->>ui: WS update:log lines
+    s1->>gh: download gamecore-ota.zip, check its SHA-256
+    s1->>s1: unpack beside the code root (<code>.new)
+    s1->>s2: start detached, then exit (update:done)
+    s2->>s2: stop the session, the backend, the shell, Caddy
+    s2->>s2: swap <code> and <code>.new, keep <code>.prev
+    s2->>s2: pip if needed, themes, catalogue merge
+    s2->>s2: start the logon task, wait for /api/ready
+    Note over s2: no answer: put <code>.prev back and start it
 ```
+
+Stage 2 runs detached and outside the code root on purpose: it stops the
+backend that started it, and Windows refuses to rename a folder a running
+program lives in. Details in [13](13-release-and-ota.md#what-the-updater-does).
 
 ## 5. Standby, and waking up
 
