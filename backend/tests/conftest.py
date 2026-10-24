@@ -116,7 +116,7 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(_pytest.mark.skip(reason=message))
 
 
-# ── The box is not a test bench: no screen, no plan, no BlueZ ───────────────
+# ── The box is not a test bench: no screen, no plan ─────────────────────────
 #
 # `TestClient(main.app)` runs the lifespan, which turns the screen on and
 # restores the power plan (`standby.resume_after_restart()`) and claims
@@ -133,41 +133,34 @@ def _no_real_commands_from_the_suite():
     async def refuse(*argv, **kw):
         return True          # "it worked": standby treats failure as best effort
 
-    # Rest mode's lifespan tasks: the real BlueZ would get WakeAllowed set on
-    # the developer's own pads, and gdbus would follow the real logind.
-    # sleep_guard would take a real logind sleep lock on the developer's box.
-    from backend.services import bt_wake, resume, sleep_guard
-
-    async def no_bluez(*argv, **kw):
-        return 1, "no bus under test"
-
-    originals = (standby._power, bt_wake._busctl, resume.LOGIND_MONITOR,
-                 sleep_guard.INHIBIT_CMD)
+    original = standby._power
     standby._power = refuse
-    bt_wake._busctl, resume.LOGIND_MONITOR = no_bluez, ("true",)
-    sleep_guard.INHIBIT_CMD = ("cat",)
     yield
-    (standby._power, bt_wake._busctl, resume.LOGIND_MONITOR,
-     sleep_guard.INHIBIT_CMD) = originals
+    standby._power = original
 
 
 # ── This PC is not a test bench: no platform call that changes it ────────────
 #
 # The Windows calls that change the machine (display mode, screen power, power
-# plan and idle timers, disk eject) are replaced for the whole session; a test
+# plan and idle timers, disk eject, sleep, device wake settings) are replaced
+# for the whole session; a test
 # that needs one fakes it on top (`fake_display.fake_screen`,
 # `fake_volumes.disks`). Reads stay real, except the idle timers (a claim would
 # read the real plan, then write it), the disks (the lifespan's storage
 # monitor would link the developer's USB drives into the test root) and the
 # pads: SDL is never started, so the lifespan's monitor stops at once, as it
 # did on a box without evdev, and never profiles the developer's own pad.
+# Rest mode's lifespan tasks hear no real sleep (`sleep.watch` registers
+# nothing) and read no wake setting, which unelevated lists nothing anyway.
 
 
 @_pytest.fixture(autouse=True, scope="session")
 def _no_machine_changes_from_the_suite():
+    from backend.services.platform import device_wake as platform_device_wake
     from backend.services.platform import display as platform_display
     from backend.services.platform import gamepads as platform_gamepads
     from backend.services.platform import power as platform_power
+    from backend.services.platform import sleep as platform_sleep
     from backend.services.platform import volumes as platform_volumes
 
     def no_screen(*args, **kwargs):
@@ -189,4 +182,10 @@ def _no_machine_changes_from_the_suite():
         mp.setattr(platform_volumes, "eject", lambda letter: (False, "no disk under test"))
         mp.setattr(platform_gamepads, "start", lambda: False)
         mp.setattr(platform_gamepads, "pads", lambda: [])
+        mp.setattr(platform_sleep, "suspend", lambda: (False, "no sleep under test"))
+        mp.setattr(platform_sleep, "watch", lambda handler: (lambda: None))
+        mp.setattr(platform_sleep, "last_wake", lambda: None)
+        mp.setattr(platform_device_wake, "wake_devices", lambda: [])
+        mp.setattr(platform_device_wake, "set_wake",
+                   lambda name, allowed: no_plan())
         yield

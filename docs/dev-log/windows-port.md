@@ -14,8 +14,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 2. Platform layer + paths, backend passes the ported suite | merged | #3 |
 | 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
 | 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | merged | #5 |
-| 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | in review | #6 |
-| 6. Rest mode (sleep, wake by pad, splash after wake) | — | — |
+| 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | merged | #6 |
+| 6. Rest mode (sleep, wake by pad, splash after wake) | in review | #7 |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
 | 8. OTA update + rollback, release workflow | — | — |
 | 9. Addons repo (`p4v1c/gamecore-addons-windows`) | — | — |
@@ -58,6 +58,10 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D31 | A display mode is applied for the session only and written to the registry on confirm | an unconfirmed mode (a black screen) must not survive a restart, exactly what the revert timer exists for |
 | D32 | Battery = SDL2's power **level** mapped to 5 / 20 / 60 / 100 %; a wired pad lists no battery | SDL2 has no percent (SDL3 does); the bands land on the 25 % and 5 % alerts. Exact percent (DualShock HID report or SDL3) left as an open question |
 | D33 | A pad's device id is `sdl<instance>`, its registry key the Bluetooth address when SDL reports one | SDL gives a new instance on every connection, like a new `/dev/input/eventN` on Linux; the address keeps the slot, as the MAC did |
+| D34 | Rest mode sleeps by the PC's model (`platform/sleep.py`): **S3** = `SetSuspendState`; **Modern Standby** = every game closed and the screen off, the PC left running, and the next pad press (any, at once) is the wake | measured on this Modern Standby PC: `SetSuspendState` hibernated it (S4, about 30 s to wake, and a pad cannot wake S4), and no call enters Modern Standby itself |
+| D35 | Every sleep's sweep runs inside Windows' suspend event: its power thread is held up to 1.8 s while the jobs are terminated (0.8 s, then 0.3 s) | Windows sleeps about 2 s after the event, answered or not; there is no delay lock like logind's. Terminating a job is immediate, so the sweep fits |
+| D36 | Wake permission: the Bluetooth radios, the Bluetooth pads on the roster and the wired pads are allowed to wake the PC (WMI `MSPower_DeviceWakeEnable`, elevated); nothing is disarmed | on Windows a Bluetooth mouse wakes through the same radio as the pads, so it cannot be told apart at that level; disarming USB keyboards and mice would take away wake sources the owner may rely on |
+| D37 | Pads stay on into a sleep (Linux disconnected them first) | no public Windows call drops one device's link (D28); an Xbox pad paging back after the sleep, which woke the Linux box, is untested here |
 
 ## Baseline on Windows (19/10/2026, before any port change)
 
@@ -180,6 +184,31 @@ here, not "fixed" (owner rule): `test_launch_reconcile` timing under load, and
 `test_platform_window_control` (3 tests) whenever this PC's desktop refuses the
 foreground; both fail the same way on the step-4 tree.
 
+## After step 6 (24/10/2026)
+
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
+
+| | Before (main at `3a66636`) | After |
+|---|---|---|
+| pytest passed | 2 374 | 2 389 |
+| pytest skipped | 246 | 236 |
+| vitest | 755 | 755 |
+| Electron bench | 42 | 42 |
+| `linux_until_port` items ([list](windows-port-linux-tests.md)) | 345 in 44 files | 338 in 42 files (all 7 step-6 items gone with their code) |
+
+Deleted with their code: `test_rest_mode_install.py` (sudoers rule, wake
+helper, boot unit, udev rule, logind drop-in) and `test_wake_setup_helper.py`
+(the bash sysfs helper). Rewritten on Windows' mechanisms: `test_resume.py`
+(power events fired from a thread through a fake `watch()`),
+`test_sleep_guard.py`, `test_bt_wake.py`, `test_wake_source.py`. New:
+`test_platform_sleep.py`, `test_standby_rest_wake.py`. Known flaky, not
+"fixed": `test_platform_window_control` (3) failed in two full runs and
+passed in the last one; it failed on `origin/main` too at the same moment
+(checked in a worktree): this desktop refused the foreground;
+`test_launch_reconcile` (2) failed once at 0.501 s against
+0.5 s while the frontend suites ran alongside, and passed alone and in the
+next full run.
+
 ## Done
 
 - Both originals cloned read-only; the clone's `upstream` remote has its push
@@ -239,21 +268,47 @@ foreground; both fail the same way on the step-4 tree.
   machine-changing call out of reach for the whole session. `evdev` and
   `python-xlib` left the requirements.
 
+- Step 6: `backend/services/platform/` gains `sleep.py` (sleep model, sleep,
+  suspend / resume / console display events as callbacks, the wake log) and
+  `device_wake.py` (WMI wake settings). Rest mode sleeps through it (D34);
+  `sleep_guard` sweeps inside the suspend event (D35); `resume` reads the
+  events, Modern Standby's display included; `bt_wake` arms the radio and
+  the pads (D36), turns no pad off (D37); `wake_source` reads the System
+  log. Standby lights the screen at the first press during Rest mode. The
+  Linux root pieces (sudoers rule, `gamecore-wake-setup`, its unit and udev
+  rule, the logind drop-in) left with their tests.
+
 ## Next
 
-Step 6: Rest mode (sleep, wake by pad, splash after wake): `rest_mode.py`,
-`sleep_guard.py`, `resume.py`, `bt_wake.py`, `wake_source.py`. Carry over from
-step 5: Desktop mode should hand Windows its idle timers back
-(`desktop_power.release()`) when the shell leaves for Explorer, and take them
-again on return (step 7, with the session); every subprocess the backend
-starts (the SDL probes) needs `CREATE_NO_WINDOW` if the logon task runs the
-backend without a console (step 7). Carry over from step 4: the logon task (step 7) starts the interface
-with `GAMECORE_MANAGED=1`; the updater (step 8) must stop the shell with
-`taskkill /F` or by the backend, since a plain `WM_CLOSE` makes the kiosk
-rebuild its window; `electron/start-ui.sh` (Linux) leaves with step 7.
+Step 7: services, Caddy, SSH, firewall, installer + uninstaller, autologon
+session. Carry over from step 6: the installer sets the power button to
+"sleep" (Rest mode's sweep runs on any sleep), turns Windows' wake timers off
+on AC (Windows Update maintenance would wake the box at night), asks no
+password on wake for the console user (`powercfg /SETACVALUEINDEX … CONSOLELOCK 0`),
+and starts the backend elevated: the device wake settings (`bt_wake`) read
+nothing otherwise. Carry over from step 5: Desktop mode should hand Windows
+its idle timers back (`desktop_power.release()`) when the shell leaves for
+Explorer, and take them again on return; every subprocess the backend starts
+(the SDL probes; `wevtutil` already does) needs `CREATE_NO_WINDOW` if the
+logon task runs the backend without a console. Carry over from step 4: the
+logon task starts the interface with `GAMECORE_MANAGED=1`; the updater (step
+8) must stop the shell with `taskkill /F` or by the backend, since a plain
+`WM_CLOSE` makes the kiosk rebuild its window; `electron/start-ui.sh` (Linux)
+leaves with step 7.
 
 ## Open questions for the owner
 
+- Step 6, conservative choices made: D34 (a Modern Standby box "sleeps" with
+  the screen off and the PC running, since `SetSuspendState` hibernates it;
+  hibernating instead would save power but only the power button could wake
+  it), D36 (nothing disarmed: should mice and keyboards lose their wake?),
+  D37 (pads are not switched off before a sleep; Windows offers no call. If
+  an Xbox pad wakes the box right after Rest mode, disabling its HID service
+  around the sleep is the only lever, and it re-enumerates the device).
+- Step 6: Electron's `powerMonitor` `resume` re-asserts the window after an S3
+  wake; a Modern Standby Rest never sleeps the PC, so it does not fire there
+  and the window is not re-asserted (the backend's `power:resumed` still
+  plays the splash). Untested whether that matters on the TV.
 - Step 5, conservative choices made: D28 (Bluetooth Connect reports instead
   of forcing), D29 (standby off = Windows' own timers), D32 (battery in SDL2
   bands; exact percent through SDL3 or the DualShock HID report later?).
@@ -280,6 +335,10 @@ rebuild its window; `electron/start-ui.sh` (Linux) leaves with step 7.
 
 | What | When | Result |
 |---|---|---|
+| Step 6: this PC's sleep model read (`modern_standby`: no S3, `AoAc`, hibernation file present); a power-event registration started, reported the console display state at once, stopped | 24/10/2026 | green |
+| Step 6: Rest mode's Modern Standby sleep (`sleep.suspend()` = screen off) and `power.screen_on()` 4 s later: `display_on` received, `classify` read the sequence as a sleep then a wake. The screen was already off by Windows' timer when the check began, so the `display_off` came from the registration | 24/10/2026 | green |
+| Step 6: `SetSuspendState` on this Modern Standby PC with a 45 s wake timer (on AC): `display_off`, `SUSPEND` at 0.5 s, `RESUME` at 81.7 s; the System log says S4 (hibernation), woken by `python.exe` (the timer), type 6; `last_wake()` read it | 24/10/2026 | green, and why D34 avoids it |
+| Step 6, not tested: an S3 PC, a real pad waking the box (none connected), the wake settings written (needs elevation; this session was not elevated, and they are the owner's devices), the whole Rest mode through the backend and the interface on the TV, the power button | — | not run |
 | Step 5, audio: outputs listed, volume read and written back unchanged, the default output set again, a bogus id refused | 24/10/2026 | green |
 | Step 5, Wi-Fi: status (SSID, IP, gateway, DNS, MAC, radio), a scan (15 SSIDs, security, channel, band), `WlanDeleteProfile` on a missing profile answers "not found" | 24/10/2026 | green. Not run: join, leave, radio off (they cut this session's network), deleting a real profile |
 | Step 5, Bluetooth: 10 paired devices read (address, connected), a 6 s scan (unnamed LE advertisers dropped) | 24/10/2026 | green. Not run: pair, unpair (the owner's devices) |

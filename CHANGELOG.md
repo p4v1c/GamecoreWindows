@@ -17,6 +17,14 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, Rest mode: the box sleeps through Windows (S3 sleep, or
+  the screen switched off on a Modern Standby PC) and closes every game
+  before any sleep, power button included. The Linux root pieces are gone
+  (the sudoers suspend rule, `gamecore-wake-setup` with its boot unit and
+  udev rule, the logind drop-in). GameCore allows the Bluetooth adapter and
+  the pads to wake the PC, which needs the elevated backend. Pads are no
+  longer switched off before a sleep: Windows cannot drop one device's link.
+
 - Windows edition, devices: the backend reads pads through SDL2 (`SDL2.dll`
   ships in the venv with `pysdl2-dll`), Wi-Fi and Bluetooth through WinRT,
   sound through Core Audio. While standby is on, GameCore sets Windows' own

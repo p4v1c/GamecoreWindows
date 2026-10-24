@@ -636,12 +636,17 @@ the old picture; the animation starts once the TV has the signal back. TVs
 differ: if yours still shows "no signal" at the start of the animation, raise
 Settings → System → **Wait for the TV after waking**.
 
-A short press of the box's power button does the same (a long press still
-forces it off). Games are closed before *any* sleep, whatever started it.
+Games are closed before *any* sleep, whatever started it: the power button,
+the Start menu or Windows' own sleep timer.
 
 Whether a pad can wake the box depends on the hardware (the Bluetooth adapter
-and the board's USB wake support). GameCore arms the adapter, USB pads and
-paired Bluetooth pads by itself, at every boot and after an update.
+and the board's wake support) and on the kind of sleep the PC has. On a PC
+with S3 sleep, GameCore allows the Bluetooth adapter and your pads to wake it
+by itself, at every start and whenever a new pad connects. On a PC with
+Modern Standby (most recent mini PCs and laptops), Rest mode closes every
+game and switches the screen off, and any button on a connected pad brings
+it back. Pads stay on while
+the box sleeps: switch them off by holding the PS / Guide button.
 
 ---
 

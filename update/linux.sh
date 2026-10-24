@@ -552,8 +552,8 @@ sudo_rules="$(sudo -n -l 2>/dev/null || true)"
 # The rules to expect are READ FROM THE INSTALLERS THIS UPDATE JUST SHIPPED,
 # never typed here. A hardcoded list would cover the two rules that happened to
 # be missing the day this was written and go stale on the third — which is the
-# very drift it exists to catch. arch.sh, setup-update-permissions.sh and
-# setup-rest-mode.sh write the rules this checks, all in the OTA archive.
+# very drift it exists to catch. arch.sh and setup-update-permissions.sh
+# write the rules this checks, both in the OTA archive.
 expected_cmds="$(grep -rhoE 'NOPASSWD: *[^"]*' \
                    "${GAMECORE_PATH}/install/arch.sh" \
                    "${GAMECORE_PATH}/install/steps/setup-update-permissions.sh" \

@@ -101,10 +101,9 @@ In order, and the order is the interesting part:
 6. **Refresh the root helpers**: `sudo -n systemctl start gamecore-session-migrate.service`
    runs the installed `/usr/local/bin/gamecore-session-migrate`, which execs
    `install/steps/setup-gamecore-session.sh` from the tree just rsynced. That
-   is how a release adds root pieces with no manual step: Rest mode's sudoers
-   rule, wake helper, boot unit and udev rule (`install/steps/setup-rest-mode.sh`)
-   land on the first update after they ship, even though the migrate helper
-   that runs is the old copy.
+   is how a release adds root pieces with no manual step: they land on the
+   first update after they ship, even though the migrate helper that runs is
+   the old copy.
 7. **Start `gamecore-restart.service` with `--no-block`** and exit.
 
 That last step matters: `update/linux.sh` runs *inside the backend's cgroup*, so

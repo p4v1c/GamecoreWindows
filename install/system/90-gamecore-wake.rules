@@ -1,4 +1,0 @@
-# GameCore Rest mode: a pad or Bluetooth adapter plugged in after boot may wake
-# the box too. The helper decides what is a pad; keyboards and mice are skipped.
-ACTION=="add", SUBSYSTEM=="input", KERNEL=="input[0-9]*", RUN+="/usr/local/bin/gamecore-wake-setup --device %S%p"
-ACTION=="add", SUBSYSTEM=="bluetooth", ENV{DEVTYPE}=="host", RUN+="/usr/local/bin/gamecore-wake-setup --device %S%p"

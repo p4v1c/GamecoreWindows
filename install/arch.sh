@@ -1491,8 +1491,6 @@ ok "Bluetooth service enabled."
 
 # ── Power management (reboot/shutdown from UI) ───────────────────
 msg "Sudoers — power management"
-# Rest mode's `systemctl suspend` is in /etc/sudoers.d/gamecore-rest, written by
-# install/steps/setup-rest-mode.sh (via the session step above) so OTAs carry it.
 cat > /etc/sudoers.d/gamecore-power <<EOF
 $USER_NAME ALL=(ALL) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
 # Gamepad hotplug (backend/services/launch.py) — the only udevadm this needs.

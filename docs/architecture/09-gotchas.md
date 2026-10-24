@@ -44,8 +44,25 @@ launch rather than starting a game nobody can see (dev-log D8).
 **No `--reload` (or `--workers`) for uvicorn on Windows.**
 They switch it to the Selector event loop, where
 `asyncio.create_subprocess_exec` raises `NotImplementedError` (the update
-router, Rest mode). Games do not depend on it (`subprocess.Popen` in
+router). Games do not depend on it (`subprocess.Popen` in
 `jobs.spawn`); `test_event_loop.py` pins the Proactor loop.
+
+**Windows gives about 2 s between the suspend event and the sleep.**
+No lock buys more (logind's delay inhibitor did on Linux). Anything added to
+`sleep_guard.before_sleep()` must fit in `SLEEP_BUDGET_SECS` (1.5 s) or run
+after the wake; `test_sleep_guard.py` checks the budget order.
+
+**On a Modern Standby PC, `SetSuspendState` hibernates.**
+Measured on the port's PC: S4, about 30 s to wake, and a pad cannot wake S4.
+No call enters Modern Standby itself, so Rest mode's sleep there is the screen
+off with every game closed (dev-log D34), and `resume.classify()` reads the
+display going off during Rest mode as the sleep. The same screen-off from
+standby is ignored by `resume`.
+
+**Device wake settings need an elevated backend.**
+WMI's `MSPower_DeviceWakeEnable` lists nothing to an unelevated process, and
+reads as "no device can wake the PC". `bt_wake` treats an empty list as
+unknown and retries; a dev run from a normal terminal never arms anything.
 
 **A one-frame crash is not a play session.**
 `_watch()` only records playtime past 5 s, or a crash-looping emulator would
