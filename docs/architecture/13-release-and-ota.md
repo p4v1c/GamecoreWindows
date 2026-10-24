@@ -86,9 +86,11 @@ Two rules kept from the Linux packaging, each learned from a real bug:
   make every install report itself out of date.
 
 The shell is unsigned (no certificate yet, an open question): the release
-build turns certificate discovery off. Locally, `npm run pack` needs
-`-c.win.signAndEditExecutable=false` unless the account may create symbolic
-links (electron-builder's signing tools unpack macOS symlinks); the runner can.
+build turns certificate discovery off, and `npm run pack` never publishes
+(`--publish never`). Locally it needs
+`npm run pack -- -c.win.signAndEditExecutable=false` unless the account may
+create symbolic links (electron-builder's signing tools unpack macOS
+symlinks); the runner can.
 
 ## What the updater does
 
@@ -210,6 +212,12 @@ GameCore, moves `python\ .venv\ caddy\` back, renames the current root to
 and `-EnvFile` name another install. It gets you back one release, not to an
 arbitrary one; the next update overwrites `.prev`. A rolled-back version is
 older than the latest release, so Settings → Update offers it again.
+
+If an update was cut off between the two renames (power lost, stage 2
+killed), there is no `<code>` and nothing starts: run the copy in `.prev`,
+`& 'C:\Program Files\GameCore.prev\update\apply-update.ps1' -Rollback`.
+`python\` and `.venv\` move only after both renames, so they are still in
+`.prev` then.
 
 ## The gate before you merge
 
