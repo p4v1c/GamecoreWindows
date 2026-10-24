@@ -45,6 +45,18 @@ def test_a_port_that_is_not_a_number_is_refused(tmp_path):
     assert "WEB_PORT" in result["error"]
 
 
+def test_a_data_root_inside_the_code_root_or_relative_is_refused(tmp_path):
+    result = run_ps(tmp_path, r"""
+        $GcTest['errors'] = @(foreach ($data in 'C:\Program Files\GameCore\data', 'C:\program files\gamecore', 'data') {
+            try { Resolve-GcConfiguration -Config @{ GAMECORE_PATH = 'C:\Program Files\GameCore'; GAMECORE_DATA = $data } -SourceRoot 'C:\src' | Out-Null; 'accepted' }
+            catch { $_.Exception.Message } })
+        $GcTest['sibling'] = (Resolve-GcConfiguration -Config @{ GAMECORE_PATH = 'C:\GameCore'; GAMECORE_DATA = 'C:\GameCoreData' } -SourceRoot 'C:\src').DataRoot
+    """)
+    assert [("inside the code root" in e) for e in result["errors"]] == [True, True, False]
+    assert "full path" in result["errors"][2]
+    assert result["sibling"] == "C:\\GameCoreData"      # a prefix of the name is not nesting
+
+
 def test_a_dry_run_lists_the_change_and_does_not_make_it(tmp_path):
     result = run_ps(tmp_path, r"""
         Invoke-GcChange 'do the thing' { Note 'ran' $true }

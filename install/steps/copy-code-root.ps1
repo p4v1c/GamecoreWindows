@@ -3,9 +3,11 @@
 # ACL); the player's data never goes here.
 
 # Never copied: version control, dependency trees the install rebuilds, the
-# source's own venv, and anything the data root owns in a checkout.
+# source's own venv, and what a checkout used as its data root (emu, logs).
+# config\ is copied: its bundled themes seed the data root on a later re-run
+# from the code root; the backend reads config from the data root only.
 $script:GcCodeExcludedDirs = @('.git', '.github', 'node_modules', '.venv', '__pycache__',
-    '.pytest_cache', 'config', 'emu', 'logs', 'docs')
+    '.pytest_cache', 'emu', 'logs', 'docs')
 
 function Get-GcShellSource {
     param([Parameter(Mandatory)][string]$SourceRoot)

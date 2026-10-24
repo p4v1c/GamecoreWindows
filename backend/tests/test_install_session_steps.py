@@ -101,7 +101,7 @@ def test_the_code_root_gets_the_tree_and_the_built_shell(tmp_path):
     assert tree["to"] == code and shell["to"] == code + "\\shell"
     assert shell["from"].endswith("electron\\dist\\win-unpacked")
     excluded = {e.split("\\")[-1] for e in tree["exclude"]}
-    assert {".git", ".venv", "node_modules", "config", "emu"} <= excluded
+    assert {".git", ".venv", "node_modules", "emu"} <= excluded and "config" not in excluded
     assert result["manifest"]["copy-code-root"] == {"created": code}
 
 

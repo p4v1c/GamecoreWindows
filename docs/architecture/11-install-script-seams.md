@@ -21,8 +21,9 @@ split from the start and every step is tested (below).
 
 `-CodeRoot`, `-DataRoot` and `-ConsoleUser` override `install.conf`. Defaults:
 `C:\Program Files\GameCore` for the code, `<Documents of the console user>\GameCore`
-for the data (dev log D6). A data root under OneDrive gets a warning: ROMs and
-saves would upload.
+for the data (dev log D6). A data root inside the code root, or relative, is
+refused (an update replaces the code root whole); one under OneDrive gets a
+warning: ROMs and saves would upload.
 
 The script **elevates itself**: the settings are resolved first, in the user's
 own context, and handed to the elevated copy as arguments, so "Documents" is the

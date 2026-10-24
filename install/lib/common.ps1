@@ -100,6 +100,17 @@ function Get-GcSetting {
     return $Default
 }
 
+function Assert-GcDataOutsideCode {
+    <# The data root may not be the code root or inside it: an update replaces the code root whole. #>
+    param([Parameter(Mandatory)][string]$CodeRoot, [Parameter(Mandatory)][string]$DataRoot)
+    if (-not [IO.Path]::IsPathRooted($DataRoot)) { throw "GAMECORE_DATA must be a full path, not '$DataRoot'" }
+    $code = [IO.Path]::GetFullPath($CodeRoot).TrimEnd('\') + '\'
+    $data = [IO.Path]::GetFullPath($DataRoot).TrimEnd('\') + '\'
+    if ($data.StartsWith($code, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "the data root $DataRoot is inside the code root $CodeRoot, which an update replaces: choose another folder"
+    }
+}
+
 function Resolve-GcConfiguration {
     <#
     The install's settings from install.conf (or prompts) with Windows defaults:
@@ -111,10 +122,13 @@ function Resolve-GcConfiguration {
     if (-not $documents) { $documents = Join-Path $env:USERPROFILE 'Documents' }
     $port = Get-GcSetting $Config 'WEB_PORT' '8765'
     if ($port -notmatch '^\d{2,5}$') { throw "WEB_PORT must be a port number, not '$port'" }
+    $code = Get-GcSetting $Config 'GAMECORE_PATH' (Join-Path $env:ProgramFiles 'GameCore')
+    $data = Get-GcSetting $Config 'GAMECORE_DATA' (Join-Path $documents 'GameCore')
+    Assert-GcDataOutsideCode -CodeRoot $code -DataRoot $data
     return [pscustomobject]@{
         SourceRoot  = $SourceRoot
-        CodeRoot    = Get-GcSetting $Config 'GAMECORE_PATH' (Join-Path $env:ProgramFiles 'GameCore')
-        DataRoot    = Get-GcSetting $Config 'GAMECORE_DATA' (Join-Path $documents 'GameCore')
+        CodeRoot    = $code
+        DataRoot    = $data
         ConsoleUser = Get-GcSetting $Config 'USER_NAME' $env:USERNAME
         Port        = $port
         WebPort     = Get-GcSetting $Config 'LAN_PORT' '8443'

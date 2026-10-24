@@ -53,7 +53,10 @@ function Request-GcDataRoot {
     param([Parameter(Mandatory)]$Settings)
     if ($Unattended -or $DryRun -or $DataRoot -or $Settings.Config.ContainsKey('GAMECORE_DATA')) { return $Settings }
     $answer = Read-Host "   Where should ROMs, saves and covers go? [$($Settings.DataRoot)]"
-    if ($answer.Trim()) { $Settings.DataRoot = $answer.Trim() }
+    if ($answer.Trim()) {
+        Assert-GcDataOutsideCode -CodeRoot $Settings.CodeRoot -DataRoot $answer.Trim()
+        $Settings.DataRoot = $answer.Trim()
+    }
     return $Settings
 }
 
