@@ -243,13 +243,17 @@ sequenceDiagram
   - **S3**: `SetSuspendState` (the shutdown privilege enabled first) blocks
     until the wake, so it runs in a thread; Windows sends `SUSPEND` before
     sleeping and `RESUME` (`PBT_APMRESUMEAUTOMATIC`) after.
-  - **Modern Standby** (S0 low-power idle; the port's PC is one): there is no
-    call to enter it and the suspend/resume callbacks are not promised. Rest
-    mode turns the screen off, which starts it; `resume.classify()` treats the
-    console display going off **while Rest mode is under way** as the sleep
-    and coming back on as the wake. A display going off at any other time is
-    standby's own screen-off and is ignored. Windows' Desktop Activity
-    Moderator freezes the backend and the shell while asleep.
+  - **Modern Standby** (S0 low-power idle; the port's PC is one): no call
+    enters it, and `SetSuspendState` **hibernates** such a PC (measured on
+    24/10/2026: S4, about 30 s to wake, and a pad cannot wake S4). Rest mode's
+    sleep is therefore the screen off with every game closed, the PC left
+    running (dev-log D34). `resume.classify()` treats the console display
+    going off **while Rest mode is under way** as the sleep and coming back on
+    as the wake; a pad press lights it through standby (`standby.on_input()`
+    after a silence). A display going off at any other time is standby's own
+    screen-off and is ignored. If Windows' own sleep timer later takes the PC
+    down, its suspend and resume events go through the S3 path (the port's
+    PC sent them for a hibernation).
 - **Every sleep closes the games**, not only Rest mode's (power button, Start
   menu, lid, idle timer): Windows' suspend event holds its power thread until
   the handler returns, about 2 s at most, and no lock buys more (logind's

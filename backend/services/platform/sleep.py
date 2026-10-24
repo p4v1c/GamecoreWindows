@@ -6,13 +6,14 @@ Replaces `systemctl suspend`, logind's `PrepareForSleep` (read through
 | Here | Win32 |
 |---|---|
 | `power_model()` | `GetPwrCapabilities`: S3 sleep, Modern Standby (S0 low-power idle, `AoAc`), or neither |
-| `suspend()` | S3: `SetSuspendState` with the shutdown privilege enabled. Modern Standby has no call to enter it: turning the screen off is what starts it (its "Screen off" phase), so that is what this does |
+| `suspend()` | S3: `SetSuspendState` with the shutdown privilege enabled. Modern Standby: the screen off, games closed, the PC left running; `SetSuspendState` there hibernates (measured: S4, about 30 s to wake, and a pad cannot wake S4) |
 | `watch()` | `PowerRegisterSuspendResumeNotification` (suspend, automatic resume) and `PowerSettingRegisterNotification` on the console display state, both as callbacks: no window needed |
 | `last_wake()` | the newest `Power-Troubleshooter` event 1 of the System log, read as XML (its field names are never translated) |
 
-A Modern Standby PC is not promised the suspend and resume callbacks (Desktop
-Activity Moderator freezes desktop apps instead), so `watch()` also reports
-the console display going off and on; the service decides what that means.
+A Modern Standby PC is not promised the suspend and resume callbacks for its
+own standby (the port's PC sent them for a hibernation), so `watch()` also
+reports the console display going off and on; the service decides what that
+means.
 """
 from __future__ import annotations
 
@@ -112,8 +113,8 @@ def _enable_shutdown_privilege() -> None:
 def suspend() -> tuple[bool, str]:
     """Put the PC to sleep. (True, how) when asked, (False, why) when refused.
 
-    S3 blocks until the wake. Modern Standby returns at once: the screen goes
-    off and Windows takes the PC down from there.
+    S3 blocks until the wake. Modern Standby returns at once with the screen
+    off: a pad press lights it again through standby (services/standby.py).
     """
     try:
         model = power_model()

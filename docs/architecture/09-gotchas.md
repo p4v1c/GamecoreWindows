@@ -52,12 +52,12 @@ No lock buys more (logind's delay inhibitor did on Linux). Anything added to
 `sleep_guard.before_sleep()` must fit in `SLEEP_BUDGET_SECS` (1.5 s) or run
 after the wake; `test_sleep_guard.py` checks the budget order.
 
-**On a Modern Standby PC the screen going off is the sleep.**
-There is no call that enters Modern Standby and no promised suspend event:
-Rest mode switches the screen off, and `resume.classify()` reads the display
-going off during Rest mode as the sleep. The same screen-off from standby is
-ignored by `resume`, but Windows may still take the PC down from it, and its
-Desktop Activity Moderator then freezes the backend until a wake.
+**On a Modern Standby PC, `SetSuspendState` hibernates.**
+Measured on the port's PC: S4, about 30 s to wake, and a pad cannot wake S4.
+No call enters Modern Standby itself, so Rest mode's sleep there is the screen
+off with every game closed (dev-log D34), and `resume.classify()` reads the
+display going off during Rest mode as the sleep. The same screen-off from
+standby is ignored by `resume`.
 
 **Device wake settings need an elevated backend.**
 WMI's `MSPower_DeviceWakeEnable` lists nothing to an unelevated process, and

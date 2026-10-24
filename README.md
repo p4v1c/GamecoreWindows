@@ -643,8 +643,9 @@ Whether a pad can wake the box depends on the hardware (the Bluetooth adapter
 and the board's wake support) and on the kind of sleep the PC has. On a PC
 with S3 sleep, GameCore allows the Bluetooth adapter and your pads to wake it
 by itself, at every start and whenever a new pad connects. On a PC with
-Modern Standby (most recent mini PCs and laptops), Windows decides which
-input wakes it; if a pad does not, press the power button. Pads stay on while
+Modern Standby (most recent mini PCs and laptops), Rest mode closes every
+game and switches the screen off, and any button on a connected pad brings
+it back. Pads stay on while
 the box sleeps: switch them off by holding the PS / Guide button.
 
 ---

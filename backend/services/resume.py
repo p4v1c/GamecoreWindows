@@ -5,10 +5,11 @@ Rest mode or not (power button, Start menu, lid, idle timer):
 
 - S3 and hibernation: `SUSPEND` (Windows waits about 2 s for the handler, so
   the games are closed under it: services/sleep_guard.py), then `RESUME`;
-- Modern Standby: those two are not promised. Rest mode starts that sleep by
-  turning the screen off, so while Rest mode is under way the console display
-  going off is the sleep, and coming back on is the wake. A display going off
-  outside Rest mode is standby's own screen-off and means nothing here.
+- Modern Standby: Rest mode's sleep is the screen off with every game closed
+  (`SetSuspendState` would hibernate, and a pad cannot wake that). So while
+  Rest mode is under way the console display going off is the sleep, and
+  coming back on (a pad press, through standby) is the wake. A display going
+  off outside Rest mode is standby's own screen-off and means nothing here.
 
 A wake puts the screen, pads and launch gate back. The interface learns it
 from the `power:resumed` event, and from `GET /api/power/state` after a
