@@ -6,13 +6,14 @@ unchanged to pick it. The default output is set for every role (console,
 multimedia, communications), as the Sound settings page does.
 
 Every call is synchronous and blocks on COM: callers run it in a thread
-(`asyncio.to_thread`). Each call initialises COM on its own thread.
+(`asyncio.to_thread`).
 """
 from __future__ import annotations
 
 import contextlib
 import logging
-import threading
+
+from .com import ensure_com
 
 log = logging.getLogger(__name__)
 
@@ -24,24 +25,12 @@ _DEVICE_STATE_ACTIVE = 0x1
 _STGM_READ = 0
 
 
-_thread = threading.local()
-
-
 @contextlib.contextmanager
 def _com():
-    """COM on this thread; a failed COM call surfaces as OSError, as callers expect.
-
-    Initialised once per thread and never uninitialised: comtypes releases its
-    pointers at garbage collection, and a release after CoUninitialize crashes
-    the process (measured: segfault on the second call).
-    """
+    """COM on this thread (`com.py`); a failed call surfaces as OSError."""
     from _ctypes import COMError
 
-    import comtypes
-
-    if not getattr(_thread, "com", False):
-        comtypes.CoInitialize()
-        _thread.com = True
+    ensure_com()
     try:
         yield
     except COMError as e:
