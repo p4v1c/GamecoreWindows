@@ -207,18 +207,6 @@ else
   echo "  ✓ sudoers: leaving the console session (${SUDOERS_SESSION#"$DESTDIR"})"
 fi
 
-# ── Rest mode: suspend rule, wake helper, boot unit, udev rule ───
-# Here so the OTA's migration carries it to installed boxes. Not fatal: a box
-# without it still turns off and restarts.
-for dest in "${DESTDIR}/etc/sudoers.d/gamecore-rest" "$BIN_DIR/gamecore-wake-setup" \
-            "${DESTDIR}/etc/systemd/system/gamecore-wake.service" \
-            "${DESTDIR}/etc/udev/rules.d/90-gamecore-wake.rules" \
-            "${DESTDIR}/etc/systemd/logind.conf.d/90-gamecore.conf"; do
-  backup "$dest"
-done
-bash "$HERE/setup-rest-mode.sh" "$GC_USER" \
-  || echo "  ⚠ Rest mode setup failed: the power menu's Rest mode will not sleep."
-
 echo "  Roll back installed files: sudo bash $BACKUP/restore.sh"
 
 # SDDM/PAM starts the user manager for the graphical login. Linger belongs
