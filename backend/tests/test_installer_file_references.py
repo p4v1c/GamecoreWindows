@@ -30,11 +30,9 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 
-# Every shell step that copies files into place. setup-update-permissions.sh
-# is the Linux OTA's and still names the console-session helpers that left with
-# port step 7; it is checked by the step-8 tests below until it goes too.
-PERMISSIONS_STEP = REPO / "install/steps/setup-update-permissions.sh"
-INSTALLERS = sorted(p for p in (REPO / "install/steps").glob("*.sh") if p != PERMISSIONS_STEP)
+# Every shell step that copies files into place (the Linux pack steps port
+# step 11 replaces; the OTA's permissions step left with port step 8).
+INSTALLERS = sorted((REPO / "install/steps").glob("*.sh"))
 
 # `install -m 644 "$SRC" /etc/…` and `cp … "$SRC" …`: the source is what has to
 # exist. Only variables the script itself defines are resolvable, so the check
@@ -113,39 +111,3 @@ def test_every_file_the_installer_copies_exists(script):
     assert missing == [], (
         f"{script.relative_to(REPO)} copies files that are not there:\n  "
         + "\n  ".join(missing))
-
-
-@pytest.mark.linux_until_port(8)
-def test_the_permissions_step_installs_both_of_its_artefacts():
-    """The two specific files, pinned by name.
-
-    The generic check above only proves the paths resolve. These two are what
-    the step exists FOR: without the unit an OTA cannot restart the services,
-    and without the CLI the catalogue screen's install button cannot work.
-    """
-    step = REPO / "install/steps/setup-update-permissions.sh"
-    text = step.read_text(encoding="utf-8")
-
-    for name in ("gamecore-restart.service", "gamecore-emu"):
-        assert name in text, f"{step.name} no longer installs {name}"
-
-    for raw in _sources(step):
-        resolved = _resolve(step, raw)
-        assert resolved is not None and resolved.is_file(), f"{raw} does not resolve"
-
-
-def test_a_failed_install_is_fatal_rather_than_reported_as_success():
-    """arch.sh reads this step's exit code as the truth.
-
-    It runs it as `… && ok "OTA restart permissions installed."`. Exiting 0
-    after a failed copy is what turned a broken step into a green tick, so the
-    step must stop instead of carrying on.
-    """
-    text = (REPO / "install/steps/setup-update-permissions.sh").read_text(encoding="utf-8")
-    unit_install = next(
-        (ln for ln in text.splitlines() if "install -m 644" in ln), "")
-    assert unit_install, "the unit is no longer installed at all"
-    guarded = "||" in unit_install or "\\" in unit_install or "set -e" in text
-    assert guarded, (
-        "a failed `install` of the unit no longer stops the step — arch.sh "
-        "would report success for a box with no gamecore-restart.service")
