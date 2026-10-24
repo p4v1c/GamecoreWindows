@@ -207,9 +207,9 @@ def test_autologon_off_in_install_conf_is_skipped(tmp_path):
 
 
 def test_autologon_uninstall_deletes_the_secret_and_restores_the_values(tmp_path):
-    result = run_ps(tmp_path, AUTOLOGON_FAKES + rf"""
-        Uninstall-GcAutologon @{{ AutoAdminLogon = '0'; DefaultUserName = 'old'; DefaultDomainName = $null
-            DevicePasswordLessBuildVersion = 2 }}
+    result = run_ps(tmp_path, AUTOLOGON_FAKES + r"""
+        Uninstall-GcAutologon @{ AutoAdminLogon = '0'; DefaultUserName = 'old'; DefaultDomainName = $null
+            DevicePasswordLessBuildVersion = 2 }
     """)
     assert calls(result, "lsa") == [{"name": "DefaultPassword", "value": None}]
     assert calls(result, "restore") == ["AutoAdminLogon=0", "DefaultUserName=old", "DefaultDomainName=",
