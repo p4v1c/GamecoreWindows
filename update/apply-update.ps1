@@ -164,6 +164,18 @@ function Invoke-GcUpdateNative {
     if ($LASTEXITCODE -ne 0) { throw "$(Split-Path -Leaf $FilePath) exited with $LASTEXITCODE" }
 }
 
+function Get-GcUpdateFileSha256 {
+    <# Upper-case hex like the installer's stamp, in .NET: the Utility module's
+       hash cmdlet is a script function a PowerShell 7 PSModulePath hides. #>
+    param([Parameter(Mandatory)][string]$Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return (($sha.ComputeHash([IO.File]::ReadAllBytes($Path)) | ForEach-Object { $_.ToString('X2') }) -join '')
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 function Install-GcUpdateRequirement {
     <# pip only when backend\requirements.txt changed; same stamp as install\steps\install-python.ps1. #>
     param([Parameter(Mandatory)][string]$Root)
@@ -174,7 +186,7 @@ function Install-GcUpdateRequirement {
         Write-GcUpdateLog "WARNING: no venv at $python; Python packages not checked"
         return
     }
-    $wanted = (Get-FileHash -LiteralPath $requirements -Algorithm SHA256).Hash
+    $wanted = Get-GcUpdateFileSha256 $requirements
     $installed = if (Test-Path -LiteralPath $stamp) { [IO.File]::ReadAllText($stamp).Trim() } else { '' }
     if ($installed -eq $wanted) { return }
     Write-GcUpdateLog 'installing the backend Python packages'

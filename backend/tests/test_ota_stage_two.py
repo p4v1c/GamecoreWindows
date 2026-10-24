@@ -254,3 +254,13 @@ def test_the_script_parses():
                           f"$e = $null; [System.Management.Automation.Language.Parser]::ParseFile('{SCRIPT}', [ref]$null, [ref]$e) | Out-Null; $e.Count"],
                          capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "0", out.stdout + out.stderr
+
+
+def test_no_cmdlet_a_powershell_7_module_path_hides():
+    """On the CI runner (pytest under pwsh) Get-FileHash was 'not recognized' in
+    Windows PowerShell: it is a script function of the Utility module, and a
+    PowerShell 7 PSModulePath loads the wrong one. The swap then never ran."""
+    text = SCRIPT.read_text(encoding="ascii")
+    hidden = [name for name in ("Get-FileHash", "New-TemporaryFile", "Format-Hex", "New-Guid")
+              if f"{name} " in text or f"({name}" in text]
+    assert hidden == []

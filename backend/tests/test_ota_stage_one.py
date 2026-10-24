@@ -233,6 +233,7 @@ def test_stage_two_breaks_away_from_the_job_and_falls_back_when_refused(tmp_path
 
     def popen(argv, creationflags, **kwargs):
         calls.append(creationflags)
+        assert "env" in kwargs
         if creationflags & windows.CREATE_BREAKAWAY_FROM_JOB:
             raise PermissionError("breakaway not allowed")
         return "started"
@@ -241,3 +242,15 @@ def test_stage_two_breaks_away_from_the_job_and_falls_back_when_refused(tmp_path
     assert windows.launch_stage_two(tmp_path / "apply-update.ps1", plan, popen=popen) == "started"
     assert calls[0] & windows.CREATE_BREAKAWAY_FROM_JOB and not calls[1] & windows.CREATE_BREAKAWAY_FROM_JOB
     assert all(c & windows.CREATE_NO_WINDOW for c in calls)
+
+
+def test_stage_two_does_not_inherit_a_powershell_7_module_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("PSModulePath", r"C:\Program Files\PowerShell\7\Modules")
+    seen = {}
+
+    def popen(argv, creationflags, env, **kwargs):
+        seen.update(env)
+        return "started"
+
+    windows.launch_stage_two(tmp_path / "apply-update.ps1", tmp_path / "plan.json", popen=popen)
+    assert seen and not any(k.upper() == "PSMODULEPATH" for k in seen)

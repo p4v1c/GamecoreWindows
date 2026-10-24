@@ -263,7 +263,10 @@ def launch_stage_two(script: Path, plan_file: Path, popen=subprocess.Popen):
     argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
             "-File", str(script), "-Plan", str(plan_file)]
     flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-    kwargs = dict(cwd=str(plan_file.parent), stdin=subprocess.DEVNULL,
+    # A PowerShell 7 module path makes Windows PowerShell load the wrong
+    # modules (Get-FileHash vanished on the CI runner); let it use its own.
+    env = {k: v for k, v in os.environ.items() if k.upper() != "PSMODULEPATH"}
+    kwargs = dict(cwd=str(plan_file.parent), env=env, stdin=subprocess.DEVNULL,
                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
     try:
         return popen(argv, creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, **kwargs)
