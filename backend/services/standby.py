@@ -271,6 +271,13 @@ def _spawn(coro) -> None:
     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
+def _rest_screen_off() -> bool:
+    """Rest mode switched the screen off (a Modern Standby PC's sleep, dev-log
+    D34): the next press is the wake, however soon it comes."""
+    from . import rest_mode, resume     # both import this module
+    return rest_mode.is_resting() or resume.is_sleeping()
+
+
 def on_input() -> None:
     """Any controller input: called from gamepad_monitor's read loop."""
     global _last_input, _last_activity_signal, _last_press
@@ -286,7 +293,7 @@ def on_input() -> None:
 
     if _state != "active":
         _spawn(exit_standby())          # already turns the screen back on
-    elif silence >= _WAKE_AFTER_SILENCE:
+    elif silence >= _WAKE_AFTER_SILENCE or _rest_screen_off():
         # GameCore thinks it is awake and the TV may still be dark (Windows'
         # timer); restarting a timer does not light a screen that is off.
         _spawn(_screen(True))
