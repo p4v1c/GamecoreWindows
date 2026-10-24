@@ -343,6 +343,8 @@ GameCore does **not** currently relocate saves onto an external disk.
 | `theme.json` | `services/themes.set_active()`, atomically | `services/themes.get_active()` | no |
 | `addons.json` | `gamecore-addon` CLI | `routers/addons.py` | no |
 | `standby.json` | `POST /api/standby/config`, atomically | `services/standby.py` | no |
+| `power-plan-handoff.json` | `services/standby.py` when the sleep stage switches to Power saver; removed once the plan is restored | `services/standby.py` | no |
+| `display-timeout-handoff.json` | `services/desktop_power.py` `claim()`: Windows' screen-off and sleep timeouts before GameCore took them; removed by `release()` | `services/desktop_power.py` | no |
 | `session.json` | `services/process_manager.py`, atomically | idem, at startup | no |
 | `auth.json`, `auth_secret` | `services/auth.py`, mode 0600 | idem | no |
 | `playtime.db` | backend (SQLite) | backend | no |

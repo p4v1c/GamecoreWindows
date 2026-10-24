@@ -286,7 +286,7 @@ def test_the_screen_is_turned_on_and_off_through_windows(session_calls):
 
 
 @pytest.fixture
-def plans(monkeypatch):
+def plans(monkeypatch, tmp_path):
     """A fake power plan: `active` is what Windows reports, `calls` what was asked."""
     state = {"active": "381b4222-f694-41f0-9685-ff5bb260df2e", "calls": [], "saver": True}
 
@@ -301,7 +301,7 @@ def plans(monkeypatch):
         return True
 
     monkeypatch.setattr(standby, "_power", power)
-    monkeypatch.setattr(standby, "_plan_before_sleep", None)
+    monkeypatch.setattr(standby, "_PLAN_NOTE", tmp_path / "power-plan-handoff.json")
     return state
 
 
@@ -325,6 +325,16 @@ def test_a_pc_without_power_saver_keeps_its_plan(plans):
 def test_a_wake_with_no_sleep_before_it_changes_no_plan(plans):
     asyncio.run(standby._governor("performance"))
     assert plans["calls"] == []
+
+
+def test_a_restarted_backend_still_finds_the_plan_to_restore(plans):
+    """The plan is Windows' state: it outlives the process that changed it."""
+    balanced = plans["active"]
+    asyncio.run(standby._governor("powersave"))
+    # A new process: nothing in memory, the note on disk.
+    asyncio.run(standby.resume_after_restart())
+    assert plans["active"] == balanced
+    assert not standby._PLAN_NOTE.exists()
 
 
 def test_a_call_windows_refuses_is_logged_not_raised(monkeypatch):

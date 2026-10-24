@@ -226,7 +226,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `_power(action, *args)` | the one door to `platform/power.py` (in a thread); `None` when Windows refused; the suite replaces it |
 | `_screen(on)` | `screen_on()` / `screen_off()` |
 | `_signal_user_activity()` | `signal_activity()`: Windows' display and sleep idle timers restart, nothing held |
-| `_governor(gov)` | `powersave`: the Power saver plan, remembering the active one; `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
+| `_governor(gov)` | `powersave`: the Power saver plan, the active one noted in `config/power-plan-handoff.json` (the plan outlives the backend); `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
 | `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before the screen goes off |
 | `ui_dark()` | the UI's fade to black is over (`POST /api/standby/dark`) |
 | `exit_standby()` | wake — **unconditional** |

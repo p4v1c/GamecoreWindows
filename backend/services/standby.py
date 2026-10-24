@@ -153,8 +153,29 @@ async def _signal_user_activity() -> None:
     await _power("signal_activity")
 
 
-# The plan that was active before the sleep stage switched to Power saver.
-_plan_before_sleep: str | None = None
+# The plan that was active before the sleep stage switched to Power saver,
+# written down: the plan is Windows' state and outlives this process, so a
+# backend restarted while the screen was off must still find the way back.
+_PLAN_NOTE = config_dir() / "power-plan-handoff.json"
+
+
+def _remembered_plan() -> str | None:
+    try:
+        plan = json.loads(_PLAN_NOTE.read_text(encoding="utf-8")).get("plan")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return plan if isinstance(plan, str) and plan else None
+
+
+def _remember_plan(plan: str | None) -> None:
+    try:
+        if plan is None:
+            _PLAN_NOTE.unlink(missing_ok=True)
+            return
+        _PLAN_NOTE.parent.mkdir(parents=True, exist_ok=True)
+        _PLAN_NOTE.write_text(json.dumps({"plan": plan}), encoding="utf-8")
+    except OSError as e:
+        log.warning("standby: could not note the power plan to restore: %s", e)
 
 
 async def _governor(gov: str) -> None:
@@ -164,17 +185,17 @@ async def _governor(gov: str) -> None:
     Standby machines often have Balanced only) keeps its plan; the screen is
     the real power sink.
     """
-    global _plan_before_sleep
     if gov == "powersave":
         current = await _power("active_scheme")
         if not isinstance(current, str) or current == platform_power.POWER_SAVER:
             return
-        if await _power("set_active_scheme", platform_power.POWER_SAVER) is not None:
-            _plan_before_sleep = current
+        _remember_plan(current)             # before the switch: a crash keeps the way back
+        if await _power("set_active_scheme", platform_power.POWER_SAVER) is None:
+            _remember_plan(None)
         return
-    if _plan_before_sleep is not None:
-        await _power("set_active_scheme", _plan_before_sleep)
-        _plan_before_sleep = None
+    previous = _remembered_plan()
+    if previous is not None and await _power("set_active_scheme", previous) is not None:
+        _remember_plan(None)
 
 
 async def _enter(stage: str) -> None:
