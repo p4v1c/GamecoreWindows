@@ -16,8 +16,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | merged | #5 |
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | merged | #6 |
 | 6. Rest mode (sleep, wake by pad, splash after wake) | merged | #7 |
-| 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | in review | #8 |
-| 8. OTA update + rollback, release workflow | — | — |
+| 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | merged | #8 |
+| 8. OTA update + rollback, release workflow | in review | #9 |
 | 9. Addons repo (`p4v1c/gamecore-addons-windows`) | — | — |
 | 10. Data import script, README and website | — | — |
 
@@ -71,6 +71,12 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D45 | Power, in every plan (GameCore switches to Power saver, D30): power button = sleep, wake timers off (AC and DC), no password on wake, USB selective suspend off; Fast Startup off. Read through WMI, written with `powercfg` | the step-6 hand-offs; WMI because `powercfg`'s text is translated |
 | D46 | The data root gets `config`, `emu\covers`, `logs` and the bundled themes (a theme folder that exists and is not empty is the player's); no `systems.json`/`apps.json` | the generated tiles are the Linux packs' (Flatpak launchers); the backend reads a missing file as "no system installed yet" |
 | D47 | Tests of the Linux packs carry `linux_until_port(11)`: not a port step, "rewritten for Windows after the port" | they were filed under step 7 (installer), but the packs are not rewritten by it (owner, 19/10) |
+| D48 | The updater runs in two stages: `update/windows.py` (stdlib, from the backend) downloads, checks and unpacks beside the code root; `update/apply-update.ps1` (Windows PowerShell, detached, from `%ProgramData%\GameCore\update`) stops GameCore and Caddy, swaps the folders by rename and carries `python\`, `.venv\`, `caddy\` over | Windows refuses to rename a folder a running program lives in, and all four run from the code root; a rename is atomic and costs no space, where a copy over files in use fails half-way |
+| D49 | One release asset, `gamecore-ota.zip` (+ `.sha256`), in the code root's layout, serves the update and a fresh install; no separate "full" archive, no installer exe | the Windows code root holds the assets too, so a full archive would be the same bytes; the graphical installer is still an open question (step 7) |
+| D50 | Integrity = the published SHA-256 and GitHub's own asset digest, over HTTPS; no signature | signing needs a key held by the owner in a repository secret (open question); the catalogue's signed channel is unchanged |
+| D51 | Rollback is automatic when anything fails after the swap or the new backend does not answer `/api/ready` within 180 s (any status, a 503 "starting" counts); by hand, `apply-update.ps1 -Rollback`. One snapshot, `<code>.prev` | an import error or a missing dependency leaves a console with no interface and nobody to type a command |
+| D52 | `release.yml` runs on pushes to `main` only (no `workflow_dispatch`, no tag trigger), queued by `concurrency: release`, after `ci.yml` (`workflow_call`), and publishes with `gh release create`; first tag `v0.1.0`, a checkout says `v0.0.0` | the Linux workflow's two hazards (a dispatch from a branch published a release; two merges in a row collided on the tag); D2 |
+| D53 | The updater refuses a code root that is a git checkout, and downloads nothing when the box is up to date (`--force` reinstalls) | swapping a developer's checkout for an archive loses their work; a restart for nothing is a minute without the TV |
 | D37 | Pads stay on into a sleep (Linux disconnected them first) | no public Windows call drops one device's link (D28); an Xbox pad paging back after the sleep, which woke the Linux box, is untested here |
 
 ## Baseline on Windows (19/10/2026, before any port change)
@@ -240,6 +246,23 @@ GPU, manifest, secrets, read-only-root and sudoers tests of `arch.sh` and the
 X/SDDM scripts. `test_platform_window_control` (known, environmental) failed in
 one full run and passed in the next.
 
+## After step 8 (24/10/2026)
+
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
+
+| | Before (main at `dd4b82e`) | After |
+|---|---|---|
+| pytest passed | 2 456 | 2 491 |
+| pytest skipped | 112 | 84 |
+| vitest | 755 | 755 |
+| Electron bench | 44 | 44 |
+| `linux_until_port` items ([list](windows-port-linux-tests.md)) | 178 in 31 files | 154 in 23 files (step 8's 24 removed with the Linux updater or ported) |
+
+New: `test_ota_stage_one.py`, `test_ota_stage_two.py`, `test_release_package.py`;
+ported: `test_update.py`, `test_ota_merge_roots.py`, `test_version_scheme.py`.
+Deleted with their code: the `update/linux.sh`, sudoers-step and
+`_shared`-retirement tests.
+
 ## Done
 
 - Both originals cloned read-only; the clone's `upstream` remote has its push
@@ -320,37 +343,46 @@ one full run and passed in the next.
   X/SDDM session scripts and `electron/start-ui.sh` left with their tests.
   CI lints `install/` with PSScriptAnalyzer.
 
+- Step 8: `update/windows.py` (stage 1), `update/apply-update.ps1` (stage 2
+  and `-Rollback`), `update/finish.py` (themes, catalogue merge), D48-D53;
+  the backend follows `p4v1c/GamecoreWindows` and `gamecore-ota.zip`;
+  `.github/workflows/release.yml` and `scripts/package-release.py`; the
+  installer accepts the release archive. Found on the way and fixed: `npm run
+  pack` could not run (electron listed as a dependency), and the installer's
+  `Invoke-GcNative` threw on any stderr line (a pip or npm warning). The Linux
+  updater, its sudoers step and `gamecore-restart` left with their tests. CI
+  lints `update/` too.
+
 ## Next
 
-Step 8: OTA update + rollback, release workflow. Carry over from step 7: the
-updater stops the session's two processes (the shell with `taskkill /F`, see
-step 4; the backend by its executable path in the code root, as
-`Stop-GcSessionProcess` does) and starts `gamecore-session` again, or lets
-it restart them; `update/linux.sh`, `update/check-session-prerequisites.sh`,
-`install/steps/setup-update-permissions.sh`, `install/bin/gamecore-restart`
-and its unit are the Linux OTA's and still name the session helpers removed at
-step 7. The first real install (owner action below) should come before the
-first OTA.
+Step 9: the addons repository (`p4v1c/gamecore-addons-windows`): the contract
+(`docs/architecture/12-addon-contract.md`, `api: 1`), the CLI as Python with
+a `.cmd` shim, the four addons with PowerShell install scripts and Windows
+save paths. Carry over from step 8: an addon's own files live outside the
+code root, so an update leaves them alone, but an addon that runs from the
+code root's venv would hold it during the swap (stage 2 stops only
+GameCore's processes and Caddy); addons get their own venv, as on Linux.
 
-Previously carried, now done at step 7: power button = sleep, wake timers off,
-no password on wake, the backend elevated, the shell with `GAMECORE_MANAGED=1`,
-hidden consoles for subprocesses, Desktop mode's idle timers, Wi-Fi location
-access on 24H2, `electron/start-ui.sh` removed. Carry over from step 6: the installer sets the power button to
-"sleep" (Rest mode's sweep runs on any sleep), turns Windows' wake timers off
-on AC (Windows Update maintenance would wake the box at night), asks no
-password on wake for the console user (`powercfg /SETACVALUEINDEX … CONSOLELOCK 0`),
-and starts the backend elevated: the device wake settings (`bt_wake`) read
-nothing otherwise. Carry over from step 5: Desktop mode should hand Windows
-its idle timers back (`desktop_power.release()`) when the shell leaves for
-Explorer, and take them again on return; every subprocess the backend starts
-(the SDL probes; `wevtutil` already does) needs `CREATE_NO_WINDOW` if the
-logon task runs the backend without a console. Carry over from step 4: the
-logon task starts the interface with `GAMECORE_MANAGED=1`; the updater (step
-8) must stop the shell with `taskkill /F` or by the backend, since a plain
-`WM_CLOSE` makes the kiosk rebuild its window; `electron/start-ui.sh` (Linux)
-leaves with step 7.
+Before the first real update (owner, see the open questions): a real install
+(step 7), then the merge that publishes `v0.1.0`, then a second release for
+the box to take.
 
 ## Open questions for the owner
+
+- Step 8: **merging #9 publishes the first release, `v0.1.0`** (it touches
+  shipped paths), and every later merge to `main` publishes another. Merge one
+  PR at a time and wait for its "Build and Release" run.
+- Step 8, conservative choices made: D50 (no signature: sign the archive with
+  a key kept in a repository secret?), the shell is not code-signed
+  (SmartScreen may warn on a fresh install: buy a certificate?), D49 (no
+  installer exe until the graphical installer is decided), no "last update"
+  or rollback button in Settings (the outcome is in
+  `%ProgramData%\GameCore\update\last-update.json` and
+  `<data>\logs\update\update.log`; say if the UI should show it).
+- Step 8, owner action once a box is installed: Settings → Update to the next
+  release; then, from an elevated PowerShell,
+  `& 'C:\Program Files\GameCore\update\apply-update.ps1' -Rollback` and back
+  with another update. Check `last-update.json` after each.
 
 - Step 7, conservative choices made: D42 (Explorer stays the shell: should the
   console account boot without it?), D44 (automatic sign-in asks the password
@@ -407,6 +439,9 @@ leaves with step 7.
 
 | What | When | Result |
 |---|---|---|
+| Step 8: the real release pipeline, locally: `npm run build`, `npm run pack` (with `-c.win.signAndEditExecutable=false`: this account may not create the symbolic links electron-builder's signing tools unpack), `package-release.py` → `gamecore-ota.zip`, 112 MB, 1 787 files | 24/10/2026 | green |
+| Step 8: end-to-end update in a temp folder (no GameCore service, task or `%ProgramData%\GameCore` on this PC, checked first): stage 1 against a local HTTP server (SHA-256 and digest), stage 2 started detached for real: swap, `python\ .venv\ caddy\` carried, real pip into the venv (31 s), Shelf 0.0.1 replaced and kept in `.prev`, a 503 from `/api/ready` accepted, `installed` in 46 s; then `-Rollback` run from inside the code root (copied itself out): v0.1.0 back, v0.2.0 in `.failed`, venv back. 12/12 checks | 24/10/2026 | green; it found the stderr bug (fixed) |
+| Step 8, not tested: an update on an installed box (Program Files, the logon task, the Caddy service stopped and started, `Start-ScheduledTask` from stage 2, the job breakaway under Task Scheduler), the release workflow itself (it runs only on `main`; read, linted by its tests, simulated locally), a real GitHub release | — | not run (owner action) |
 | Step 7: `install.ps1 -DryRun` on this PC, not elevated: every step planned (38 changes: code root, Python, data root, session.env, Caddy, firewall, OpenSSH, power values read through WMI for both plans, Fast Startup, automatic sign-in, the logon task), nothing written (`%ProgramData%\GameCore` still absent); `uninstall.ps1 -DryRun` without a record refuses | 24/10/2026 | green |
 | Step 7: a child started with `CREATE_NO_WINDOW` has a console and no window (`test_gamecore_session.py`); two `SingleInstance` copies find each other and the event wakes the first | 24/10/2026 | green |
 | Step 7, not tested: a real install, uninstall, the logon task at a real sign-in, Caddy as a service, OpenSSH, automatic sign-in, the shortcut from an unelevated desktop to an elevated session, 24H2 location access (this PC is 23H2) | — | not run (owner action) |
