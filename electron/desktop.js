@@ -2,9 +2,10 @@
 /**
  * Settings → Desktop mode: hand the screen back to the Windows desktop.
  *
- * The console user's session runs without Explorer (port step 7), so leaving
- * starts it when it is not running; GameCore then quits. Coming back is the
- * logon task at the next sign-in, or the GameCore shortcut.
+ * Explorer may not be running in the console session (it is the user's shell,
+ * but it can have been closed), so leaving starts it when it is not; GameCore
+ * then quits. Coming back is the logon task at the next sign-in, or running
+ * install\bin\gamecore-session again.
  *
  * Dependencies are handed in, so the VM bench can load this without Electron.
  */

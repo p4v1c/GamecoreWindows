@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=GameCore
-Comment=La console — sans bureau derrière
-Exec=/usr/local/bin/gamecore-session
-TryExec=/usr/local/bin/gamecore-session
-DesktopNames=GameCore
-X-GDM-SessionRegisters=false

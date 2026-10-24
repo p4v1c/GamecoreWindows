@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.linux_until_port(7)
+pytestmark = pytest.mark.linux_until_port(11)
 
 REPO = Path(__file__).resolve().parents[2]
 CLI = REPO / "install" / "bin" / "gamecore-emu"

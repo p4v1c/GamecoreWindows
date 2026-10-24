@@ -188,7 +188,7 @@ def test_autoconfig_off_launches_multiplayer_and_writes_nothing(tmp_path, monkey
     assert _launch(None, players) is not None
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_device_ids_join_hidraw_and_event_nodes_of_one_pad(tmp_path):
     hid = tmp_path / "devices/0005:054C:09CC.0003"
     hid.mkdir(parents=True)

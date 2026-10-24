@@ -66,7 +66,7 @@ def test_a_declared_file_the_pack_does_not_carry_fails_loudly(tmp_path, ctx):
     assert not (tmp_path / "out.js").exists()
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_tokens_expand_in_dest_and_in_templates(tmp_path, ctx):
     ctx.secrets = {"TWITCH_CLIENT_ID": "abc", "TWITCH_CLIENT_SECRET": "s3cret"}
     pack = make_pack(tmp_path, {
@@ -129,7 +129,7 @@ def test_a_pack_cannot_read_outside_its_own_directory(tmp_path, ctx):
 
 # ── services ───────────────────────────────────────────────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_an_enabled_unit_is_installed_and_wanted_by_default_target(tmp_path, ctx):
     pack = make_pack(tmp_path, {
         "services": [{"unit": "files/app.service", "scope": "user", "enable": True}],
@@ -154,7 +154,7 @@ def test_enabled_units_are_reported_so_the_caller_can_restart_them(tmp_path, ctx
     assert enabled_units(pack, ctx) == ["a.service"]
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_reinstalling_over_an_existing_symlink_is_not_an_error(tmp_path, ctx):
     pack = make_pack(tmp_path, {
         "services": [{"unit": "files/app.service", "scope": "user", "enable": True}],
@@ -177,7 +177,7 @@ def test_a_failing_step_is_a_warning_and_never_an_exception(tmp_path, ctx):
     assert "boom" in results[0].message
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_step_that_hangs_is_bounded_by_its_timeout(tmp_path, ctx):
     pack = make_pack(tmp_path, {
         "postInstall": [{"run": "steps/hang.sh", "label": "hang", "timeoutSec": 1}],
@@ -187,7 +187,7 @@ def test_a_step_that_hangs_is_bounded_by_its_timeout(tmp_path, ctx):
     assert "timed out" in results[0].message
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_step_receives_the_tokens_as_environment(tmp_path, ctx):
     ctx.secrets = {"TWITCH_CLIENT_ID": "abc"}
     pack = make_pack(tmp_path, {
@@ -198,7 +198,7 @@ def test_a_step_receives_the_tokens_as_environment(tmp_path, ctx):
     assert (tmp_path / "seen").read_text() == f"{ctx.user_home}/abc"
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_steps_run_in_declaration_order(tmp_path, ctx):
     """Generate a certificate, then trust it. The order is the whole point."""
     pack = make_pack(tmp_path, {"postInstall": [

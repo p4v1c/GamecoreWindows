@@ -87,12 +87,12 @@ def test_config_destinations_derive_from_the_installed_app_id(packs):
 def test_no_installer_hardcodes_a_flatpak_config_path():
     """The map that produced the phantom directory existed in FOUR files.
 
-    install-emu-configs.sh and uninstall.sh each carried a full copy, keyed by
-    hand; apply-multi-ds4.sh and controller_profiles.py carry their own for
-    other reasons. The two installers must now hold none.
+    install-emu-configs.sh and the Linux uninstall.sh each carried a full copy,
+    keyed by hand; apply-multi-ds4.sh and controller_profiles.py carry their own
+    for other reasons. The installer step must hold none.
     """
     offenders = []
-    for name in ("install/steps/install-emu-configs.sh", "install/uninstall.sh"):
+    for name in ("install/steps/install-emu-configs.sh",):
         for n, line in enumerate(
                 (ROOT / name).read_text(encoding="utf-8").splitlines(), 1):
             if line.lstrip().startswith("#"):
@@ -144,32 +144,6 @@ def test_verify_emulators_checks_what_the_installer_installs(packs):
 
 
 # ── the rest of the duplicated maps ────────────────────────────────────────
-
-def test_arch_installs_exactly_the_flatpaks_the_catalogue_declares(packs):
-    text = (ROOT / "install/arch.sh").read_text(encoding="utf-8")
-    m = re.search(r"declare -A EMU_FLATPAK=\((.*?)^\s*\)", text, re.S | re.M)
-    if not m:
-        pytest.skip("EMU_FLATPAK is gone — the list comes from the catalogue")
-    declared = _flatpak_app_ids(packs)
-    for emu_id, app_id in re.findall(r"\[([a-z0-9_]+)\]=(\S+)", m.group(1)):
-        assert declared.get(emu_id) == app_id, (
-            f"{emu_id}: arch.sh installs {app_id}, "
-            f"the pack declares {declared.get(emu_id)}")
-
-
-def test_rom_directories_match_the_catalogue(packs):
-    text = (ROOT / "install/arch.sh").read_text(encoding="utf-8")
-    m = re.search(r"^for d in ([a-z0-9 ]+); do\n\s*sudo -u .* mkdir -p "
-                  r'"\$GAMECORE_PATH/emu/\$d"', text, re.M)
-    if not m:
-        pytest.skip("the ROM directory list comes from the catalogue")
-    created = set(m.group(1).split()) - {"covers"}
-    declared = {p.data["roms"]["dir"].split("/", 1)[1]
-                for p in packs.values() if p.data.get("roms")}
-    assert created == declared, (
-        f"only in arch.sh: {sorted(created - declared)}; "
-        f"only in the catalogue: {sorted(declared - created)}")
-
 
 def test_scraper_platform_ids_match_the_catalogue(packs):
     from backend.services.scraper import TGDB_PLATFORM_MAP as tgdb
@@ -272,8 +246,8 @@ def test_the_n64_slot_deploys_where_rmg_actually_reads(packs):
 def test_the_old_n64_app_id_is_gone_from_every_consumer():
     """One grep, across every file that used to carry it."""
     offenders = []
-    for name in ("install/arch.sh", "install/steps/install-emu-configs.sh",
-                 "install/uninstall.sh", "install/steps/flatpakify-systems.sh",
+    for name in ("install/steps/install-emu-configs.sh",
+                 "install/steps/flatpakify-systems.sh",
                  "scripts/verify-emulators.py", "install/generated/systems.json.dist",
                  "backend/services/scraper.py",
                  "install/installer-gui/catalog_data.py"):
@@ -458,7 +432,7 @@ def _flatpakify_box(tmp_path, tiles, installed):
     return json.loads((tmp_path / "config" / "systems.json").read_text()), r.stdout
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_prune_resolves_the_token_instead_of_reading_it_as_an_app_id(packs, tmp_path):
     """The regression that would have emptied every fresh install's grid.
 
@@ -496,7 +470,7 @@ def test_the_prune_resolves_the_token_instead_of_reading_it_as_an_app_id(packs, 
         f"was read as an application id.\n{out}")
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_prune_still_drops_a_tile_whose_whole_list_is_absent(packs, tmp_path):
     """The other direction: teaching the prune about the token must not turn it
     into a prune that never prunes. A tile that cannot launch is worse than no
@@ -592,7 +566,7 @@ def test_a_spent_fallback_is_reported_even_though_nothing_is_broken(monkeypatch,
     assert "DEGRADED" in out and "org.example.Gone" in out
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_the_shell_side_sandbox_grants_the_data_root_too():
     """arch.sh reads its sandbox flags from here, so the shell installer has
     to grant the data root exactly as `providers.sandbox_flags` does — or a

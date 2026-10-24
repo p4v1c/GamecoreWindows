@@ -1,6 +1,6 @@
 """`os.getuid` and `os.geteuid`, for tests of Linux code that still reads them.
 
-The installer (step 7) asks for the user id to decide on root. Neither name
+The Linux pack installer (`backend/services/installer/`) asks for the user id to decide on root. Neither name
 exists on Windows, yet those tests are about something else (parsing,
 ordering), so the `posix_boundary` fixture supplies the two names until that
 code is ported. The process calls this fixture once played (`os.killpg`, the signals)

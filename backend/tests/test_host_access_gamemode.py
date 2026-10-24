@@ -6,7 +6,7 @@ import pytest
 from backend.services.installer import applier as ap
 from backend.services.installer import host_access as host
 
-pytestmark = pytest.mark.linux_until_port(7)
+pytestmark = pytest.mark.linux_until_port(11)
 
 
 @pytest.fixture

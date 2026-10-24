@@ -14,7 +14,9 @@ import sys
 import pytest
 
 # Port steps that remove Linux code (docs/dev-log/windows-port.md, Status).
-STEPS = range(3, 11)
+# 11 is not a port step: the Linux packs, rewritten for Windows after the port.
+STEPS = range(3, 12)
+PACKS = 11
 
 
 def reason(step: int) -> str:
@@ -22,6 +24,8 @@ def reason(step: int) -> str:
     if step not in STEPS:
         raise pytest.UsageError(
             f"linux_until_port needs a port step in {STEPS.start}-{STEPS.stop - 1}, got {step!r}")
+    if step == PACKS:
+        return "Linux pack code, replaced when the packs are rewritten for Windows"
     return f"Linux code, replaced at Windows port step {step}"
 
 

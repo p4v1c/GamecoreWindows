@@ -360,7 +360,7 @@ def test_catalog_query_drops_the_newcomer_only_where_it_declares_nothing(catalog
 
 # ── scripts/gamecore-provider.py ───────────────────────────────────────────
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 @pytest.mark.parametrize("kind", KINDS)
 def test_the_installer_bridge_installs_the_newcomer(catalogue, tmp_path, kind):
     """`--dry-run`, so nothing is fetched and no network is touched: what is

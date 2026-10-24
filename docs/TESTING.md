@@ -28,18 +28,19 @@ stay, marked with that step, and are skipped on Windows with the step named:
 
 ```python
 @pytest.mark.linux_until_port(5)                 # one test
-pytestmark = pytest.mark.linux_until_port(7)     # every test in the module
-linux_until_port_module(7)                       # a module Windows cannot import (pwd, fcntl):
+pytestmark = pytest.mark.linux_until_port(8)     # every test in the module
+linux_until_port_module(11)                      # a module Windows cannot import (pwd, fcntl):
                                                  # call it before those imports
 ```
 
-- The step must be 3-10 (`backend/tests/linux_until_port.py`); anything else
-  fails the collection.
+- The step must be 3-10, or 11 for the Linux packs, rewritten for Windows after
+  the port (`backend/tests/linux_until_port.py`); anything else fails the
+  collection.
 - Mark the test that needs Linux, not its file, when the rest of the file runs
   on Windows. Pure logic in a Linux service is made to run, not marked: fake
   the OS boundary. For uids that is the `posix_boundary` fixture
   (`backend/tests/posix_boundary.py`: `os.getuid`, `os.geteuid`), used by the
-  installer tests until step 7.
+  pack-installer tests until the packs are rewritten.
 - Every use is listed in
   [`dev-log/windows-port-linux-tests.md`](dev-log/windows-port-linux-tests.md);
   `test_linux_until_port.py` fails when the list and the source disagree.

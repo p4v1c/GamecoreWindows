@@ -47,7 +47,7 @@ class _Display:
         return win
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 @pytest.mark.parametrize("wm_class", [GAMESCOPE_WM_CLASS, PROTON_WM_CLASS])
 def test_the_lutris_tile_fullscreens_the_game_window(wm_class):
     pack = load_catalog(ROOT / "catalog", ROOT / "config" / "catalog.d")["lutris"]

@@ -267,7 +267,7 @@ function backendReady() {
 /**
  * Who owns the backend process.
  *
- * On an installed box, the logon task does (port step 7), with its own
+ * On an installed box, install/bin/gamecore-session does (the logon task), with its own
  * watchdog and environment. Electron spawning a second uvicorn on the same
  * port produced an EADDRINUSE crash loop next to a working backend, and the
  * guard against it was a race: "nothing answered in the last 1.5 s" is true

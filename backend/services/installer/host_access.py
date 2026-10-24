@@ -13,7 +13,7 @@ import subprocess
 try:
     import grp
 except ImportError:     # Windows: the module still loads, so its OS-neutral parts
-    grp = None          # are tested; the Linux providers go at port step 7.
+    grp = None          # are tested; the Linux providers go with the Linux packs.
 
 from .providers import Result
 

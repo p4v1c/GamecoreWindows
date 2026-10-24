@@ -8,7 +8,7 @@ import pytest
 
 from backend.tests.linux_until_port import linux_until_port_module
 
-linux_until_port_module(7)  # lutris_setup imports fcntl (flock)
+linux_until_port_module(11)  # lutris_setup imports fcntl (flock)
 
 yaml = pytest.importorskip("yaml")
 

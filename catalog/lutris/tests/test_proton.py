@@ -101,7 +101,7 @@ def test_latest_tag_is_none_offline(monkeypatch):
     assert proton.latest_tag(lambda m: None) is None
 
 
-@pytest.mark.linux_until_port(7)
+@pytest.mark.linux_until_port(11)
 def test_a_verified_build_lands_in_runners_wine(tmp_path, served):
     publish(served, build())
     wine = tmp_path / "runners" / "wine"
