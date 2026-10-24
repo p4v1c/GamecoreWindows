@@ -2,7 +2,7 @@
 
 Two roots, and the difference between them is the whole design:
 
-  the DRIVE LETTER     where Windows put the disk today (`E:\`). Not ours,
+  the DRIVE LETTER     where Windows put the disk today (`E:\\`). Not ours,
                        not stable, and not something to record anywhere.
   the STABLE LINK      `<DATA>/volumes/<slug>`: a junction WE own, named after
                        the disk's label, pointing at wherever it landed today.
