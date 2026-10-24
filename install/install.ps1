@@ -87,7 +87,7 @@ if ([Environment]::OSVersion.Version.Build -lt $MinimumBuild -or -not [Environme
     throw "GameCore needs 64-bit Windows 10 1809 (build $MinimumBuild) or later"
 }
 $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$settings = Resolve-GcSettings -Config (Get-GcInstallConfig) -SourceRoot $sourceRoot
+$settings = Resolve-GcConfiguration -Config (Get-GcInstallConfig) -SourceRoot $sourceRoot
 $settings = Request-GcDataRoot $settings
 if ($settings.DataRoot -match '\\OneDrive') {
     Write-GcWarning "the data root $($settings.DataRoot) is synced by OneDrive: ROMs and saves would upload; choose another folder with -DataRoot"
@@ -104,7 +104,7 @@ $script:GcManifest['settings'] = @{ CodeRoot = $settings.CodeRoot; DataRoot = $s
 Save-GcManifest
 $failed = 0
 $arguments = @{ Settings = $settings; Unattended = [bool]$Unattended }
-foreach ($step in (Select-GcSteps -Only ($Only -split ',' | Where-Object { $_ }))) {
+foreach ($step in (Select-GcStep -Only ($Only -split ',' | Where-Object { $_ }))) {
     if (-not (Invoke-GcStep -Step $step -Function $step.Install -Arguments $arguments)) { $failed++ }
 }
 Write-GcSummary $settings

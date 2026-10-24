@@ -74,7 +74,7 @@ def test_a_missing_gamescrape_is_reported_not_fatal(tmp_path):
 
 
 def test_too_little_disk_skips_it_and_says_how_to_retry(tmp_path):
-    result = run_ps(tmp_path, _fakes(tmp_path) + "function Get-GcFreeMegabytes { param($Path) 120 }\n"
+    result = run_ps(tmp_path, _fakes(tmp_path) + "function Get-GcFreeSpaceMb { param($Path) 120 }\n"
                     + f"Install-GcMediaIndex {settings_ps(tmp_path)}")
     assert calls(result, "build") == []
     assert "120 MB free" in result["warnings"][0]

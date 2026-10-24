@@ -45,7 +45,6 @@ function Copy-GcTree {
     if ($ExcludeDirs.Count) { $arguments += @('/XD') + $ExcludeDirs }
     & robocopy.exe @arguments | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy $From -> $To failed with $LASTEXITCODE" }
-    $global:LASTEXITCODE = 0
 }
 
 function Install-GcCodeRoot {
@@ -69,7 +68,7 @@ function Install-GcCodeRoot {
 }
 
 function Uninstall-GcCodeRoot {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record -or -not $Record.ContainsKey('created')) {
         Write-GcInfo "the code root was there before GameCore; left in place"
         return

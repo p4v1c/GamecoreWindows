@@ -43,7 +43,7 @@ function Register-GcSessionTask {
         -Description 'GameCore: the backend and the interface, in the console session' -Force | Out-Null
 }
 
-function Get-GcShortcutPaths {
+function Get-GcShortcutPath {
     <# The way back from Desktop mode: the desktop the player lands on, and the Start menu. #>
     return @(
         (Join-Path $env:PUBLIC 'Desktop\GameCore.lnk'),
@@ -74,14 +74,14 @@ function Install-GcSessionTask {
     # Unelevated: a second gamecore-session only asks the running one to show the interface.
     $action = Get-GcSessionAction $Settings.CodeRoot
     $icon = Join-Path $Settings.CodeRoot 'shell\GameCore.exe'
-    foreach ($path in (Get-GcShortcutPaths)) {
+    foreach ($path in (Get-GcShortcutPath)) {
         if (Test-Path -LiteralPath $path) { continue }
         Set-GcRecord 'register-session-task' $path $true
         Invoke-GcChange "create the GameCore shortcut $path" { New-GcShortcut $path $action $icon }
     }
 }
 
-function Stop-GcSessionProcesses {
+function Stop-GcSessionProcess {
     <# The session, the backend and the shell: every process whose executable is in the code root. #>
     param([Parameter(Mandatory)][string]$CodeRoot)
     $root = [IO.Path]::GetFullPath($CodeRoot).TrimEnd('\') + '\'
@@ -92,7 +92,7 @@ function Stop-GcSessionProcesses {
 
 function Uninstall-GcSessionTask {
     param($Record, [Parameter(Mandatory)]$Settings)
-    foreach ($path in (Get-GcShortcutPaths)) {
+    foreach ($path in (Get-GcShortcutPath)) {
         if ($null -ne $Record -and $Record.ContainsKey($path) -and (Test-Path -LiteralPath $path)) {
             Invoke-GcChange "remove the shortcut $path" { Remove-Item -LiteralPath $path -Force }
         }
@@ -102,6 +102,6 @@ function Uninstall-GcSessionTask {
     Invoke-GcChange "remove the $script:GcTaskPath$script:GcTaskName task" {
         Stop-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -Confirm:$false
-        Stop-GcSessionProcesses $Settings.CodeRoot
+        Stop-GcSessionProcess $Settings.CodeRoot
     }
 }

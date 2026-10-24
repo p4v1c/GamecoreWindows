@@ -100,7 +100,7 @@ function Get-GcSetting {
     return $Default
 }
 
-function Resolve-GcSettings {
+function Resolve-GcConfiguration {
     <#
     The install's settings from install.conf (or prompts) with Windows defaults:
     code in Program Files, data in the console user's Documents (dev log D6).

@@ -43,7 +43,7 @@ function Install-GcOpenSsh {
 }
 
 function Uninstall-GcOpenSsh {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record) { return }
     if ($Record.ContainsKey('windowsRuleEnabled')) {
         Invoke-GcChange "re-enable Windows' sshd rule" {

@@ -92,7 +92,7 @@ function Install-GcAutologon {
 }
 
 function Uninstall-GcAutologon {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record) { return }
     Invoke-GcChange 'stop signing in automatically' {
         Set-GcLsaSecret 'DefaultPassword' $null

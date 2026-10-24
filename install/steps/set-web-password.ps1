@@ -17,6 +17,8 @@ function Read-GcNewPassword {
 
 function Set-GcBackendPassword {
     <# Hand the password to auth.set_password() through the environment, never the command line. #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+        Justification = 'auth.set_password() takes text; it travels by environment, never argv or disk')]
     param([Parameter(Mandatory)]$Settings, [Parameter(Mandatory)][string]$Password)
     $python = Join-Path $Settings.CodeRoot '.venv\Scripts\python.exe'
     $code = 'import os, sys; sys.path.insert(0, os.environ["GAMECORE_PATH"]); ' +
@@ -54,6 +56,5 @@ function Install-GcWebPassword {
 }
 
 function Uninstall-GcWebPassword {
-    param($Record, [Parameter(Mandatory)]$Settings)
     Write-GcInfo 'the web password is in the data root and stays with it'
 }

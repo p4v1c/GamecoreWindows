@@ -82,7 +82,7 @@ def test_a_theme_folder_the_player_filled_is_left_alone(tmp_path):
 
 def test_uninstall_never_touches_the_data_root(tmp_path):
     (tmp_path / "data" / "emu").mkdir(parents=True)
-    run_ps(tmp_path, f"Uninstall-GcDataRoot @{{ created = '{tmp_path / 'data'}' }} {settings_ps(tmp_path)}")
+    run_ps(tmp_path, f"Uninstall-GcDataRoot -Settings {settings_ps(tmp_path)}")
     assert (tmp_path / "data" / "emu").is_dir()
 
 
@@ -113,9 +113,9 @@ def test_running_from_the_code_root_copies_nothing(tmp_path):
 
 def test_a_code_root_that_was_there_before_is_not_removed(tmp_path):
     (tmp_path / "code").mkdir()
-    run_ps(tmp_path, f"Uninstall-GcCodeRoot @{{}} {settings_ps(tmp_path)}")
+    run_ps(tmp_path, "Uninstall-GcCodeRoot @{}")
     assert (tmp_path / "code").is_dir()
-    run_ps(tmp_path, f"Uninstall-GcCodeRoot @{{ created = '{tmp_path / 'code'}' }} {settings_ps(tmp_path)}")
+    run_ps(tmp_path, f"Uninstall-GcCodeRoot @{{ created = '{tmp_path / 'code'}' }}")
     assert not (tmp_path / "code").exists()
 
 
@@ -209,7 +209,7 @@ def test_autologon_off_in_install_conf_is_skipped(tmp_path):
 def test_autologon_uninstall_deletes_the_secret_and_restores_the_values(tmp_path):
     result = run_ps(tmp_path, AUTOLOGON_FAKES + rf"""
         Uninstall-GcAutologon @{{ AutoAdminLogon = '0'; DefaultUserName = 'old'; DefaultDomainName = $null
-            DevicePasswordLessBuildVersion = 2 }} {settings_ps(tmp_path)}
+            DevicePasswordLessBuildVersion = 2 }}
     """)
     assert calls(result, "lsa") == [{"name": "DefaultPassword", "value": None}]
     assert calls(result, "restore") == ["AutoAdminLogon=0", "DefaultUserName=old", "DefaultDomainName=",

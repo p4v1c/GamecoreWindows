@@ -10,7 +10,7 @@ $script:GcPythonUri = "https://api.nuget.org/v3-flatcontainer/python/$script:GcP
 # packageHash of python.3.12.10.nupkg in the NuGet catalogue, as hex.
 $script:GcPythonSha512 = 'bbda4dcf688a94211b62d50968a91b38f305d0b8d1ecd90269f74a86f8a0a4fcebb7ca162a0753a47691eb3df0c964009bd3d8194c6fd19afae8d5fd01e1cc0f'
 
-function Get-GcPythonPaths {
+function Get-GcPythonLayout {
     param([Parameter(Mandatory)][string]$CodeRoot)
     return [pscustomobject]@{
         Home         = Join-Path $CodeRoot 'python'
@@ -44,7 +44,7 @@ function Expand-GcPythonPackage {
 
 function Install-GcPython {
     param([Parameter(Mandatory)]$Settings)
-    $paths = Get-GcPythonPaths $Settings.CodeRoot
+    $paths = Get-GcPythonLayout $Settings.CodeRoot
     $version = Get-GcInstalledPythonVersion $paths.Interpreter
     if ($version -ne $script:GcPythonVersion) {
         Invoke-GcChange "install Python $script:GcPythonVersion in $($paths.Home)" {
@@ -70,7 +70,6 @@ function Install-GcPython {
 }
 
 function Uninstall-GcPython {
-    param($Record, [Parameter(Mandatory)]$Settings)
     # Both live in the code root, which copy-code-root removes.
     Write-GcInfo 'Python and the venv leave with the code root'
 }

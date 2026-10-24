@@ -1,7 +1,7 @@
 # Inbound rules on the Private profile only: web access (Caddy) and SSH.
 # The backend itself binds 127.0.0.1 and gets no rule (docs/SECURITY.md).
 
-function Get-GcFirewallRules {
+function Get-GcFirewallRuleSpec {
     <# The rules this install wants, from its settings. #>
     param([Parameter(Mandatory)]$Settings)
     $rules = @([pscustomobject]@{ Name = 'GameCore - Web access'; Port = $Settings.WebPort })
@@ -22,7 +22,7 @@ function Test-GcFirewallRule {
 
 function Install-GcFirewall {
     param([Parameter(Mandatory)]$Settings)
-    foreach ($rule in (Get-GcFirewallRules $Settings)) {
+    foreach ($rule in (Get-GcFirewallRuleSpec $Settings)) {
         if (Test-GcFirewallRule $rule) { continue }
         Set-GcRecord 'configure-firewall' $rule.Name $true
         Invoke-GcChange "allow TCP $($rule.Port) on private networks ($($rule.Name))" {
@@ -34,7 +34,7 @@ function Install-GcFirewall {
 }
 
 function Uninstall-GcFirewall {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record) { return }
     foreach ($name in @($Record.Keys)) {
         Invoke-GcChange "remove the firewall rule $name" {

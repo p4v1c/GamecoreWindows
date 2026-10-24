@@ -8,7 +8,7 @@ $script:GcCaddyUri = "https://github.com/caddyserver/caddy/releases/download/v$s
 $script:GcCaddySha512 = 'c308154504e53755958ffc62d8a2657ab17eefd6dd25c45dbb2c3d93d29519971f77ca652f7d0f2bcb7f980b9ba3822478865e29969d0272d7613550a43152b1'
 $script:GcCaddyService = 'GameCoreCaddy'
 
-function Get-GcCaddyPaths {
+function Get-GcCaddyLayout {
     param([Parameter(Mandatory)][string]$CodeRoot)
     return [pscustomobject]@{
         Exe       = Join-Path $CodeRoot 'caddy\caddy.exe'
@@ -54,7 +54,7 @@ function Install-GcCaddyBinary {
 
 function Install-GcCaddy {
     param([Parameter(Mandatory)]$Settings)
-    $paths = Get-GcCaddyPaths $Settings.CodeRoot
+    $paths = Get-GcCaddyLayout $Settings.CodeRoot
     $name = $script:GcCaddyService
     $service = Get-Service -Name $name -ErrorAction SilentlyContinue
     $restart = $false
@@ -94,12 +94,12 @@ function Install-GcCaddy {
 }
 
 function Uninstall-GcCaddy {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param([Parameter(Mandatory)]$Settings)
     $name = $script:GcCaddyService
     if ($null -eq (Get-Service -Name $name -ErrorAction SilentlyContinue)) { return }
     Invoke-GcChange "remove the $name service" {
         Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
         Invoke-GcNative 'sc.exe' @('delete', $name) | Out-Null
     }
-    Write-GcInfo "Caddy's CA stays in $((Get-GcCaddyPaths $Settings.CodeRoot).Data): phones that trust it keep working after a reinstall"
+    Write-GcInfo "Caddy's CA stays in $((Get-GcCaddyLayout $Settings.CodeRoot).Data): phones that trust it keep working after a reinstall"
 }

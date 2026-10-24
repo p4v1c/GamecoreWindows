@@ -66,6 +66,6 @@ function Install-GcDataRoot {
 }
 
 function Uninstall-GcDataRoot {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param([Parameter(Mandatory)]$Settings)
     Write-GcInfo "the data root is the player's and stays: $($Settings.DataRoot)"
 }

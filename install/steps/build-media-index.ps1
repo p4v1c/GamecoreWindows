@@ -5,7 +5,7 @@
 
 $script:GcIndexNeedMb = 700
 
-function Get-GcMediaIndexPaths {
+function Get-GcMediaIndexLayout {
     param([Parameter(Mandatory)]$Settings)
     return [pscustomobject]@{
         Script = Join-Path $Settings.CodeRoot 'backend\services\gamemedia\gamescrape.py'
@@ -14,7 +14,7 @@ function Get-GcMediaIndexPaths {
     }
 }
 
-function Get-GcFreeMegabytes {
+function Get-GcFreeSpaceMb {
     param([Parameter(Mandatory)][string]$Path)
     $drive = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Path))
     return [math]::Floor((New-Object IO.DriveInfo $drive).AvailableFreeSpace / 1MB)
@@ -43,7 +43,7 @@ function Test-GcIndexPresent {
 
 function Install-GcMediaIndex {
     param([Parameter(Mandatory)]$Settings)
-    $paths = Get-GcMediaIndexPaths $Settings
+    $paths = Get-GcMediaIndexLayout $Settings
     $retry = ".\install\install.ps1 -Only build-media-index"
     if ((Get-GcSetting $Settings.Config 'MEDIA_INDEX' '1') -eq '0') {
         Write-GcInfo "MEDIA_INDEX=0: skipped. Build it later with $retry"
@@ -54,7 +54,7 @@ function Install-GcMediaIndex {
         Write-GcWarning "gamescrape.py not found at $($paths.Script): media index skipped"
         return
     }
-    $free = Get-GcFreeMegabytes $Settings.DataRoot
+    $free = Get-GcFreeSpaceMb $Settings.DataRoot
     if ($free -lt $script:GcIndexNeedMb) {
         Write-GcWarning "only $free MB free for the data root, $script:GcIndexNeedMb MB needed: media index skipped; later: $retry"
         return
@@ -73,6 +73,5 @@ function Install-GcMediaIndex {
 }
 
 function Uninstall-GcMediaIndex {
-    param($Record, [Parameter(Mandatory)]$Settings)
     Write-GcInfo 'the media index is in the data root and stays with it'
 }

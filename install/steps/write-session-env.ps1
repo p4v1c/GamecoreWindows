@@ -68,7 +68,6 @@ function Install-GcSessionEnv {
 }
 
 function Uninstall-GcSessionEnv {
-    param($Record, [Parameter(Mandatory)]$Settings)
     $path = Get-GcSessionEnvPath
     if (Test-Path -LiteralPath $path) {
         Invoke-GcChange "remove $path" { Remove-Item -LiteralPath $path -Force }

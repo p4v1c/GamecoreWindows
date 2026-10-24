@@ -16,7 +16,7 @@ $script:GcPowerSettings = @(
 )
 $script:GcFastStartupKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
 
-function Get-GcPowerValues {
+function Get-GcPowerValue {
     <# Every (plan, AC|DC, setting) index Windows stores for the settings above. #>
     $wanted = @($script:GcPowerSettings | ForEach-Object { $_.Setting })
     $values = @()
@@ -29,7 +29,7 @@ function Get-GcPowerValues {
     return $values
 }
 
-function Get-GcPowerChanges {
+function Get-GcPowerChange {
     <# The values that differ from what GameCore wants, as {Plan, Source, Setting, Group, Value, Wanted}. #>
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Current)
     $changes = @()
@@ -52,8 +52,7 @@ function Set-GcPowerValue {
 }
 
 function Install-GcPower {
-    param([Parameter(Mandatory)]$Settings)
-    $changes = @(Get-GcPowerChanges -Current @(Get-GcPowerValues))
+    $changes = @(Get-GcPowerChange -Current @(Get-GcPowerValue))
     foreach ($change in $changes) {
         $key = "$($change.Plan)|$($change.Source)|$($change.Group)|$($change.Setting)"
         Set-GcRecord 'configure-power' $key $change.Value
@@ -73,7 +72,7 @@ function Install-GcPower {
 }
 
 function Uninstall-GcPower {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record) { return }
     foreach ($key in @($Record.Keys)) {
         if ($key -eq 'HiberbootEnabled') {

@@ -22,7 +22,7 @@ foreach ($step in $script:GcSteps) {
     . (Join-Path $PSScriptRoot "..\steps\$($step.Name).ps1")
 }
 
-function Select-GcSteps {
+function Select-GcStep {
     <# All steps, or the ones -Only names; an unknown name is refused. #>
     param([string[]]$Only)
     if (-not $Only) { return $script:GcSteps }

@@ -5,7 +5,7 @@
 $script:GcWifiLocationBuild = 26100
 $script:GcConsentStore = 'SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location'
 
-function Get-GcLocationKeys {
+function Get-GcLocationKey {
     <# Device-wide, the user's switch, and the user's "let desktop apps" switch. #>
     return @(
         "HKLM:\$script:GcConsentStore",
@@ -25,7 +25,7 @@ function Install-GcWifiLocation {
             'Settings > Privacy > Location > Let desktop apps access your location, or the Wi-Fi scan stays empty')
         return
     }
-    foreach ($key in (Get-GcLocationKeys)) {
+    foreach ($key in (Get-GcLocationKey)) {
         $value = Get-GcRegistryValue $key 'Value'
         if ($value -eq 'Allow') { continue }
         Set-GcRecord 'set-wifi-location' $key $value
@@ -34,7 +34,7 @@ function Install-GcWifiLocation {
 }
 
 function Uninstall-GcWifiLocation {
-    param($Record, [Parameter(Mandatory)]$Settings)
+    param($Record)
     if ($null -eq $Record) { return }
     foreach ($key in @($Record.Keys)) {
         Invoke-GcChange "put location access back ($key)" {

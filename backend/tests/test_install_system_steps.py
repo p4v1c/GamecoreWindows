@@ -39,7 +39,7 @@ ALL_RIGHT = {("AC", BUTTON): 1, ("DC", BUTTON): 1, ("AC", WAKE_TIMERS): 0, ("DC"
 
 
 def test_power_sets_sleep_button_no_wake_timers_no_password_and_no_usb_suspend(tmp_path):
-    result = run_ps(tmp_path, power_fakes(ALL_WRONG) + f"Install-GcPower {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, power_fakes(ALL_WRONG) + "Install-GcPower")
     native = calls(result, "native")
     assert f"powercfg.exe /setacvalueindex {PLAN} 4f971e89-eebd-4455-a8de-9e59040e7347 {BUTTON} 1" in native
     assert f"powercfg.exe /setacvalueindex {PLAN} 238c9fa8-0aad-41ed-83f4-97be242c8f20 {WAKE_TIMERS} 0" in native
@@ -51,7 +51,7 @@ def test_power_sets_sleep_button_no_wake_timers_no_password_and_no_usb_suspend(t
 
 
 def test_power_notes_every_value_it_replaces(tmp_path):
-    result = run_ps(tmp_path, power_fakes(ALL_WRONG) + f"Install-GcPower {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, power_fakes(ALL_WRONG) + "Install-GcPower")
     record = result["manifest"]["configure-power"]
     assert record[f"{PLAN}|AC|4f971e89-eebd-4455-a8de-9e59040e7347|{BUTTON}"] == 3
     assert record["HiberbootEnabled"] == 1
@@ -59,7 +59,7 @@ def test_power_notes_every_value_it_replaces(tmp_path):
 
 
 def test_power_already_right_changes_nothing(tmp_path):
-    result = run_ps(tmp_path, power_fakes(ALL_RIGHT, hiberboot=0) + f"Install-GcPower {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, power_fakes(ALL_RIGHT, hiberboot=0) + "Install-GcPower")
     assert result["changes"] == []
     assert calls(result, "native") == []
 
@@ -67,7 +67,7 @@ def test_power_already_right_changes_nothing(tmp_path):
 def test_power_uninstall_puts_each_value_back(tmp_path):
     record = (f"@{{ '{PLAN}|AC|4f971e89-eebd-4455-a8de-9e59040e7347|{BUTTON}' = 3; "
               "'HiberbootEnabled' = 1 }")
-    result = run_ps(tmp_path, power_fakes(ALL_RIGHT) + f"Uninstall-GcPower {record} {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, power_fakes(ALL_RIGHT) + f"Uninstall-GcPower {record}")
     assert calls(result, "native") == [
         f"powercfg.exe /setacvalueindex {PLAN} 4f971e89-eebd-4455-a8de-9e59040e7347 {BUTTON} 3",
         "powercfg.exe /setactive SCHEME_CURRENT"]
@@ -111,14 +111,14 @@ def test_firewall_leaves_a_matching_rule_alone_and_replaces_a_wrong_one(tmp_path
 
 def test_firewall_uninstall_removes_only_the_rules_it_made(tmp_path):
     result = run_ps(tmp_path, FIREWALL_FAKES +
-                    f"Uninstall-GcFirewall @{{ 'GameCore - Web access' = $true }} {settings_ps(tmp_path)}")
+                    "Uninstall-GcFirewall @{ 'GameCore - Web access' = $true }")
     assert calls(result, "remove") == ["GameCore - Web access"]
 
 
 TASK_FAKES = r"""
     $script:task = $null
     $script:shortcut = Join-Path $env:GAMECORE_STATE_DIR 'GameCore.lnk'
-    function Get-GcShortcutPaths { @($script:shortcut) }
+    function Get-GcShortcutPath { @($script:shortcut) }
     function New-GcShortcut { param($Path, $Action, $Icon)
         Note 'shortcut' @{ path = $Path; exe = $Action.Execute; args = $Action.Arguments; icon = $Icon } }
     function Get-ScheduledTask { param($TaskPath, $TaskName, $ErrorAction) $script:task }
@@ -177,7 +177,7 @@ def test_uninstall_removes_the_shortcuts_it_made_and_the_task(tmp_path):
         $script:task = [pscustomobject]@{{ Actions = @() }}
         function Stop-ScheduledTask {{ param($TaskPath, $TaskName, $ErrorAction) }}
         function Unregister-ScheduledTask {{ param($TaskPath, $TaskName, $Confirm) Note 'unregister' "$TaskPath$TaskName" }}
-        function Stop-GcSessionProcesses {{ param($CodeRoot) Note 'stop' $CodeRoot }}
+        function Stop-GcSessionProcess {{ param($CodeRoot) Note 'stop' $CodeRoot }}
         Uninstall-GcSessionTask @{{ '{shortcut}' = $true }} {settings_ps(tmp_path)}
     """)
     assert not shortcut.exists()
@@ -222,7 +222,7 @@ def test_caddy_at_the_pinned_version_is_not_downloaded_again(tmp_path):
     result = run_ps(tmp_path, CADDY_FAKES + rf"""
         $script:version = $script:GcCaddyVersion
         $script:service = [pscustomobject]@{{ Status = 'Running' }}
-        $paths = Get-GcCaddyPaths '{tmp_path / "code"}'
+        $paths = Get-GcCaddyLayout '{tmp_path / "code"}'
         function Get-GcRegistryValue {{ param($Path, $Name) Get-GcCaddyEnvironment $paths }}
         Install-GcCaddy {settings_ps(tmp_path)}
     """)
@@ -269,8 +269,8 @@ def test_an_openssh_the_owner_had_is_not_removed_by_uninstall(tmp_path):
     result = run_ps(tmp_path, SSH_FAKES + r"""
         function Remove-WindowsCapability { param([switch]$Online, $Name) Note 'remove' $Name }
         function Enable-NetFirewallRule { param($Name, $ErrorAction) Note 'enable' $Name }
-        Uninstall-GcOpenSsh @{ startType = 'Manual'; windowsRuleEnabled = $true } $null
-    """.replace("$null", settings_ps(tmp_path)))
+        Uninstall-GcOpenSsh @{ startType = 'Manual'; windowsRuleEnabled = $true }
+    """)
     assert calls(result, "remove") == []
     assert calls(result, "start-type") == ["Manual"]
     assert calls(result, "enable") == ["OpenSSH-Server-In-TCP"]
