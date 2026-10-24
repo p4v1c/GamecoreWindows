@@ -21,6 +21,8 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `volumes.py`    | external disks, safe removal              | `lsblk`, `udisksctl`          |
 | `gamepads.py`   | pads through SDL2, their events, battery  | evdev, `/dev/input`, sysfs    |
 | `usb.py`        | what is on the USB bus                    | `/sys/bus/usb/devices`        |
+| `sleep.py`      | sleep model, sleeping, power events, wake log | `systemctl suspend`, logind, `/sys/class/wakeup` |
+| `device_wake.py`| which devices may wake the PC             | sysfs `power/wakeup`, BlueZ `WakeAllowed` |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """
