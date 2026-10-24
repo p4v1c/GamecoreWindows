@@ -15,7 +15,7 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
 | 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | merged | #5 |
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | merged | #6 |
-| 6. Rest mode (sleep, wake by pad, splash after wake) | in review | (PR pending) |
+| 6. Rest mode (sleep, wake by pad, splash after wake) | in review | #7 |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
 | 8. OTA update + rollback, release workflow | — | — |
 | 9. Addons repo (`p4v1c/gamecore-addons-windows`) | — | — |
