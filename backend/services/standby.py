@@ -274,7 +274,7 @@ def _spawn(coro) -> None:
 def _rest_screen_off() -> bool:
     """Rest mode switched the screen off (a Modern Standby PC's sleep, dev-log
     D34): the next press is the wake, however soon it comes."""
-    from . import rest_mode, resume     # both import this module
+    from . import rest_mode, resume     # resume imports this module
     return rest_mode.is_resting() or resume.is_sleeping()
 
 
