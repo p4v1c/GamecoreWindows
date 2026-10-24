@@ -19,6 +19,9 @@ from backend.services import gamepad_monitor as gm
 from backend.services import gamepad_devices as gdev
 from backend.services.platform import gamepads as platform_gamepads
 
+# Read at import, before conftest's session guard keeps SDL from starting.
+REAL_START = platform_gamepads.start
+
 
 def pad(device="sdl0", name="PS4 Controller", serial="", vendor="054c", product="09cc",
         bus=0x05, is_pad=True, has_guide=True):
@@ -660,3 +663,9 @@ def test_a_fully_configured_pad_warns_about_nothing(monkeypatch):
 
     arrivals = [d for e, d in ws.sent if e == "gp:connected"]
     assert arrivals and arrivals[0]["unconfigured"] == []
+
+
+def test_the_real_sdl_starts_in_the_background_and_lists_joysticks():
+    """The bundled SDL2.dll loads and its thread runs; a read changes nothing."""
+    assert REAL_START() is True, platform_gamepads.unavailable()
+    assert platform_gamepads._reader.snapshot() is not None

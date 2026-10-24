@@ -157,13 +157,16 @@ def _no_real_commands_from_the_suite():
 # plan and idle timers, disk eject) are replaced for the whole session; a test
 # that needs one fakes it on top (`fake_display.fake_screen`,
 # `fake_volumes.disks`). Reads stay real, except the idle timers (a claim would
-# read the real plan, then write it) and the disks (the lifespan's storage
-# monitor would link the developer's USB drives into the test root).
+# read the real plan, then write it), the disks (the lifespan's storage
+# monitor would link the developer's USB drives into the test root) and the
+# pads: SDL is never started, so the lifespan's monitor stops at once, as it
+# did on a box without evdev, and never profiles the developer's own pad.
 
 
 @_pytest.fixture(autouse=True, scope="session")
 def _no_machine_changes_from_the_suite():
     from backend.services.platform import display as platform_display
+    from backend.services.platform import gamepads as platform_gamepads
     from backend.services.platform import power as platform_power
     from backend.services.platform import volumes as platform_volumes
 
@@ -184,4 +187,6 @@ def _no_machine_changes_from_the_suite():
             mp.setattr(platform_power, name, no_plan)
         mp.setattr(platform_volumes, "list_volumes", lambda: [])
         mp.setattr(platform_volumes, "eject", lambda letter: (False, "no disk under test"))
+        mp.setattr(platform_gamepads, "start", lambda: False)
+        mp.setattr(platform_gamepads, "pads", lambda: [])
         yield
