@@ -220,34 +220,47 @@ sequenceDiagram
     participant ui as PowerModal
     participant be as rest_mode.enter()
     participant pm as process_manager
-    participant ld as logind
+    participant win as Windows (platform/sleep.py)
     ui->>ui: store.setAsleep(true): black over everything
     ui->>be: POST /api/power/rest (second press)
     be->>be: launch.close_gate(), wait for a launch in flight (15 s)
     be->>pm: kill() every session, frozen ones too
-    be->>be: poll each process group; SIGKILL survivors after 8 s; 2 s more
-    be->>ld: sudo -n systemctl suspend
-    ld-->>be: PrepareForSleep(true): power:sleeping (any sleep path), sleep_guard sweep
-    Note over ld: deep sleep; PS button wakes the box over Bluetooth
-    ld-->>be: PrepareForSleep(false) (resume.py, gdbus monitor)
+    be->>be: poll each job; terminate survivors after 8 s; 2 s more
+    be->>win: sleep.suspend() in a thread: S3 = SetSuspendState, Modern Standby = screen off
+    win-->>be: SUSPEND (S3) or the display going off during Rest mode (Modern Standby): power:sleeping, sleep_guard sweep
+    Note over win: asleep; the pad wakes the PC through the Bluetooth radio
+    win-->>be: RESUME (S3) or the display back on (Modern Standby) (resume.py)
     be->>be: sweep again, open the gate, screen on
-    be->>be: wait for a lit DRM connector (10 s max), display mode, settle delay
+    be->>be: wait for an active monitor (10 s max), display mode, settle delay
     be-->>ui: WS power:resumed (or GET /api/power/state after a reconnect)
     ui->>ui: store.wake(): black layer off, Home, splash from the start with its boot sound
 ```
 
-- Nothing sleeps while a session is alive: every group is checked gone before
-  `systemctl suspend`. A group still there after the forced kill is logged and
-  the box sleeps anyway (a process in D state cannot be killed).
-- **Every sleep closes the games**, not only Rest mode's: the backend holds a
-  logind delay lock for `sleep` (`services/sleep_guard.py`, `systemd-inhibit
-  --mode=delay … cat`, released by closing its stdin). On `PrepareForSleep(true)`
-  it closes the launch gate, runs Rest mode's sweep with shorter waits (6 s,
-  then SIGKILL, 2 s) and releases; logind holds the sleep up to
-  `InhibitDelayMaxSec` (15 s with `/etc/systemd/logind.conf.d/90-gamecore.conf`,
-  5 s without). On the wake it sweeps again (a sleep that outran the lock) and
-  takes the lock back. The Rest mode button sweeps first, so the second sweep
-  finds nothing and releases at once.
+- Nothing sleeps while a session is alive: every job is checked empty before
+  `sleep.suspend()`. A job still alive after the forced terminate is logged
+  and the box sleeps anyway.
+- Two sleep models (`sleep.power_model()`, read once at start):
+  - **S3**: `SetSuspendState` (the shutdown privilege enabled first) blocks
+    until the wake, so it runs in a thread; Windows sends `SUSPEND` before
+    sleeping and `RESUME` (`PBT_APMRESUMEAUTOMATIC`) after.
+  - **Modern Standby** (S0 low-power idle; the port's PC is one): there is no
+    call to enter it and the suspend/resume callbacks are not promised. Rest
+    mode turns the screen off, which starts it; `resume.classify()` treats the
+    console display going off **while Rest mode is under way** as the sleep
+    and coming back on as the wake. A display going off at any other time is
+    standby's own screen-off and is ignored. Windows' Desktop Activity
+    Moderator freezes the backend and the shell while asleep.
+- **Every sleep closes the games**, not only Rest mode's (power button, Start
+  menu, lid, idle timer): Windows' suspend event holds its power thread until
+  the handler returns, about 2 s at most, and no lock buys more (logind's
+  delay inhibitor did on Linux). `resume.run()` holds it up to
+  `SUSPEND_HOLD_SECS` (1.8 s) while `sleep_guard.before_sleep()` closes the
+  launch gate and runs Rest mode's sweep with short waits (0.8 s, then
+  terminate, 0.3 s): ending a job is one `TerminateJobObject`. On the wake it
+  sweeps again (a sleep that outran the sweep). The Rest mode button sweeps
+  first, so the second sweep finds nothing. A sleep and a wake are each acted
+  on once (`classify`), so a Modern Standby PC that also sends the callbacks
+  is not swept or woken twice.
 - The TV first: after a wake the HDMI link is back seconds before the
   picture. `power:sleeping` (and Rest mode's own second press) puts a plain
   black layer over everything; `resume.on_resume()` waits for an active
@@ -256,32 +269,24 @@ sequenceDiagram
   (Settings → System, 0-8 s, 2.5 s default), and only then counts the wake and
   sends `power:resumed`. Windows can report the monitor active an instant
   before the TV shows the picture, which the settle delay covers.
-- Power key: the same drop-in sets `HandlePowerKey=suspend`. In GameCore's own
-  session nothing else takes the key (no PowerDevil), so a short press is a
-  sleep with games closed; in a Plasma desktop session PowerDevil keeps its own
-  setting. The long press is the firmware's force-off, untouched.
 - Electron's `powerMonitor` `resume` (`electron/power.js`) puts the main
   window back in fullscreen and focus, tells the renderer to cover itself in
   black and forces a full repaint; everything else is the backend's.
-- Wake permission: `gamecore-wake-setup` (root, boot + udev) arms the USB
-  adapter and USB pads; `services/bt_wake.py` sets BlueZ `WakeAllowed=true` on
-  paired pads and `false` on paired Bluetooth mice and keyboards (BlueZ allows
-  HID wake by default; a moved mouse woke the box), at start, after each wake
-  and whenever a new pad joins the roster. USB keyboards and the power button
-  are not BlueZ's and keep waking it.
-- What woke the box: `services/wake_source.py` keeps the wakeup counters
-  from the sleep announcement and logs the ones that moved after the wake
-  (`journalctl -u gamecore-backend | grep wake_source`). `3-3 (…)` is the
-  Bluetooth adapter's USB port: a paired device paged the box.
-- Pads off before any sleep: `sleep_guard.before_sleep()` runs
-  `bt_wake.turn_off_pads()` next to the sweep, under the delay lock: BlueZ
-  `Device1.Disconnect` on every connected paired pad (never audio, mice or
-  keyboards), awaited, each call bounded by `BUSCTL_SECS`. That ends the link
-  with HCI reason 0x13 "remote user terminated" (BlueZ → `MGMT_OP_DISCONNECT`
-  → `hci_abort_conn(conn, HCI_ERROR_REMOTE_USER_TERM)`), which turns a pad
-  off. Left to the kernel, the link ends at suspend with 0x15 "power off"
-  (`hci_suspend_sync`), and an Xbox pad answers that by paging straight back,
-  which woke the box at once. `WakeAllowed` stays set: the home button wakes it.
+- Wake permission: `services/bt_wake.py` allows the Bluetooth radios, the
+  Bluetooth pads on the roster (by address) and the wired pads (by
+  vendor:product) to wake the PC (`platform/device_wake.py`, WMI
+  `MSPower_DeviceWakeEnable`, elevated only), at start, after each wake and
+  whenever a new pad joins the roster. Nothing is disarmed: on Windows a
+  Bluetooth mouse wakes through the same radio as the pads (dev-log D36).
+- What woke the box: `services/wake_source.py` keeps the newest
+  `Power-Troubleshooter` record of the System log and, after the wake, logs
+  the source of a newer one (`woken by …`). A Modern Standby wake logs none.
+- Pads stay on into the sleep: Windows has no public call to drop one
+  device's link (dev-log D28), so `bt_wake.turn_off_pads()` turns off nothing.
+  On Linux an Xbox pad answered the kernel's "power off" disconnect by paging
+  straight back, which woke the box; whether it does on Windows is untested.
+- The power button's action and Windows' wake timers are the installer's
+  (step 7).
 
 ## 6. LAN authentication
 

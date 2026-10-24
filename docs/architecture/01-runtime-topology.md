@@ -197,16 +197,8 @@ it Chromium has **no audio at all** under a systemd service) and probes
 Addons are **user** units (`systemctl --user`), so they inherit the graphical
 session and stop with it.
 
-`gamecore-wake.service` — oneshot at boot, runs `/usr/local/bin/gamecore-wake-setup`
-(source `install/bin/gamecore-wake-setup`): enables USB `power/wakeup` on the
-Bluetooth adapter and on USB pads, so Rest mode can be woken by a pad. The
-attribute resets at every boot and replug; `/etc/udev/rules.d/90-gamecore-wake.rules`
-(source `install/system/90-gamecore-wake.rules`) re-runs the helper for a pad or
-adapter plugged in later. `/etc/systemd/logind.conf.d/90-gamecore.conf` (source
-`install/system/logind-gamecore.conf`): power key short press = suspend, and
-`InhibitDelayMaxSec=15` for the backend's sleep lock. Changed only by a logind
-**reload** where logind supports it; never a restart, which would end the
-session. Installed by `install/steps/setup-rest-mode.sh`, see
+Rest mode needs no root piece on Windows: the elevated backend holds the
+shutdown privilege and sets which devices may wake the PC itself, see
 [Rest mode](02-request-flows.md#5b-rest-mode-and-the-wake).
 
 ## The session the kiosk runs in
@@ -290,7 +282,7 @@ cd electron && ELECTRON_DEV=1 npx electron .    # shell → :5173
 
 On Windows, `--reload` and `--workers` make uvicorn run the Selector event
 loop, which cannot start subprocesses (`NotImplementedError` from
-`asyncio.create_subprocess_exec`, used by the update router and Rest mode);
+`asyncio.create_subprocess_exec`, used by the update router);
 without them it runs the Proactor loop (`test_event_loop.py`). Games do not
 depend on it: `platform/jobs.py` starts them with `subprocess.Popen`.
 

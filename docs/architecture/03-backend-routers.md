@@ -243,9 +243,10 @@ on disk; `videos` are clips, `stills` screenshots of games without one (at most
 ## `power.py`
 
 `POST /power/rest` → `rest_mode.enter()`: closes every session, then suspends.
-Answers `{ok, forced}` after the wake (`systemctl suspend` waits for its job),
-409 while already going to sleep, 503 when the suspend is refused (no sudoers
-rule). `GET /power/state` → `{resting, resumes, sleeping}`; `resumes` grows by
+Answers `{ok, forced}` after the wake on an S3 PC (`SetSuspendState` returns
+then), at once on a Modern Standby PC (the screen is switched off and Windows
+takes it from there), 409 while already going to sleep, 503 when Windows
+refuses the sleep (`rest_mode.REFUSED`). `GET /power/state` → `{resting, resumes, sleeping}`; `resumes` grows by
 one per wake, counted once the TV shows a picture (`resume.resume_count()`);
 `sleeping` is true from the sleep announcement until then.
 

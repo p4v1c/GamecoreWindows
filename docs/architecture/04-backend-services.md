@@ -191,31 +191,28 @@ HUD instead, because the React toast is hidden under the emulator.
 
 ---
 
-## Rest mode: `rest_mode.py`, `resume.py`, `bt_wake.py`, `wake_source.py`
+## Rest mode: `rest_mode.py`, `resume.py`, `sleep_guard.py`, `bt_wake.py`, `wake_source.py`
 
 | Function | Role |
 |---|---|
-| `rest_mode.enter()` | close the launch gate, wait for a launch in flight, `close_everything()`, `sudo -n systemctl suspend`; `ServiceError` 409/503 |
-| `rest_mode.close_everything()` | `process_manager.kill()` per session, poll groups (`EXIT_WAIT_SECS`), SIGKILL survivors (`FORCE_WAIT_SECS`) |
+| `rest_mode.enter()` | close the launch gate, wait for a launch in flight, `close_everything()`, `platform/sleep.py` `suspend()` in a thread; `ServiceError` 409/503 (`REFUSED`) |
+| `rest_mode.close_everything()` | `process_manager.kill()` per session, poll jobs (`EXIT_WAIT_SECS`), terminate survivors (`FORCE_WAIT_SECS`) |
 | `rest_mode.woke()` | reopen launches; also after `REOPEN_AFTER_SECS` if no wake is reported |
 | `launch.close_gate(reason)` / `open_gate()` / `is_launching()` | the gate `launch()` checks first |
-| `resume.run()` | `gdbus monitor` on logind; `parse_sleep_signal(line)` is pure; holds `sleep_guard`'s lock while it listens |
-| `sleep_guard.take()` / `release()` | the logind delay lock for sleep (`systemd-inhibit … cat`; released by closing stdin) |
-| `sleep_guard.before_sleep()` | `PrepareForSleep(true)`: gate, `close_everything(6, 2)` and `bt_wake.turn_off_pads()` together (one failing does not cut the other short), bounded by `SLEEP_BUDGET_SECS` (12 s), then release, always |
-| `sleep_guard.after_wake()` | sweep again after a sleep, take the lock back (first step of `on_resume()`) |
-| `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`; each step isolated |
-| `wake_source.remember()` / `report()` | `event_count` of every `/sys/class/wakeup/wakeup*` on `PrepareForSleep(true)`, compared first thing after the wake; logs `wake_source: woken by <name> (<USB product>) +N` (+ `/sys/power/pm_wakeup_irq` when set). `moved()` is pure |
-| `resume.announce_sleep()` / `is_sleeping()` | `power:sleeping` on `PrepareForSleep(true)`; true until `power:resumed` |
+| `resume.run()` | reads `sleep.power_model()` once, registers `sleep.watch()`; each event goes to `handle()` on the loop, one at a time; a `SUSPEND` holds Windows' power thread up to `SUSPEND_HOLD_SECS` (1.8 s) |
+| `resume.classify(event, model, resting, sleeping)` | **pure**: `SLEEP`, `WAKE` or None. `SUSPEND` sleeps unless already asleep; `RESUME` wakes after a sleep; on Modern Standby the display going off sleeps only during Rest mode and coming back on wakes after a sleep |
+| `resume.going_to_sleep()` | `power:sleeping`, then `sleep_guard.before_sleep()` |
+| `sleep_guard.before_sleep()` | gate, `close_everything(0.8, 0.3)` and `bt_wake.turn_off_pads()` together (one failing does not cut the other short), bounded by `SLEEP_BUDGET_SECS` (1.5 s) |
+| `sleep_guard.after_wake()` | sweep again after a sleep (first step of `on_resume()` after the wake source) |
+| `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`, `wake_source.remember()`; each step isolated |
+| `wake_source.remember()` / `report()` | the newest `Power-Troubleshooter` record number (at start and after each wake); after a wake, a newer record's source is logged as `wake_source: woken by <source>`. `describe()` and `is_new()` are pure |
+| `resume.announce_sleep()` / `is_sleeping()` | `power:sleeping`; true until `power:resumed` |
 | `display_ready.wait_for_display(settle, probe, max_wait)` | polls `platform/display.py` `display_ready()` (an active monitor on an adapter attached to the desktop) every 200 ms, `WAIT_MAX_SECS` = 10 s; `probe` is injectable for tests |
-| `bt_wake.pads_to_arm(objects, roster_macs)` | **pure**: paired devices with `Icon` input-gaming or a roster MAC, never keyboard/mouse, whose `WakeAllowed` is false |
-| `bt_wake.others_to_disarm(objects)` | **pure**: paired devices whose `Icon` is in `NOT_PADS` (keyboard, mouse, tablet) and `WakeAllowed` is true; `set_wake_permissions()` sets them false in the same pass that arms the pads |
-| `bt_wake.pads_to_turn_off(objects, roster_macs)` / `turn_off_pads()` | **pure** / edge: connected paired pads (same pad rule as `pads_to_arm`); `Device1.Disconnect` on each, concurrently, `BUSCTL_SECS` each; returns how many |
-| `bt_wake.run()` | a pass at start, then whenever a new pad MAC joins `gamepad_monitor.roster()` |
+| `bt_wake.devices_to_arm(devices, pad_macs, wired_ids)` | **pure**: WMI names of the devices still refused wake that are a Bluetooth radio (class `Bluetooth` on USB or PCI), a Bluetooth pad's device (address from the instance id, on the roster) or a wired pad's USB device (`vid:pid`, interfaces excluded); nothing is ever disarmed |
+| `bt_wake.set_wake_permissions()` | one pass through `platform/device_wake.py`; None when Windows lists nothing (unelevated) |
+| `bt_wake.turn_off_pads()` | turns off nothing (no Windows call drops one link, dev-log D28); logs it once, returns 0 |
+| `bt_wake.run()` | a pass at start, then whenever a new pad joins `gamepad_monitor.roster()`, retried every `RETRY_SECS` while unanswered |
 | `display.restore_preferred()` | after a wake, put the confirmed mode back if the output came up in another |
-
-`gamepad_devices.is_pad_keys(keys)` is the pad rule (BTN_SOUTH, not a keyboard);
-`install/bin/gamecore-wake-setup` mirrors it in bash and
-`backend/tests/test_wake_setup_helper.py` runs both over the same devices.
 
 ## `standby.py`
 
@@ -887,11 +884,16 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `eject(letter)` | "Safely remove": the disk's PnP instance (SetupAPI, matched by `IOCTL_STORAGE_GET_DEVICE_NUMBER`), `CM_Request_Device_EjectW` on its parent; a veto (a program holding a file) answers why | `udisksctl unmount` |
 | `gamepads.py` | `start()`, `pads()`, `subscribe(device)`, `unsubscribe()`, `unavailable()`, `sdl2_library()` | one thread owns SDL2 (pysdl2, bundled `SDL2.dll`) with background events allowed (`SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS`) and PS4/PS5 rumble off; a snapshot of every joystick (`PadInfo`: name, vendor, product, GUID, serial, bus from the GUID, slot or not, guide or not, SDL's counts, axes at rest, power level); events handed to each subscriber's loop as `PadEvent(type, code, value, layer)` in the evdev vocabulary: layer `pad` (game-controller view: `BTN_MODE`, `BTN_START`, `BTN_SELECT`, `ABS_*`, d-pad as a hat) and `raw` (SDL's indices, for the wizard) | evdev, `/dev/input` |
 | `usb.py` | `inventory()`, `parse_devices(rows)` | `vid:pid → name` from WMI `Win32_PnPEntity` (`USB\VID_…&PID_…`), interfaces folded | `/sys/bus/usb/devices` |
+| `sleep.py` | `power_model()`, `model_of(s3, aoac)` | `GetPwrCapabilities`: `S3`, `MODERN_STANDBY` (`AoAc`, S0 low-power idle) or `NO_SLEEP` | `/sys/power/mem_sleep` |
+| | `suspend()` | S3: `SetSuspendState` after enabling the shutdown privilege, blocks until the wake; Modern Standby: `power.screen_off()` (no call enters it); `(ok, detail)` | `sudo systemctl suspend` |
+| | `watch(handler)` | `PowerRegisterSuspendResumeNotification` (`SUSPEND`, `RESUME` = `PBT_APMRESUMEAUTOMATIC`) and `PowerSettingRegisterNotification` on `GUID_CONSOLE_DISPLAY_STATE` (`DISPLAY_OFF` / `DISPLAY_ON`, once at registration too), as callbacks on Windows' power thread; returns `stop()` | logind `PrepareForSleep` via `gdbus monitor`, `systemd-inhibit` |
+| | `last_wake()`, `parse_wake_event(xml)` | the newest `Power-Troubleshooter` event 1 of the System log through `wevtutil … /f:xml` (field names untranslated): record, `WakeSourceText`, `WakeSourceType` | `/sys/class/wakeup/*/event_count` |
+| `device_wake.py` | `wake_devices()`, `set_wake(wmi_name, allowed)`, `instance_id(name)` | WMI `root\wmi` `MSPower_DeviceWakeEnable` joined to `Win32_PnPEntity` classes; elevated only (unelevated it lists nothing) | sysfs `power/wakeup`, BlueZ `WakeAllowed` |
 | `network.py` | `pick_lan_ip(route_ip, adapters)` | the default route's address unless it is a virtual adapter's (VPN, Hyper-V), then the first connected physical one, wired first: the IP the top bar shows | `nmcli` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`), `gamepad_devices.py`, `gamepad_monitor.py`, `battery.py`, `controller_capture.py`, `configgen/controllers.py` and `sdl_probe.py` (`gamepads.py`), `usb_devices.py` (`usb.py`), `routers/sysinfo.py` (`network.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`), `gamepad_devices.py`, `gamepad_monitor.py`, `battery.py`, `controller_capture.py`, `configgen/controllers.py` and `sdl_probe.py` (`gamepads.py`), `usb_devices.py` (`usb.py`), `routers/sysinfo.py` (`network.py`), `rest_mode.py`, `resume.py` and `wake_source.py` (`sleep.py`), `bt_wake.py` (`device_wake.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
