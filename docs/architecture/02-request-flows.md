@@ -53,7 +53,7 @@ sequenceDiagram
     participant ui as React
 
     alt player presses PS twice within 1 s
-        pad->>gm: evdev BTN_MODE
+        pad->>gm: SDL guide (BTN_MODE on the pad layer)
         gm->>gm: _on_guide_pressed()
         gm->>r: POST /api/games/kill
     else emulator exits on its own
@@ -71,8 +71,9 @@ sequenceDiagram
 
 Why it is built this way:
 
-- **evdev, not the browser.** Chromium often hides the Guide button, and the
-  UI is buried under a fullscreen emulator anyway.
+- **SDL in the backend, not the browser.** Chromium never exposes the Guide
+  button and sees nothing while a fullscreen emulator has the focus; SDL with
+  background events does.
 - **Double press.** A single Guide press must never kill a game by accident
   (`GUIDE_DOUBLE_PRESS_MS`, mirrored in the frontend hook).
 - **The job, never one process.** A launcher that starts the game and exits,

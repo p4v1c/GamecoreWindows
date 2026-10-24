@@ -138,13 +138,13 @@ flowchart LR
     api["Backend /api"]
     ws["Backend /ws"]
     emu["emulator"]
-    ev["/dev/input/event*"]
+    ev["pads (SDL2 in the backend)"]
 
     ui -->|fetch| api
     ws -->|broadcast| ui
     ui -->|contextBridge IPC| pre --> main
     api -->|spawn| emu
-    ev -->|evdev| api
+    ev -->|SDL events| api
     api -->|"POST /api/games/kill"| emu
 ```
 

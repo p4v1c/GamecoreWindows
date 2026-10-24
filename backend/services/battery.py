@@ -1,100 +1,50 @@
-"""Controller battery reading (sysfs) + low-battery watcher.
+"""Controller battery reading (SDL) + low-battery watcher.
 
 read_batteries() is the single source of truth — sysinfo uses it for the
 TopBar pills, and run() watches thresholds (25/15/10/5 %) and broadcasts
 "gp:battery" over the WebSocket so the UI can pop a toast.
+
+SDL2 reports a power LEVEL, not a percent (`platform/gamepads.py`
+`POWER_PERCENT`: empty 5, low 20, medium 60, full 100), so a pad is reported
+at the top of its band and an alert fires when it enters "low" (the 25 %
+threshold) and "empty" (5 %). A wired pad reports no level and is not listed.
 """
 import asyncio
-import glob
 import logging
-from pathlib import Path
 
 from . import controller_registry
-from .gamepad_devices import BTN_SOUTH
+from .platform import gamepads as platform_gamepads
 
 log = logging.getLogger(__name__)
 
-# Power supply name prefixes that are NOT controllers (laptop/UPS/USB-PD...)
-_SKIP = ("BAT", "AC", "USB", "UCSI", "ADP", "MACSMC", "axp", "bq")
-
 # Warn when the level crosses each threshold going down, once per crossing
 THRESHOLDS = (25, 15, 10, 5)
-# The kernel value itself is fresh — hid-playstation updates power_supply on
-# every HID report — it just changes rarely, because a battery drains slowly.
-# What this interval really governs is how fast a *charging* change or a pad
-# appearing/disappearing reaches the UI. Reading a handful of files from a
-# virtual filesystem costs microseconds, so 10s is free; the broadcast below
-# only fires when something actually changed, so the socket stays quiet.
+# SDL refreshes the level from the pad's own reports; what this interval
+# governs is how fast a change or a pad appearing reaches the UI. The broadcast
+# below only fires when something changed, so the socket stays quiet.
 _POLL_SECS = 10
 # Re-arm a threshold once the level climbs back above it by this margin
 # (avoids toast spam when a reading oscillates around the threshold)
 _REARM_MARGIN = 5
 
 
-POWER_SUPPLY_ROOT = Path("/sys/class/power_supply")
+def read_batteries() -> list[dict]:
+    """Pad batteries: [{name, label, player, level, charging}].
 
-
-def _has_bit(bitmap: str, bit: int) -> bool:
-    """A sysfs capability bitmap: 64-bit hex words, most significant first."""
-    words = bitmap.split()
-    index = len(words) - 1 - bit // 64
-    return 0 <= index < len(words) and bool(int(words[index], 16) >> (bit % 64) & 1)
-
-
-def _is_gamepad(supply: Path) -> bool:
-    """Whether the device behind a battery has a gamepad button.
-
-    Mice and keyboards report batteries too (Logitech's hidpp_battery_N):
-    shown as controllers, a mouse took the pill "P2", numbered by the themes
-    from its place in the list. A supply whose device lists no input node
-    is kept, as before.
+    `name` is the device, `player` its console slot (None when it has none).
     """
-    keys = sorted((supply / "device" / "input").glob("input*/capabilities/key"))
-    if not keys:
-        return True
-    for key in keys:
-        try:
-            if _has_bit(key.read_text(), BTN_SOUTH):
-                return True
-        except (OSError, ValueError):
-            continue
-    return False
-
-
-def read_batteries(root: Path = POWER_SUPPLY_ROOT) -> list[dict]:
-    """Controller batteries from sysfs: [{name, level, charging}]."""
     result = []
-    for supply in sorted(glob.glob(str(root / "*"))):
-        p = Path(supply)
-        name = p.name
-        if any(name.upper().startswith(s.upper()) for s in _SKIP):
+    for pad in platform_gamepads.pads():
+        level = platform_gamepads.POWER_PERCENT.get(pad.power)
+        if level is None or not pad.is_pad:
             continue
-        if not _is_gamepad(p):
-            continue
-        cap_path = p / "capacity"
-        if not cap_path.exists():
-            continue
-        try:
-            level = int(cap_path.read_text().strip())
-        except (ValueError, OSError):
-            continue
-        try:
-            status = (p / "status").read_text().strip()
-        except OSError:
-            status = ""
-        # model_name is friendlier than the supply dir name when present
-        try:
-            label = (p / "model_name").read_text().strip() or name
-        except OSError:
-            label = name
+        key = controller_registry.key_for(pad.serial, pad.device)
         result.append({
-            "name": name,
-            "label": label,
-            # Supply dir names embed the pad's MAC — join it back to the
-            # console-style slot assigned by gamepad_monitor (None if unknown)
-            "player": controller_registry.player_for_mac(name),
+            "name": pad.device,
+            "label": pad.name or pad.device,
+            "player": controller_registry.player_for(key),
             "level": level,
-            "charging": status in ("Charging", "Full"),
+            "charging": False,
         })
     return result
 
@@ -143,7 +93,7 @@ def _signature(batteries: list[dict]) -> str:
 
 
 async def run() -> None:
-    """Poll sysfs, push controller status on change, broadcast low-battery alerts."""
+    """Poll the pads, push controller status on change, broadcast low-battery alerts."""
     from .. import ws
 
     log.info("battery: watcher started (thresholds=%s, poll=%ss)", THRESHOLDS, _POLL_SECS)

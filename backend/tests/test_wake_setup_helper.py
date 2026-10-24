@@ -1,7 +1,7 @@
 """`gamecore-wake-setup`, run for real against a fake sysfs tree.
 
-It decides in bash what the backend decides in Python (which input device is a
-pad), so the two are run over the same devices here and must agree.
+It decides in bash which input device is a pad; the Linux backend's own rule
+left with evdev at port step 5, and this helper leaves with Rest mode (step 6).
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.services.gamepad_devices import BTN_SOUTH, is_pad_keys
+BTN_SOUTH = 0x130
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -104,14 +104,6 @@ def test_the_adapter_and_the_pads_are_armed_and_nothing_else(sysfs):
     assert wake(usb["keyboard"]) == "disabled"
     assert wake(usb["mouse"]) == "disabled"
     assert wake(usb["everything"]) == "disabled"
-
-
-@pytest.mark.linux_until_port(6)
-@pytest.mark.parametrize("name", list(DEVICES))
-def test_the_helper_and_the_backend_agree_on_what_a_pad_is(sysfs, name):
-    run(sysfs)
-    port, codes = DEVICES[name]
-    assert (wake(sysfs["usb"][name]) == "enabled") == is_pad_keys(codes)
 
 
 @pytest.mark.linux_until_port(6)

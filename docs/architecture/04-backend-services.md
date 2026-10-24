@@ -122,7 +122,7 @@ A new profile starts on `shipped()` too.
 
 Covered by `backend/tests/test_themes.py`.
 
-## `gamepad_monitor.py` — evdev, the source of truth for input
+## `gamepad_monitor.py` — SDL in the backend, the source of truth for input
 
 Runs as a lifespan task. It exists because the browser Gamepad API cannot be
 trusted for the Guide button and cannot see anything while a fullscreen
@@ -131,9 +131,9 @@ emulator owns the display.
 | Function | Role |
 |---|---|
 | `run()` | main loop — rescans for devices every few seconds, watches each |
-| `_find_gamepad_devices()` | in `gamepad_devices.py`: `path → (name, uniq, is_pad, vendor, product)` for every readable `/dev/input/event*` |
-| `pads_by_key()`, `dup_indexes()`, `_can_read(path)` | in `gamepad_devices.py`: one entry per physical pad, per-name duplicate counters, permission probe |
-| `_watch_device(path)` | reads one device until it disconnects or is cancelled |
+| `_find_gamepad_devices()` | in `gamepad_devices.py`: `device → (name, uniq, is_pad, vendor, product, bus)` from SDL's snapshot (`platform/gamepads.py`); `device` is `sdl<instance>`, `uniq` the Bluetooth address when SDL knows it |
+| `pads_by_key()`, `dup_indexes()` | in `gamepad_devices.py`: one entry per physical pad (wheels and flight sticks take no slot), per-name duplicate counters |
+| `_watch_device(device)` | reads one pad's pad-layer events (`platform/gamepads.py` `subscribe`) until `GONE` or cancelled |
 | `ActivityFilter` | in `input_activity.py`: which events mean somebody is at the pad (a button down, the d-pad hat, a quarter of an axis's travel), for `standby.on_input()` |
 | `_on_guide_pressed()` | the double-press logic; the pair means what held the screen at its **first** press (`_guide_from_game`), then `_suspend_to_interface()` |
 | `_suspend_to_interface(gesture, foreground_only, from_game)` | suspends the foreground session and broadcasts `gp:guide` (`backgrounded`, `failed`, or `home` for a pair begun in the interface) |
@@ -152,12 +152,12 @@ Assigns P1…P4 and keeps them stable across reconnects.
 | Function | Role |
 |---|---|
 | `normalize_mac(value)` | extracts a lowercased `aa:bb:…` from any MAC-ish string |
-| `key_for(uniq, path)` | stable key: the MAC when known, else the device node |
-| `identity(key, vendor, product)` | what a profile remembers a pad by: the MAC, else `vendor:product` (a devnode changes on replug; two identical pads without a MAC read as one) |
+| `key_for(uniq, device)` | stable key: the MAC when known, else the SDL device |
+| `identity(key, vendor, product)` | what a profile remembers a pad by: the MAC, else `vendor:product` (an SDL device changes on replug; two identical pads without a MAC read as one) |
 | `has(key)` / `label_for(key)` / `player_for(key)` | lookups |
 | `connect(key, label)` | assigns the **lowest free slot**; idempotent for a known key |
 | `disconnect(key)` | frees the slot, returns the player number it held |
-| `player_for_mac(value)` | slot for any MAC-bearing string — used to attach a sysfs battery to a player |
+| `player_for_mac(value)` | slot for any MAC-bearing string |
 | `snapshot()` | `[{player, label}]` ordered by slot — what `/api/sysinfo` returns |
 
 ---
@@ -165,7 +165,7 @@ Assigns P1…P4 and keeps them stable across reconnects.
 ## `controller_roster.py` — the pads the controller screen draws
 
 `connected_pads()` joins `gamepad_monitor.roster()` (the last scan), the
-registry slot, the sysfs battery and the pad's identity into one row per pad:
+registry slot, the SDL battery level and the pad's identity into one row per pad:
 `{id, player, name, kernelName, vendor, product, connection, battery, charging,
 known, controls, analogTriggers}`.
 
@@ -182,7 +182,7 @@ known, controls, analogTriggers}`.
 
 | Function | Role |
 |---|---|
-| `read_batteries()` | sysfs → `[{name, level, charging}]`; only supplies whose device has a gamepad button (`_is_gamepad`): a mouse or keyboard battery is not a controller pill |
+| `read_batteries()` | SDL's power level per pad → `[{name, label, player, level, charging}]`: empty 5, low 20, medium 60, full 100 (`POWER_PERCENT`); a wired pad (no level) and a wheel are not listed; `charging` is always false (SDL2 does not say) |
 | `_check(batteries)` | **pure** — returns the alerts to send for this poll, so it is unit-testable |
 | `run()` | polls and broadcasts `gp:battery` |
 
@@ -226,7 +226,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `_power(action, *args)` | the one door to `platform/power.py` (in a thread); `None` when Windows refused; the suite replaces it |
 | `_screen(on)` | `screen_on()` / `screen_off()` |
 | `_signal_user_activity()` | `signal_activity()`: Windows' display and sleep idle timers restart, nothing held |
-| `_governor(gov)` | `powersave`: the Power saver plan, the active one noted in `config/power-plan-handoff.json` (the plan outlives the backend); `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
+| `_governor(gov)` | `powersave`: the Power saver plan, the active one noted in `power-plan-handoff.json` under the config folder (the plan outlives the backend); `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
 | `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before the screen goes off |
 | `ui_dark()` | the UI's fade to black is over (`POST /api/standby/dark`) |
 | `exit_standby()` | wake — **unconditional** |
@@ -885,10 +885,13 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `active_scheme()`, `set_active_scheme(guid)`, `POWER_SAVER` | the power plan | `cpupower frequency-set -g` |
 | `volumes.py` | `list_volumes()`, `is_external(drive_type, bus)`, `bus_type(letter)`, `human_size(n)` | every drive letter that is removable (`GetDriveTypeW`) or a fixed disk on a USB, SD, MMC or FireWire bus (`IOCTL_STORAGE_QUERY_PROPERTY`), never the system drive; label, serial, filesystem, size | `lsblk` |
 | | `eject(letter)` | "Safely remove": the disk's PnP instance (SetupAPI, matched by `IOCTL_STORAGE_GET_DEVICE_NUMBER`), `CM_Request_Device_EjectW` on its parent; a veto (a program holding a file) answers why | `udisksctl unmount` |
+| `gamepads.py` | `start()`, `pads()`, `subscribe(device)`, `unsubscribe()`, `unavailable()`, `sdl2_library()` | one thread owns SDL2 (pysdl2, bundled `SDL2.dll`) with background events allowed (`SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS`) and PS4/PS5 rumble off; a snapshot of every joystick (`PadInfo`: name, vendor, product, GUID, serial, bus from the GUID, slot or not, guide or not, SDL's counts, axes at rest, power level); events handed to each subscriber's loop as `PadEvent(type, code, value, layer)` in the evdev vocabulary: layer `pad` (game-controller view: `BTN_MODE`, `BTN_START`, `BTN_SELECT`, `ABS_*`, d-pad as a hat) and `raw` (SDL's indices, for the wizard) | evdev, `/dev/input` |
+| `usb.py` | `inventory()`, `parse_devices(rows)` | `vid:pid → name` from WMI `Win32_PnPEntity` (`USB\VID_…&PID_…`), interfaces folded | `/sys/bus/usb/devices` |
+| `network.py` | `pick_lan_ip(route_ip, adapters)` | the default route's address unless it is a virtual adapter's (VPN, Hyper-V), then the first connected physical one, wired first: the IP the top bar shows | `nmcli` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`), `gamepad_devices.py`, `gamepad_monitor.py`, `battery.py`, `controller_capture.py`, `configgen/controllers.py` and `sdl_probe.py` (`gamepads.py`), `usb_devices.py` (`usb.py`), `routers/sysinfo.py` (`network.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
@@ -947,23 +950,21 @@ Pluggable per system, because an N64 cartridge dump carries no serial at all.
 
 ### `controller_capture.py` — the mapping wizard's engine
 
-Turns "the owner pressed this" into an SDL mapping line. What arrives from the
-kernel is an evdev code (`BTN_SOUTH`, 0x130); what must be written is SDL's
-vocabulary (`b0`, `a3`, `h0.1`), where the numbers are SDL's joystick indices, not
-the kernel's codes.
-
-**Nothing bridges those two by inspection.** SDL assigns indices by walking the
-device's declared capabilities in a fixed order, so index 0 is "the first button
-this device declares" — and the same physical button is a different number on a
-pad that declares one extra key. `sdl_layout()` reproduces that walk. Guessing
-here produces a mapping that looks plausible and binds the wrong buttons.
+Turns "the owner pressed this" into an SDL mapping line (`b0`, `a3`, `h0.1`).
+The backend reads the pad through SDL itself (`platform/gamepads.py`, raw
+layer), so button n arrives as SDL's button n: `sdl_layout(buttons, axes,
+hats)` is an identity map, and a hat arrives as two signed pseudo axes that
+`binding_for()` folds back into SDL's bitmask. An axis is pressed far from
+where it rests (SDL's initial axis state), per direction. Lines are written
+`platform:Windows`: SDL ignores a line filed for another OS.
 
 ### `usb_devices.py` — the peripherals that are not SDL gamepads
 
-The autoconfig pipeline knows exactly one kind of device: a pad declaring
-`BTN_SOUTH` on an evdev node. Everything else — the GameCube adapter Dolphin
+The autoconfig pipeline knows exactly one kind of device: a pad SDL opens.
+Everything else — the GameCube adapter Dolphin
 drives over raw libusb, light guns, dance mats — is invisible to it. This module
-is that second roster, declared per pack under `usb`. It **never refuses a
+is that second roster, declared per pack under `usb`, checked against
+Windows' USB device list (`platform/usb.py`). It **never refuses a
 launch**: a USB accessory is optional by nature, so blocking would be GameCore
 inventing a fault. It only speaks.
 

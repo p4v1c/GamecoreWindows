@@ -77,7 +77,7 @@ You navigate with a gamepad, launch emulators, and never touch a keyboard.
 | GPU | Any — hardware acceleration recommended |
 | RAM | 4 GB |
 | Storage | 80 GB + (60 GB system + your ROM library) |
-| Controller | Any XInput / evdev gamepad |
+| Controller | Any gamepad SDL2 opens (XInput, DualShock 4 / DualSense, Switch Pro, generic HID) |
 
 All emulators are installed via **Flatpak**. Make sure Flatpak is available on your system before running the installer.
 

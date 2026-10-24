@@ -60,58 +60,11 @@ def test_disconnecting_an_unknown_key_is_a_noop():
     assert reg.disconnect("ee:ee:ee:ee:ee:ee") is None, "disconnecting an unknown key → None"
 
 
-# ── fallback key when there is no MAC (wired pad with no uniq) ───────────────
+# ── fallback key when there is no MAC (an XInput pad has no serial) ──────────
 
-def test_key_for_falls_back_to_the_devnode():
-    assert reg.key_for("AA:BB:CC:DD:EE:FF", "/dev/input/event7") == "aa:bb:cc:dd:ee:ff", "key_for MAC"
-    assert reg.key_for("", "/dev/input/event7") == "/dev/input/event7", "key_for with no uniq → devnode"
-
-
-# ── one pad, several event* nodes ────────────────────────────────────────────
-
-def test_a_bluetooth_pad_with_several_nodes_is_one_controller():
-    """A DualShock 4 publishes three nodes — touchpad, motion sensors, pad —
-    and only one of them carries the BUTTONS. Which one cannot be decided from
-    position: creation order comes from the kernel and changes between boots.
-
-    The mapping wizard reads ALL of a pad's nodes, and this function is what
-    tells it which ones. Grouping by node instead of by MAC would give a wizard
-    where half the buttons do not answer, intermittently.
-    """
-    nodes = [
-        ("84:30:95:07:C8:1C", "/dev/input/event18"),   # motion sensors
-        ("84:30:95:07:c8:1c", "/dev/input/event19"),   # touchpad
-        ("84:30:95:07:c8:1c", "/dev/input/event20"),   # the pad itself
-        ("a4:53:85:11:22:33", "/dev/input/event21"),   # a SECOND pad
-    ]
-
-    grouped = reg.nodes_by_key(nodes)
-
-    assert len(grouped) == 2, f"three nodes of one pad counted separately: {grouped}"
-    assert grouped["84:30:95:07:c8:1c"] == [
-        "/dev/input/event18", "/dev/input/event19", "/dev/input/event20"], \
-        "the pad's three nodes, in order, under its MAC"
-    assert grouped["a4:53:85:11:22:33"] == ["/dev/input/event21"]
-
-
-def test_pads_without_a_mac_stay_separate():
-    """Falling back to the devnode must not merge two wired pads: with no
-    `uniq`, each node IS an identity, and grouping them would make the second
-    player disappear."""
-    grouped = reg.nodes_by_key([(None, "/dev/input/event3"), ("", "/dev/input/event4")])
-
-    assert grouped == {"/dev/input/event3": ["/dev/input/event3"],
-                       "/dev/input/event4": ["/dev/input/event4"]}
-
-
-def test_the_first_node_stays_the_one_pads_by_key_would_pick():
-    """`gamepad_monitor.pads_by_key()` takes the first node it meets. Both
-    functions must name the same one, otherwise the pad the wizard maps is not
-    the pad the registry handed a slot to."""
-    nodes = [("84:30:95:07:c8:1c", "/dev/input/event18"),
-             ("84:30:95:07:c8:1c", "/dev/input/event20")]
-
-    assert reg.nodes_by_key(nodes)["84:30:95:07:c8:1c"][0] == "/dev/input/event18"
+def test_key_for_falls_back_to_the_sdl_device():
+    assert reg.key_for("AA:BB:CC:DD:EE:FF", "sdl7") == "aa:bb:cc:dd:ee:ff", "key_for MAC"
+    assert reg.key_for("", "sdl7") == "sdl7", "key_for with no serial → SDL device"
 
 
 # ── battery join by MAC ──────────────────────────────────────────────────────
@@ -150,10 +103,7 @@ if __name__ == "__main__":
         test_slots_are_handed_out_lowest_free_first,
         test_a_freed_slot_is_reused_before_a_new_one,
         test_disconnecting_an_unknown_key_is_a_noop,
-        test_key_for_falls_back_to_the_devnode,
-        test_a_bluetooth_pad_with_several_nodes_is_one_controller,
-        test_pads_without_a_mac_stay_separate,
-        test_the_first_node_stays_the_one_pads_by_key_would_pick,
+        test_key_for_falls_back_to_the_sdl_device,
         test_player_for_mac_joins_a_power_supply_name_to_its_slot,
         test_snapshot_is_ordered_by_slot,
         test_battery_alert_carries_the_player_slot,

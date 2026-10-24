@@ -98,35 +98,51 @@ if __name__ == "__main__":
     print("\nAll tests passed.")
 
 
-def _supply(root, name, capacity, input_keys=None):
-    """A power supply dir; `input_keys` = key bitmaps of the device's input nodes."""
-    dev = root / "devices" / name
-    for i, bitmap in enumerate(input_keys or []):
-        node = dev / "input" / f"input{i}" / "capabilities"
-        node.mkdir(parents=True)
-        (node / "key").write_text(bitmap + "\n")
-    dev.mkdir(parents=True, exist_ok=True)
-    supply = root / "power_supply" / name
-    supply.mkdir(parents=True)
-    (supply / "capacity").write_text(f"{capacity}\n")
-    (supply / "status").write_text("Discharging\n")
-    (supply / "device").symlink_to(dev)
+def _sdl_pad(device="sdl0", power=1, serial="40:1b:5f:b9:ea:8d", is_pad=True,
+             name="PS4 Controller"):
+    from backend.services.platform.gamepads import PadInfo
+    return PadInfo(device=device, name=name, vendor="054c", product="09cc", guid="0" * 32,
+                   serial=serial, bus=5, is_pad=is_pad, has_guide=True, power=power)
 
 
-@pytest.mark.linux_until_port(5)
-def test_a_mouse_battery_is_not_a_controller(tmp_path):
-    """The MX Anywhere 3 showed up as a second "P2" pill in the top bar."""
-    gamepad = "7fdb000000000000 0 0 0 0"          # BTN_SOUTH (0x130) and friends
-    mouse = "1f0000 0 0 0 0"                       # BTN_LEFT..BTN_EXTRA only
-    _supply(tmp_path, "ps-controller-battery-40:1b:5f:b9:ea:8d", 55, [gamepad, "0", "1000"])
-    _supply(tmp_path, "hidpp_battery_0", 40, [mouse])
-    _supply(tmp_path, "hid-5c:ba:37:63:ee:62-battery", 52)   # no input nodes: kept
-    names = [b["name"] for b in battery.read_batteries(tmp_path / "power_supply")]
-    assert names == ["hid-5c:ba:37:63:ee:62-battery", "ps-controller-battery-40:1b:5f:b9:ea:8d"]
+@pytest.fixture
+def connected(monkeypatch):
+    from backend.services import controller_registry
+    from backend.services.platform import gamepads as platform_gamepads
+    pads: list = []
+    monkeypatch.setattr(platform_gamepads, "pads", lambda: list(pads))
+    controller_registry._slots.clear()
+    yield pads
+    controller_registry._slots.clear()
 
 
-def test_capability_bitmaps_are_read_as_64_bit_words():
-    assert battery._has_bit("7fdb000000000000 0 0 0 0", 0x130)
-    assert not battery._has_bit("1f0000 0 0 0 0", 0x130)
-    assert battery._has_bit("1f0000 0 0 0 0", 0x110)
-    assert not battery._has_bit("", 0x130)
+@pytest.mark.parametrize("power, level", [(0, 5), (1, 20), (2, 60), (3, 100)])
+def test_sdls_power_level_becomes_the_top_of_its_band(connected, power, level):
+    connected.append(_sdl_pad(power=power))
+    assert [b["level"] for b in battery.read_batteries()] == [level]
+
+
+@pytest.mark.parametrize("power", [-1, 4])
+def test_an_unknown_or_wired_level_lists_no_battery(connected, power):
+    """Wired: SDL2 says "plugged in", not how full. A guessed number would lie."""
+    connected.append(_sdl_pad(power=power))
+    assert battery.read_batteries() == []
+
+
+def test_a_wheel_battery_is_not_a_controller_pill(connected):
+    connected.append(_sdl_pad(is_pad=False, name="Racing Wheel"))
+    assert battery.read_batteries() == []
+
+
+def test_a_battery_is_joined_to_its_player_slot_by_address(connected):
+    from backend.services import controller_registry
+    controller_registry.connect("40:1b:5f:b9:ea:8d", "PS4 Controller")
+    controller_registry.connect("aa:bb:cc:dd:ee:ff", "Other")
+    connected.append(_sdl_pad(serial="aa:bb:cc:dd:ee:ff"))
+    assert battery.read_batteries()[0]["player"] == 2
+
+
+def test_low_enters_the_25_alert_and_empty_the_5_alert():
+    """SDL's bands land on the thresholds the toasts were written for."""
+    assert battery._check([pad(20)])[0]["threshold"] == 25
+    assert battery._check([pad(5)])[0]["threshold"] == 5

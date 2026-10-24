@@ -1,21 +1,20 @@
 """The peripherals that are not SDL gamepads, and whether they are on the bus.
 
-The autoconfig pipeline knows exactly one kind of device: a pad that declares
-BTN_SOUTH on an evdev node. That is the whole roster — `gamepad_monitor`
-enumerates `/dev/input/event*`, `controller_registry` hands out player slots,
-and a generator writes a config for whatever took a slot.
+The autoconfig pipeline knows exactly one kind of device: a pad SDL opens.
+That is the whole roster — `gamepad_monitor` reads SDL's list,
+`controller_registry` hands out player slots, and a generator writes a config
+for whatever took a slot.
 
 Every peripheral that does not enter through that door is invisible:
 
-  · the **GameCube adapter** Dolphin drives over raw libusb. It has no evdev
-    node at all, so nothing in the pipeline can see it, and the owner has no
-    way to tell "the adapter is not plugged in" from "Dolphin is ignoring it";
+  · the **GameCube adapter** Dolphin drives over raw libusb. SDL does not see
+    it at all, so nothing in the pipeline can, and the owner has no way to
+    tell "the adapter is not plugged in" from "Dolphin is ignoring it";
   · the **DolphinBar** and its Wiimotes, which enumerate as several HID
     interfaces whose shape depends on the mode switch on the bar;
-  · **arcade sticks** that enumerate as a keyboard — they declare no
-    BTN_SOUTH, so `pads_by_key()` drops them on purpose;
+  · **arcade sticks** that enumerate as a keyboard, which SDL does not open;
   · **wheels**, whose force-feedback node is separate from their button node;
-  · the **DS3 passthrough** RPCS3 wants over hidraw.
+  · the **DS3 passthrough** RPCS3 wants over raw HID.
 
 `gamepad_monitor` is right to keep dropping these: a player slot is for
 something that can be player 2, and a light gun is not. The gap is that there
@@ -27,8 +26,8 @@ box has it is here. Two verdicts, and nothing in between:
     present     a device with this vendor:product is on the USB bus
     absent      it is not
 
-**Read-only, always.** This module stats sysfs and does nothing else. It never
-mounts, never writes a udev rule, never re-triggers udev — the rule text is
+**Read-only, always.** This module reads Windows' device list
+(`platform/usb.py`) and does nothing else. The Linux packs' udev rule text is
 carried through to `installer/applier.py`, which is the only place allowed to
 put one on a disk, and only at install time.
 
@@ -43,16 +42,10 @@ is not being seen", which is what `launch_notice()` returns.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-
 from .catalog import load_catalog
+from .platform import usb as platform_usb
 
 log = logging.getLogger(__name__)
-
-# Where the kernel publishes what is on the bus. A parameter everywhere below,
-# so the tests can hand over a tmp_path tree and no test run can ever depend on
-# what happens to be plugged into the machine running it.
-SYSFS_USB = Path("/sys/bus/usb/devices")
 
 # The classes a pack may declare. This is the roster widening: `gamepad` is what
 # the pipeline already handled, and the other four are the ones it could not
@@ -86,7 +79,7 @@ def class_of(spec: dict) -> str:
 def normalize_vid_pid(raw: str) -> str:
     """`054C:0BA0` → `054c:0ba0`, and anything unparseable → "".
 
-    sysfs writes lowercase, pack.json is schema-pinned to lowercase, and a udev
+    Windows writes upper case, pack.json is schema-pinned to lowercase, and a
     rule conventionally uses whichever case the person writing it preferred.
     One spelling reaches the comparison, so a rule and a pack that name the
     same adapter in different case are still the same adapter.
@@ -102,49 +95,18 @@ def normalize_vid_pid(raw: str) -> str:
     return f"{vendor}:{product}"
 
 
-def inventory(sysfs: Path | None = None) -> dict[str, str]:
-    """`vid:pid` → the friendliest name sysfs offers, for everything on the bus.
+def inventory() -> dict[str, str]:
+    """`vid:pid` → the friendliest name Windows offers, for everything on the bus.
 
-    Only nodes carrying `idVendor` are devices; `3-3:1.0` and friends are
-    interfaces of a device already counted, and including them would report the
-    same adapter several times under the same key for no gain.
-
-    Never raises. This feeds a settings screen and a launch, and a box whose
-    sysfs is unreadable must produce an empty inventory — "nothing detected" —
-    rather than an exception on the way to the grid.
+    Never raises. This feeds a settings screen and a launch, and a PC whose
+    device list cannot be read must produce an empty inventory ("nothing
+    detected") rather than an exception on the way to the grid.
     """
-    root = sysfs or SYSFS_USB
-    found: dict[str, str] = {}
     try:
-        entries = sorted(root.iterdir())
+        return platform_usb.inventory()
     except OSError:
-        # No /sys (a container, a test), or it went away. Not an error worth a
-        # line every time the settings screen repaints.
-        log.debug("usb_devices: cannot read %s", root)
-        return found
-
-    for node in entries:
-        try:
-            vendor = (node / "idVendor").read_text().strip()
-            product = (node / "idProduct").read_text().strip()
-        except OSError:
-            continue                      # an interface, or a device unplugged mid-scan
-        key = normalize_vid_pid(f"{vendor}:{product}")
-        if not key:
-            continue
-        name = ""
-        for attr in ("product", "manufacturer"):
-            try:
-                name = (node / attr).read_text().strip()
-            except OSError:
-                continue
-            if name:
-                break
-        # setdefault: two identical adapters are one entry. The roster question
-        # this answers is "is this model on the bus", and a second copy of the
-        # same GameCube adapter does not change the answer.
-        found.setdefault(key, name)
-    return found
+        log.debug("usb_devices: the device list could not be read", exc_info=True)
+        return {}
 
 
 def _rows_for(pack, present: dict[str, str]) -> list[dict]:
@@ -169,7 +131,7 @@ def _rows_for(pack, present: dict[str, str]) -> list[dict]:
     return rows
 
 
-def report(*, packs: dict | None = None, sysfs: Path | None = None) -> list[dict]:
+def report(*, packs: dict | None = None, present: dict[str, str] | None = None) -> list[dict]:
     """Every declared peripheral on the box, in catalogue order.
 
     This is what the controllers screen lists under the player slots. Without
@@ -181,7 +143,7 @@ def report(*, packs: dict | None = None, sysfs: Path | None = None) -> list[dict
     """
     try:
         packs = load_catalog() if packs is None else packs
-        present = inventory(sysfs)
+        present = inventory() if present is None else present
         ordered = sorted(packs.values(),
                          key=lambda p: (p.data.get("order", 10_000), p.id))
         out: list[dict] = []
@@ -194,7 +156,7 @@ def report(*, packs: dict | None = None, sysfs: Path | None = None) -> list[dict
 
 
 def missing_for(system_id: str, *, packs: dict | None = None,
-                sysfs: Path | None = None) -> list[dict]:
+                present: dict[str, str] | None = None) -> list[dict]:
     """The peripherals this system declares and the box has not got.
 
     Never raises. A check that cannot run must cost the player a missing
@@ -205,21 +167,21 @@ def missing_for(system_id: str, *, packs: dict | None = None,
         pack = packs.get(system_id)
         if pack is None or not pack.data.get("usb"):
             return []
-        return [r for r in _rows_for(pack, inventory(sysfs))
-                if r["status"] == ABSENT]
+        present = inventory() if present is None else present
+        return [r for r in _rows_for(pack, present) if r["status"] == ABSENT]
     except Exception:
         log.exception("usb_devices: check for %r failed", system_id)
         return []
 
 
 def launch_notice(system_id: str, *, packs: dict | None = None,
-                  sysfs: Path | None = None) -> str:
+                  present: dict[str, str] | None = None) -> str:
     """One sentence about the accessories that are not here, or "".
 
     A NOTICE, not a blocker — see the module docstring. The caller broadcasts
     it and starts the emulator anyway.
     """
-    missing = missing_for(system_id, packs=packs, sysfs=sysfs)
+    missing = missing_for(system_id, packs=packs, present=present)
     if not missing:
         return ""
     label = missing[0]["system_label"]

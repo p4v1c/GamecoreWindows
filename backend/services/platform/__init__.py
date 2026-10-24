@@ -19,6 +19,8 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `display.py`    | display modes, monitor active             | `xrandr`, `kscreen-doctor`    |
 | `power.py`      | screen power, idle timers, power plan     | `xset`, PowerDevil, `cpupower`|
 | `volumes.py`    | external disks, safe removal              | `lsblk`, `udisksctl`          |
+| `gamepads.py`   | pads through SDL2, their events, battery  | evdev, `/dev/input`, sysfs    |
+| `usb.py`        | what is on the USB bus                    | `/sys/bus/usb/devices`        |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """

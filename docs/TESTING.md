@@ -87,7 +87,11 @@ home".
   admin (`WinError 1314`). `rmtree` and `unlink` remove a junction without
   entering it.
 - A name may not hold `:`: sysfs fixtures such as `3-1:1.0` cannot exist on
-  NTFS (those tests are Linux-only, marked).
+  NTFS (the Linux tests that built them left with their code).
+- No test may change this PC: the session guard in `conftest.py` replaces the
+  display mode switch, the screen power, the power plan and idle timers and the
+  disk eject; `fake_screen` and `disks` fake them per test, and SDL's pad
+  snapshot is faked by patching `platform/gamepads.py` `pads()`.
 - `glob("*.png")` matches `Back.PNG`: names compare case-insensitively.
 - Without UTF-8 mode, `read_text()` with no encoding decodes as the ANSI
   code page (cp1252 on the runner and on a French Windows): every theme and

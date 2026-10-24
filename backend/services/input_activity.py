@@ -1,8 +1,14 @@
-"""Which evdev events mean somebody is at the controller — standby's input."""
-from .gamepad_devices import EV_ABS, EV_KEY, KEY_DOWN
+"""Which pad events mean somebody is at the controller: standby's input.
 
-# The d-pad, where the kernel puts it on a DualShock 4 and most other modern
-# pads: a hat, not four buttons. ABS_HAT0X/Y and their second-hat siblings.
+The events are `platform/gamepads.py`'s pad layer, in the evdev vocabulary.
+"""
+from types import SimpleNamespace
+
+from .gamepad_devices import EV_ABS, EV_KEY, KEY_DOWN
+from .platform.gamepads import axis_range
+
+# The d-pad, as the pad layer reports it: a hat, not four buttons.
+# ABS_HAT0X/Y and their second-hat siblings.
 HAT_CODES = frozenset({0x10, 0x11, 0x12, 0x13})
 
 # How far an axis must move, as a fraction of its full travel, before it counts
@@ -16,15 +22,24 @@ HAT_CODES = frozenset({0x10, 0x11, 0x12, 0x13})
 STICK_TRAVEL = 0.25
 
 
+class _PadAxes:
+    """The axis ranges of the pad layer, in the shape `ActivityFilter` asks for."""
+
+    def absinfo(self, code: int):
+        low, high = axis_range(code)
+        return SimpleNamespace(min=low, max=high)
+
+
+PAD_AXES = _PadAxes()
+
+
 class ActivityFilter:
     """Does this event mean somebody is at the controller?
 
     Split out of the read loop so it can be asked directly — see
-    tests/test_standby_input.py. It only counted `EV_KEY` down before, and on
-    the pad this box is used with that misses the d-pad entirely: hid-playstation
-    reports it as a hat. Pressing a direction woke nothing and, worse, did not
-    reset the idle timer, so browsing with the stick alone brought the
-    screensaver up on somebody actively using the box.
+    tests/test_standby_input.py. Counting `EV_KEY` down alone misses the d-pad
+    (a hat) and the sticks: browsing with them alone brought the screensaver
+    up on somebody actively using the box.
 
     Movement is what counts, not position: measured against the axis's last
     reported value rather than its centre. Position would need to know where

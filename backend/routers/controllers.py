@@ -47,8 +47,8 @@ def usb_peripherals():
 
     The player slots above this list answer "who is player 2". They cannot
     answer "is the GameCube adapter plugged in", because an adapter Dolphin
-    drives over raw libusb has no evdev node and therefore never enters the
-    roster at all. Without this list the two failure modes — not plugged in,
+    drives over raw libusb is not a joystick SDL opens and therefore never
+    enters the roster at all. Without this list the two failure modes — not plugged in,
     and plugged in but not seen — look identical from a sofa, and only one of
     them is fixed by touching the cable.
     """
@@ -233,7 +233,7 @@ async def mapping_events(websocket: WebSocket):
     try:
         async for event in controller_capture.events(session):
             await websocket.send_json({"event": "input", "data": event})
-        # The stream ended by itself: every node of the pad is gone, or the
+        # The stream ended by itself: the pad is gone, or the
         # session ran out of time. Say so instead of closing in silence — the
         # wizard is a screen waiting for a press that can no longer come, and
         # the only other way out of it was the pad that just left.
@@ -241,7 +241,7 @@ async def mapping_events(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception:
-        # Never propagate: a pad unplugged mid-wizard closes its nodes, and the
+        # Never propagate: a pad unplugged mid-wizard ends its stream, and the
         # player must get a socket that ends rather than a backend traceback.
         try:
             await websocket.send_json({"event": "ended", "data": {}})

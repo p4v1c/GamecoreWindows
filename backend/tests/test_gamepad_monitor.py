@@ -2,17 +2,13 @@
 
 Two failures that both look like "the emulator is broken" from the sofa:
 a pad with no Home button never being detected at all, and a Bluetooth pad
-losing its player slot when its charging cable is unplugged.
+losing its player slot when it reconnects.
 
-The evdev module is replaced with a fake, so these run on any machine and
-without a controller plugged in.
-
-Run under pytest:  pytest backend/tests/test_gamepad_monitor.py
-Or directly:       python backend/tests/test_gamepad_monitor.py
+SDL's snapshot (`platform/gamepads.py` `pads()`) is replaced with a list the
+test controls, so these run without a controller plugged in.
 """
 import logging
 import sys
-import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -21,122 +17,98 @@ import pytest
 
 from backend.services import gamepad_monitor as gm
 from backend.services import gamepad_devices as gdev
+from backend.services.platform import gamepads as platform_gamepads
 
 
-BTN_MODE = 0x13C        # Guide / PS / Home
-BTN_SOUTH = 0x130       # A / Cross — every real pad, no keyboard
-KEY_A = 30              # a plain keyboard key
-
-
-class FakeDevice:
-    def __init__(self, path, name, keys, uniq="", vendor=0x054C, product=0x09CC,
-                 bustype=0x05, phys=""):
-        self.path, self.name, self._keys, self.uniq = path, name, keys, uniq
-        self.phys = phys
-        self.info = types.SimpleNamespace(vendor=vendor, product=product,
-                                          bustype=bustype)
-
-    def capabilities(self):
-        return {gm.EV_KEY: self._keys}
-
-    def close(self):
-        pass
+def pad(device="sdl0", name="PS4 Controller", serial="", vendor="054c", product="09cc",
+        bus=0x05, is_pad=True, has_guide=True):
+    return platform_gamepads.PadInfo(
+        device=device, name=name, vendor=vendor, product=product,
+        guid="05000000" + "0" * 24, serial=serial, bus=bus, is_pad=is_pad,
+        has_guide=has_guide, counts=(16, 6, 1), rest=(0,) * 6, controller=is_pad)
 
 
 @pytest.fixture
-def fake_evdev(monkeypatch):
-    """Install a fake `evdev` whose device list the test controls."""
-    devices: dict[str, FakeDevice] = {}
-
-    module = types.ModuleType("evdev")
-    module.InputDevice = lambda path: devices[path]
-    module.list_devices = lambda: list(devices)
-    monkeypatch.setitem(sys.modules, "evdev", module)
-    monkeypatch.setattr(gm.glob, "glob", lambda pattern: list(devices))
+def fake_pads(monkeypatch):
+    """SDL's snapshot, as a list the test fills."""
+    pads: list = []
+    monkeypatch.setattr(platform_gamepads, "pads", lambda: list(pads))
     gdev._logged_no_guide.clear()
-    return devices
+    return pads
 
 
 # ── #11 · detection ──────────────────────────────────────────────────────────
 
-def test_a_pad_with_a_guide_button_is_detected(fake_evdev):
-    fake_evdev["/dev/input/event3"] = FakeDevice(
-        "/dev/input/event3", "Wireless Controller", [BTN_MODE, BTN_SOUTH], uniq="aa:bb:cc:dd:ee:ff")
+def test_a_pad_with_a_guide_button_is_detected(fake_pads):
+    fake_pads.append(pad("sdl3", serial="84:30:95:07:c8:1c"))
+    assert gm._find_gamepad_devices() == {
+        "sdl3": ("PS4 Controller", "84:30:95:07:c8:1c", True, "054c", "09cc", 0x05)}
 
+
+def test_a_pad_without_a_guide_button_is_detected_too(fake_pads):
+    """A generic pad, an arcade stick, an 8BitDo in DInput: no Home button,
+    still a player."""
+    fake_pads.append(pad("sdl5", name="USB Gamepad", vendor="0079", product="0006",
+                         bus=0x03, has_guide=False))
     found = gm._find_gamepad_devices()
-    assert "/dev/input/event3" in found
-    assert found["/dev/input/event3"][2] is True, "is_pad"
+    assert found["sdl5"][2] is True, "a pad without a Guide button must still take a slot"
 
 
-def test_the_pc_packs_virtual_xbox_pad_takes_no_player_slot(fake_evdev):
-    """It mirrors a real pad during a PC game; counted, it took player 2."""
-    fake_evdev["/dev/input/event24"] = FakeDevice(
-        "/dev/input/event24", "Microsoft X-Box 360 pad", [BTN_MODE, BTN_SOUTH],
-        vendor=0x045E, product=0x028E, bustype=0x03, phys="gamecore-virtual-pad/1")
-
-    assert gm._find_gamepad_devices() == {}
-
-
-def test_a_pad_without_a_guide_button_is_detected_too(fake_evdev):
-    """The bug: no Guide code meant the device never entered the dict at all —
-    not watched, not registered, no player slot, apply_profile never called."""
-    fake_evdev["/dev/input/event5"] = FakeDevice(
-        "/dev/input/event5", "USB Gamepad", [BTN_SOUTH, 0x131, 0x133])
-
+def test_a_wheel_is_watched_but_takes_no_player_slot(fake_pads):
+    fake_pads.append(pad("sdl1", name="Racing Wheel", is_pad=False, has_guide=False))
     found = gm._find_gamepad_devices()
-    assert "/dev/input/event5" in found, "generic pad must be detected"
-    assert found["/dev/input/event5"][2] is True, "and must take a player slot"
+    assert "sdl1" in found, "still watched: it wakes the box"
+    assert gm.pads_by_key(found) == {}
 
 
-def test_a_keyboard_is_still_refused_a_player_slot(fake_evdev):
-    """The anti-keyboard rule has to survive the change above."""
-    fake_evdev["/dev/input/event0"] = FakeDevice("/dev/input/event0", "AT Translated Set 2 keyboard",
-                                                 [KEY_A, 31, 32])
-    fake_evdev["/dev/input/event1"] = FakeDevice("/dev/input/event1", "HDMI CEC remote",
-                                                 [172, KEY_A])   # KEY_HOMEPAGE, no BTN_SOUTH
-
-    found = gm._find_gamepad_devices()
-    assert "/dev/input/event0" not in found, "a plain keyboard is not a device we watch"
-    # The remote still gets watched for its Home key, but is not a controller.
-    assert found["/dev/input/event1"][2] is False, "remote must not take a player slot"
-
-
-def test_a_virtual_keyboard_declaring_every_key_takes_no_player_slot(fake_evdev):
-    """Sunshine's "libvirtualhid Keyboard" (1209:0002) declares every EV_KEY
-    code, BTN_SOUTH included, so it took player 2 and toasted "not configured"
-    for every emulator."""
-    fake_evdev["/dev/input/event21"] = FakeDevice(
-        "/dev/input/event21", "libvirtualhid Keyboard", list(range(1, 0x2ff)),
-        vendor=0x1209, product=0x0002, bustype=0x03)
-
-    found = gm._find_gamepad_devices()
-    assert found["/dev/input/event21"][2] is False, "a keyboard is not a pad"
-    assert gdev.pads_by_key(found) == {}
-
-
-def test_a_pad_with_neither_guide_nor_south_is_ignored(fake_evdev):
-    fake_evdev["/dev/input/event9"] = FakeDevice("/dev/input/event9", "Some sensor", [KEY_A])
-    assert gm._find_gamepad_devices() == {}
-
-
-def test_the_no_guide_notice_is_logged_once_per_device(fake_evdev, caplog):
-    import logging
-    fake_evdev["/dev/input/event5"] = FakeDevice("/dev/input/event5", "USB Gamepad", [BTN_SOUTH])
-
+def test_the_no_guide_notice_is_logged_once_per_device(fake_pads, caplog):
+    fake_pads.append(pad("sdl5", name="USB Gamepad", has_guide=False))
     with caplog.at_level(logging.INFO, logger=gdev.log.name):
         gm._find_gamepad_devices()
         gm._find_gamepad_devices()
         gm._find_gamepad_devices()
-
     notices = [r for r in caplog.records if "no Guide button" in r.getMessage()]
     assert len(notices) == 1, f"scan runs every few seconds; logged {len(notices)}x"
 
 
+def test_a_pc_with_no_controller_stays_silent(fake_pads, caplog):
+    with caplog.at_level(logging.DEBUG, logger=gdev.log.name):
+        assert gm._find_gamepad_devices() == {}
+    assert caplog.records == []
+
+
+def test_a_bluetooth_address_keeps_the_slot_across_reconnections(fake_pads):
+    """SDL gives the pad a new instance (`sdl7`) on every reconnection; the
+    registry key is its address, so the slot is the same."""
+    fake_pads.append(pad("sdl3", serial="84:30:95:07:c8:1c"))
+    first = gm.pads_by_key(gm._find_gamepad_devices())
+    fake_pads[:] = [pad("sdl7", serial="84:30:95:07:c8:1c")]
+    assert gm.pads_by_key(gm._find_gamepad_devices()).keys() == first.keys()
+
+
+@pytest.mark.parametrize("raw, serial", [("40-1b-5f-b9-ea-8d", "40:1b:5f:b9:ea:8d"),
+                                         ("401B5FB9EA8D", "40:1b:5f:b9:ea:8d"),
+                                         ("", ""), ("ABC123", "ABC123")])
+def test_a_serial_that_is_an_address_is_written_as_one(raw, serial):
+    assert platform_gamepads.normalize_serial(raw) == serial
+
+
+@pytest.mark.parametrize("guid, bus", [("05000000" + "0" * 24, 0x05),
+                                       ("03000000" + "0" * 24, 0x03), ("zz", 0)])
+def test_the_bus_is_read_from_the_guid(guid, bus):
+    assert platform_gamepads.bus_of(guid) == bus
+
+
+@pytest.mark.parametrize("kind, buttons, controller, padlike", [
+    (1, 16, True, True), (0, 10, False, True), (0, 2, False, False), (2, 20, False, False)])
+def test_wheels_and_two_button_devices_are_not_players(kind, buttons, controller, padlike):
+    assert platform_gamepads.is_padlike(kind, buttons, controller) is padlike
+
+
 # ── #12 · one pad, several device nodes ──────────────────────────────────────
 #
-# key_for() returns the pad's MAC, so a DualShock 4 on Bluetooth that is then
-# plugged in to charge maps two /dev/input/event* paths to a single registry
-# key. These used to assert on a dict literal that mirrored the monitor's own
+# key_for() returns the pad's MAC, so a pad SDL lists twice under one address
+# maps two devices to a single registry key. These used to assert on a dict literal that mirrored the monitor's own
 # condition, so deleting that condition would have left them all green. They
 # now go through pads_by_key() and _reconcile(), which is where the decision
 # actually lives.
@@ -214,9 +186,9 @@ def roster(monkeypatch):
 
 def test_a_pad_with_several_nodes_takes_one_slot(roster):
     """A DualShock 4 exposes a touchpad and a motion node besides its buttons."""
-    pad = {**_node("/dev/input/event20", "84:30:95:07:c8:1c"),
-           **_node("/dev/input/event21", "84:30:95:07:c8:1c", name="Touchpad"),
-           **_node("/dev/input/event22", "84:30:95:07:c8:1c", name="Motion Sensors")}
+    pad = {**_node("sdl20", "84:30:95:07:c8:1c"),
+           **_node("sdl21", "84:30:95:07:c8:1c", name="Touchpad"),
+           **_node("sdl22", "84:30:95:07:c8:1c", name="Motion Sensors")}
 
     calls = roster(pad)
     assert _applies(calls) == [("apply", 1, "054c", 0)]
@@ -228,15 +200,15 @@ def test_a_pad_with_several_nodes_takes_one_slot(roster):
 
 def test_a_pad_keeps_its_slot_while_another_node_is_alive(roster):
     """Unplugging the charging cable of a Bluetooth pad is not a disconnect."""
-    bt = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    roster({**bt, **_node("/dev/input/event24", "84:30:95:07:c8:1c")})
+    bt = _node("sdl20", "84:30:95:07:c8:1c")
+    roster({**bt, **_node("sdl24", "84:30:95:07:c8:1c")})
 
     assert roster(bt) == [], "the Bluetooth node is still there — nothing happens"
     assert reg.snapshot() == [{"player": 1, "label": "Wireless Controller"}]
 
 
 def test_the_slot_is_released_once_the_last_node_goes(roster):
-    roster(_node("/dev/input/event20", "84:30:95:07:c8:1c"))
+    roster(_node("sdl20", "84:30:95:07:c8:1c"))
 
     calls = roster({})
     assert _applies(calls) == []
@@ -247,8 +219,8 @@ def test_the_slot_is_released_once_the_last_node_goes(roster):
 
 
 def test_unplugging_one_pad_does_not_touch_another(roster):
-    p1 = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    p2 = _node("/dev/input/event21", "aa:bb:cc:dd:ee:ff", "045e", "02fd", "Xbox Wireless")
+    p1 = _node("sdl20", "84:30:95:07:c8:1c")
+    p2 = _node("sdl21", "aa:bb:cc:dd:ee:ff", "045e", "02fd", "Xbox Wireless")
     roster({**p1, **p2})
 
     calls = roster(p1)
@@ -272,8 +244,8 @@ def test_the_survivor_of_two_identical_pads_is_re_profiled(roster):
     to keep slot 2 for the rest of the session, which left Ryujinx presenting
     no Player 1 at all.
     """
-    a = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    b = _node("/dev/input/event21", "aa:bb:cc:dd:ee:ff")
+    a = _node("sdl20", "84:30:95:07:c8:1c")
+    b = _node("sdl21", "aa:bb:cc:dd:ee:ff")
 
     assert _applies(roster(a)) == [("apply", 1, "054c", 0)]
     assert _applies(roster({**a, **b})) == [("apply", 2, "054c", 1)]
@@ -287,7 +259,7 @@ def test_the_survivor_of_two_identical_pads_is_re_profiled(roster):
 
 def test_an_unchanged_roster_writes_nothing(roster):
     """Idempotence: the scan runs every three seconds for the whole session."""
-    pad = _node("/dev/input/event20", "84:30:95:07:c8:1c")
+    pad = _node("sdl20", "84:30:95:07:c8:1c")
     roster(pad)
     assert roster(pad) == []
     assert roster(pad) == []
@@ -300,12 +272,12 @@ def test_a_pad_whose_ids_are_still_zero_takes_no_slot(roster):
     `known` blocked every later attempt — so it held that slot, unconfigured,
     until the backend restarted.
     """
-    ghost = {"/dev/input/event9": ("uhid pad", "", True, "0000", "0000", 0x05)}
+    ghost = {"sdl9": ("uhid pad", "", True, "0000", "0000", 0x05)}
 
     assert roster(ghost) == []
     assert reg.snapshot() == []
 
-    real = {"/dev/input/event9": ("8BitDo Pro 2", "", True, "2dc8", "6003", 0x05)}
+    real = {"sdl9": ("8BitDo Pro 2", "", True, "2dc8", "6003", 0x05)}
     assert _applies(roster(real)) == [("apply", 1, "2dc8", 0)]
 
 
@@ -323,102 +295,11 @@ def test_dup_counts_by_resolved_name_not_by_vendor_product():
     }) == {"a": 0, "b": 1, "c": 0}
 
 
-def test_event_nodes_sort_by_number_not_lexicographically():
-    """Slots are handed out in this order on the first scan, so `event10`
-    sorting before `event2` made the numbering depend on how many input
-    devices the box happens to have."""
-    paths = ["/dev/input/event10", "/dev/input/event2", "/dev/input/event20"]
-    assert sorted(paths, key=gm._event_sort_key) == [
-        "/dev/input/event2", "/dev/input/event10", "/dev/input/event20"]
-
-
-if __name__ == "__main__":
-    import contextlib
-    import logging
-
-    class _Caplog:
-        def __init__(self):
-            self.records = []
-
-        @contextlib.contextmanager
-        def at_level(self, level, logger=None):
-            handler = logging.Handler()
-            handler.emit = self.records.append
-            lg = logging.getLogger(logger)
-            lg.addHandler(handler)
-            old = lg.level
-            lg.setLevel(level)
-            try:
-                yield
-            finally:
-                lg.setLevel(old)
-                lg.removeHandler(handler)
-
-    @contextlib.contextmanager
-    def fake_evdev_ctx():
-        devices: dict[str, FakeDevice] = {}
-        module = types.ModuleType("evdev")
-        module.InputDevice = lambda path: devices[path]
-        module.list_devices = lambda: list(devices)
-        saved_mod, saved_glob = sys.modules.get("evdev"), gm.glob.glob
-        sys.modules["evdev"] = module
-        gm.glob.glob = lambda pattern: list(devices)
-        gdev._logged_no_guide.clear()
-        try:
-            yield devices
-        finally:
-            gm.glob.glob = saved_glob
-            if saved_mod is None:
-                sys.modules.pop("evdev", None)
-            else:
-                sys.modules["evdev"] = saved_mod
-
-    for fn in (test_a_pad_with_a_guide_button_is_detected,
-               test_a_pad_without_a_guide_button_is_detected_too,
-               test_a_keyboard_is_still_refused_a_player_slot,
-               test_a_pad_with_neither_guide_nor_south_is_ignored):
-        with fake_evdev_ctx() as devs:
-            fn(devs)
-        print(f"[OK ] {fn.__name__}")
-
-    with fake_evdev_ctx() as devs:
-        test_the_no_guide_notice_is_logged_once_per_device(devs, _Caplog())
-    print("[OK ] test_the_no_guide_notice_is_logged_once_per_device")
-
-    class _Monkeypatch:
-        """Enough of pytest's monkeypatch for the roster fixture."""
-        def __init__(self):
-            self._undo = []
-
-        def setattr(self, obj, name, value):
-            self._undo.append((obj, name, getattr(obj, name)))
-            setattr(obj, name, value)
-
-        def undo(self):
-            for obj, name, old in reversed(self._undo):
-                setattr(obj, name, old)
-            self._undo.clear()
-
-    for fn in (test_a_pad_with_several_nodes_takes_one_slot,
-               test_a_pad_keeps_its_slot_while_another_node_is_alive,
-               test_the_slot_is_released_once_the_last_node_goes,
-               test_unplugging_one_pad_does_not_touch_another,
-               test_the_survivor_of_two_identical_pads_is_re_profiled,
-               test_an_unchanged_roster_writes_nothing,
-               test_a_pad_whose_ids_are_still_zero_takes_no_slot):
-        mp = _Monkeypatch()
-        try:
-            fn(_make_roster(mp))
-        finally:
-            mp.undo()
-            reg._slots.clear(); reg._labels.clear()
-        print(f"[OK ] {fn.__name__}")
-
-    for fn in (test_dup_counts_by_resolved_name_not_by_vendor_product,
-               test_event_nodes_sort_by_number_not_lexicographically):
-        fn()
-        print(f"[OK ] {fn.__name__}")
-    print("\nAll tests passed.")
+def test_devices_sort_by_number_not_lexicographically():
+    """Slots are handed out in this order on the first scan, so `sdl10`
+    sorting before `sdl2` would make the numbering depend on string order."""
+    assert sorted(["sdl10", "sdl2", "sdl20"], key=gm._event_sort_key) == [
+        "sdl2", "sdl10", "sdl20"]
 
 
 # ── a failed profiling pass must be retried ──────────────────────────────────
@@ -429,7 +310,7 @@ if __name__ == "__main__":
 # connection, _ryujinx refused to invent an id, and the pad was never revisited.
 
 def _one_pad():
-    return {**_node("/dev/input/event20", "aa:bb:cc:dd:ee:ff")}
+    return {**_node("sdl20", "aa:bb:cc:dd:ee:ff")}
 
 
 def _run_reconcile(applied, live, ws):
@@ -521,8 +402,8 @@ def test_moving_a_pad_from_bluetooth_to_usb_re_profiles_it(roster):
     change, so without the bus in the footprint the pad looked unchanged and
     every GUID-bound emulator kept pointing at a device that no longer exists.
     """
-    bt  = _node("/dev/input/event20", "84:30:95:07:c8:1c", bustype=0x05)
-    usb = _node("/dev/input/event20", "84:30:95:07:c8:1c", bustype=0x03)
+    bt  = _node("sdl20", "84:30:95:07:c8:1c", bustype=0x05)
+    usb = _node("sdl20", "84:30:95:07:c8:1c", bustype=0x03)
 
     assert _applies(roster(bt)) == [("apply", 1, "054c", 0)]
     assert _applies(roster(usb)) == [("apply", 1, "054c", 0)], \
@@ -532,8 +413,8 @@ def test_moving_a_pad_from_bluetooth_to_usb_re_profiles_it(roster):
 def test_the_last_pad_left_becomes_player_one(roster):
     """Unplug player 1 in co-op and the survivor used to keep slot 2 for good —
     so Ryujinx presented no Player 1 at all to a game that wanted one."""
-    a = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    b = _node("/dev/input/event21", "aa:bb:cc:dd:ee:ff", vendor="045e", product="02fd")
+    a = _node("sdl20", "84:30:95:07:c8:1c")
+    b = _node("sdl21", "aa:bb:cc:dd:ee:ff", vendor="045e", product="02fd")
 
     roster(a)
     roster({**a, **b})
@@ -546,8 +427,8 @@ def test_the_last_pad_left_becomes_player_one(roster):
 def test_slots_are_not_renumbered_while_a_game_runs(roster, monkeypatch):
     """Closing the gap mid-session would silently make player 2 into player 1."""
     monkeypatch.setattr(gm, "_game_running", lambda: True)
-    a = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    b = _node("/dev/input/event21", "aa:bb:cc:dd:ee:ff", vendor="045e", product="02fd")
+    a = _node("sdl20", "84:30:95:07:c8:1c")
+    b = _node("sdl21", "aa:bb:cc:dd:ee:ff", vendor="045e", product="02fd")
 
     roster(a)
     roster({**a, **b})
@@ -576,8 +457,8 @@ def test_slots_are_not_renumbered_while_a_game_is_only_suspended(roster,
         session_id=1))
     monkeypatch.setattr(pm, "process_manager", manager)
 
-    a = _node("/dev/input/event20", "84:30:95:07:c8:1c")
-    b = _node("/dev/input/event21", "aa:bb:cc:dd:ee:ff", vendor="045e",
+    a = _node("sdl20", "84:30:95:07:c8:1c")
+    b = _node("sdl21", "aa:bb:cc:dd:ee:ff", vendor="045e",
               product="02fd")
     roster(a)
     roster({**a, **b})
@@ -586,95 +467,80 @@ def test_slots_are_not_renumbered_while_a_game_is_only_suspended(roster,
     assert reg._slots[gm.controller_registry.key_for("aa:bb:cc:dd:ee:ff", "")] == 2
 
 
-# ── evdev refused: the failure that looks exactly like "no pad" ──────────────
-# `{}` is what a box with nothing plugged in returns AND what a box whose every
-# device was refused returns. Downstream cannot separate them: `was != live` is
-# false, so _reconcile is never even called. From the sofa the pad simply does
-# nothing, in the menu and in games, with an empty journal to diagnose it.
+# ── SDL missing: the failure that looks exactly like "no pad" ────────────────
+
+def test_a_pc_where_sdl_cannot_run_says_so_and_waits_for_nothing(monkeypatch, caplog):
+    """No SDL2.dll: no pad will ever be seen. Said once, loudly, and a launch
+    must not wait for a profiling pass that will never come."""
+    import asyncio
+
+    monkeypatch.setattr(platform_gamepads, "start", lambda: False)
+    monkeypatch.setattr(platform_gamepads, "unavailable", lambda: "SDL2.dll not found")
+    with caplog.at_level(logging.ERROR, logger=gm.log.name):
+        asyncio.run(gm.run())
+    assert any("SDL2.dll" in r.getMessage() for r in caplog.records)
+    assert gm.unprofiled() == []
 
 
-@pytest.fixture
-def denied_evdev(monkeypatch):
-    """evdev is present, the devices are there, every open is refused.
+# ── the guide button, read from the pad layer ────────────────────────────────
 
-    The box whose backend account is not in the `input` group — the failure
-    mode `_find_gamepad_devices`'s own docstring names.
-    """
-    paths = ["/dev/input/event3", "/dev/input/event5"]
+def _watch(monkeypatch, events):
+    """Run `_watch_device` over a script of pad-layer events; return the gestures."""
+    import asyncio
 
-    def refuse(path):
-        raise PermissionError(13, "Permission denied", path)
+    fired: list[str] = []
 
-    module = types.ModuleType("evdev")
-    module.InputDevice = refuse
-    module.list_devices = lambda: list(paths)
-    monkeypatch.setitem(sys.modules, "evdev", module)
-    monkeypatch.setattr(gm.glob, "glob", lambda pattern: list(paths))
-    gdev._logged_no_guide.clear()
-    gdev._last_denied = None
-    return paths
+    async def suspend(gesture, foreground_only=False, from_game=False):
+        fired.append(gesture)
 
+    def subscribe(device):
+        queue = asyncio.Queue()
+        for event in [*events, platform_gamepads.GONE]:
+            queue.put_nowait(event)
+        return queue
 
-def test_a_refused_device_names_the_cause(denied_evdev, caplog):
-    """The line has to carry the reason, not just the symptom: `input` group."""
-    with caplog.at_level(logging.WARNING, logger=gdev.log.name):
-        assert gm._find_gamepad_devices() == {}
-
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert len(warnings) == 1
-    assert "input" in warnings[0].getMessage()
-
-
-def test_the_refusal_is_not_repeated_every_pass(denied_evdev, caplog):
-    """The scan loop runs every three seconds forever. One warning per pass is
-    1200 an hour, which buries the one line that names the cause."""
-    with caplog.at_level(logging.WARNING, logger=gdev.log.name):
-        for _ in range(5):
-            gm._find_gamepad_devices()
-
-    assert len([r for r in caplog.records if r.levelno >= logging.WARNING]) == 1
+    monkeypatch.setattr(platform_gamepads, "subscribe", subscribe)
+    monkeypatch.setattr(platform_gamepads, "unsubscribe", lambda device, queue: None)
+    monkeypatch.setattr(gm, "_suspend_to_interface", suspend)
+    monkeypatch.setattr(gm, "_last_guide_press", None)
+    monkeypatch.setattr(gm, "_guide_armed", False)
+    # Presses 0.3 s apart: past the debounce, inside the double-press window.
+    # Only the monitor's clock: asyncio's own must stay real.
+    import types
+    clock = iter(i * 0.3 for i in range(1000))
+    monkeypatch.setattr(gm, "time", types.SimpleNamespace(monotonic=lambda: next(clock)))
+    from backend.services import standby
+    monkeypatch.setattr(standby, "on_input", lambda: None)
+    asyncio.run(gm._watch_device("sdl0"))
+    return fired
 
 
-def test_a_box_with_no_controller_stays_silent(fake_evdev, caplog):
-    """A console with nothing plugged in is a legitimate state, not a fault.
-    If this ever warns, the diagnostic above becomes noise and gets ignored."""
-    gdev._last_denied = None
-    with caplog.at_level(logging.DEBUG, logger=gdev.log.name):
-        assert gm._find_gamepad_devices() == {}
-
-    assert caplog.records == []
-
-
-def test_a_missing_evdev_module_says_so(monkeypatch, caplog):
-    """`except ImportError: return {}` guaranteed no pad would ever be seen and
-    wrote it nowhere."""
-    monkeypatch.setitem(sys.modules, "evdev", None)   # `import evdev` raises
-    monkeypatch.setattr(gm.glob, "glob", lambda pattern: [])
-    monkeypatch.setattr(gdev, "_logged_no_evdev", False)
-
-    with caplog.at_level(logging.DEBUG, logger=gdev.log.name):
-        assert gm._find_gamepad_devices() == {}
-
-    assert any(r.levelno >= logging.ERROR for r in caplog.records)
+def test_a_guide_double_press_from_sdl_reaches_the_gesture(monkeypatch):
+    from backend.services import process_manager as pm
+    monkeypatch.setattr(type(pm.process_manager), "is_foreground", property(lambda self: False))
+    guide = platform_gamepads.controller_button(5, True)
+    assert guide == platform_gamepads.PadEvent(gdev.EV_KEY, gdev.BTN_MODE, 1, "pad")
+    assert _watch(monkeypatch, [guide, platform_gamepads.controller_button(5, False),
+                                guide]) == ["guide"]
 
 
-def test_a_pad_unplugged_mid_scan_is_not_a_permission_problem(monkeypatch, caplog):
-    """A device that vanishes between the glob and the open is routine. Calling
-    that a permission failure would send the owner after the wrong cause."""
-    def gone(path):
-        raise FileNotFoundError(2, "No such device", path)
+def test_the_raw_layer_never_triggers_the_guide(monkeypatch):
+    raw_guide = platform_gamepads.PadEvent(gdev.EV_KEY, gdev.BTN_MODE, 1, "raw")
+    assert _watch(monkeypatch, [raw_guide, raw_guide]) == []
 
-    module = types.ModuleType("evdev")
-    module.InputDevice = gone
-    module.list_devices = lambda: ["/dev/input/event9"]
-    monkeypatch.setitem(sys.modules, "evdev", module)
-    monkeypatch.setattr(gm.glob, "glob", lambda pattern: ["/dev/input/event9"])
-    gdev._last_denied = None
 
-    with caplog.at_level(logging.DEBUG, logger=gdev.log.name):
-        assert gm._find_gamepad_devices() == {}
+def test_the_dpad_buttons_arrive_as_a_hat():
+    assert platform_gamepads.controller_button(11, True) == \
+        platform_gamepads.PadEvent(gdev.EV_ABS, 0x11, -1, "pad")
+    assert platform_gamepads.controller_button(14, False) == \
+        platform_gamepads.PadEvent(gdev.EV_ABS, 0x10, 0, "pad")
 
-    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+def test_a_hat_is_split_into_two_signed_axes():
+    up_right = platform_gamepads.hat_events(0, 3, "raw")
+    assert [(e.code, e.value) for e in up_right] == [(0x10, 1), (0x11, -1)]
+    assert [(e.code, e.value) for e in platform_gamepads.hat_events(1, 0, "raw")] == \
+        [(0x12, 0), (0x13, 0)]
 
 
 # ── the give-up reaches the player, not just the journal ─────────────────────
@@ -702,7 +568,7 @@ def _connect_event(monkeypatch, identified: bool):
     monkeypatch.setattr(cp, "identification",
                         lambda v, p, n: {"identified": identified})
 
-    live = gm.pads_by_key(_node("/dev/input/event9", "84:30:95:07:c8:1c",
+    live = gm.pads_by_key(_node("sdl9", "84:30:95:07:c8:1c",
                                 vendor="1d79", product="0f0f",
                                 name="Generic USB Gamepad"))
     ws = _RecordingWS()
@@ -744,7 +610,7 @@ def test_a_broken_identification_does_not_lose_the_connect_event(monkeypatch):
 
     monkeypatch.setattr(cp, "identification", boom)
 
-    live = gm.pads_by_key(_node("/dev/input/event9", "84:30:95:07:c8:1c"))
+    live = gm.pads_by_key(_node("sdl9", "84:30:95:07:c8:1c"))
     ws = _RecordingWS()
     asyncio.run(gm._reconcile({}, live, {}, False, ws))
 

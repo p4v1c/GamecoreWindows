@@ -72,3 +72,17 @@ def adapters() -> list[dict]:
         "FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = TRUE",
         _CONFIG_FIELDS)
     return join_adapters(rows, configs)
+
+
+def pick_lan_ip(route_ip: str, adapters: list[dict]) -> str:
+    """The address a phone on the LAN reaches the PC by. Pure.
+
+    `route_ip` is the source address of the default route; it is kept unless
+    it belongs to a virtual adapter (a VPN or Hyper-V route), in which case the
+    first connected physical adapter wins, wired before Wi-Fi.
+    """
+    physical = [a for a in adapters if a["connected"] and not a["virtual"] and a["ip"]]
+    if not physical or any(a["ip"] == route_ip for a in physical):
+        return route_ip
+    physical.sort(key=lambda a: (a["kind"] != "ethernet", not a["gateway"]))
+    return physical[0]["ip"]

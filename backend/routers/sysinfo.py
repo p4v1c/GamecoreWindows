@@ -6,17 +6,28 @@ from ..config import APP_VERSION
 from ..services.paths import GAMECORE_DATA
 from ..services import bios
 from ..services.battery import read_batteries
+from ..services.platform import network as platform_network
 
 router = APIRouter(tags=["sysinfo"])
 
 
-def _primary_ip() -> str:
+def _route_ip() -> str:
+    """The source address of the default route (no packet is sent)."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))
             return s.getsockname()[0]
     except Exception:
         return "—"
+
+
+def _primary_ip() -> str:
+    """The LAN address, never a VPN's or a virtual switch's."""
+    route_ip = _route_ip()
+    try:
+        return platform_network.pick_lan_ip(route_ip, platform_network.adapters())
+    except OSError:
+        return route_ip
 
 
 @router.get("/sysinfo")

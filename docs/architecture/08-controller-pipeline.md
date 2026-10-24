@@ -200,7 +200,7 @@ sources exist and they describe the same pad differently:
 
 | source | driver | authoritative for |
 |---|---|---|
-| the wizard's capture | SDL's **linux joystick** driver — it is what reads `/dev/input` | pads SDL has no HIDAPI driver for, i.e. the ones the wizard exists for |
+| the wizard's capture | the driver the backend's own SDL2 uses for that pad (`platform/gamepads.py`, raw layer); for a pad with no HIDAPI driver that is DirectInput/RawInput | pads SDL has no HIDAPI driver for, i.e. the ones the wizard exists for |
 | SDL's own GameController mapping | whichever driver SDL uses — **HIDAPI** for Sony, Microsoft and Nintendo | everything else |
 
 `derive.evdev_driven()` refuses a capture whenever the two disagree, and that
