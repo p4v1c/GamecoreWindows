@@ -40,11 +40,13 @@ $ErrorActionPreference = 'Stop'
 $MinimumBuild = 17763  # Windows 10 1809: the oldest build with the APIs the platform layer calls
 
 function Get-GcInstallConfig {
+    <# install.conf, then the command line over it. #>
+    param([string]$File, [string]$Code, [string]$Data, [string]$User)
     $config = @{}
-    if ($ConfigFile) { $config = Read-GcConfig -Path (Resolve-Path -LiteralPath $ConfigFile) }
-    if ($CodeRoot) { $config['GAMECORE_PATH'] = $CodeRoot }
-    if ($DataRoot) { $config['GAMECORE_DATA'] = $DataRoot }
-    if ($ConsoleUser) { $config['USER_NAME'] = $ConsoleUser }
+    if ($File) { $config = Read-GcConfig -Path (Resolve-Path -LiteralPath $File) }
+    if ($Code) { $config['GAMECORE_PATH'] = $Code }
+    if ($Data) { $config['GAMECORE_DATA'] = $Data }
+    if ($User) { $config['USER_NAME'] = $User }
     return $config
 }
 
@@ -90,7 +92,8 @@ if ([Environment]::OSVersion.Version.Build -lt $MinimumBuild -or -not [Environme
     throw "GameCore needs 64-bit Windows 10 1809 (build $MinimumBuild) or later"
 }
 $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$settings = Resolve-GcConfiguration -Config (Get-GcInstallConfig) -SourceRoot $sourceRoot
+$config = Get-GcInstallConfig -File $ConfigFile -Code $CodeRoot -Data $DataRoot -User $ConsoleUser
+$settings = Resolve-GcConfiguration -Config $config -SourceRoot $sourceRoot
 $settings = Request-GcDataRoot $settings
 if ($settings.DataRoot -match '\\OneDrive') {
     Write-GcWarning "the data root $($settings.DataRoot) is synced by OneDrive: ROMs and saves would upload; choose another folder with -DataRoot"

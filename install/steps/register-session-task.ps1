@@ -99,9 +99,10 @@ function Uninstall-GcSessionTask {
     }
     $task = Get-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -ErrorAction SilentlyContinue
     if ($null -eq $task) { return }
+    $code = $Settings.CodeRoot
     Invoke-GcChange "remove the $script:GcTaskPath$script:GcTaskName task" {
         Stop-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskPath $script:GcTaskPath -TaskName $script:GcTaskName -Confirm:$false
-        Stop-GcSessionProcess $Settings.CodeRoot
+        Stop-GcSessionProcess $code
     }
 }
