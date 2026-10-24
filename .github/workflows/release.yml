@@ -1,0 +1,116 @@
+name: Build and Release
+
+# Every push to main that touches something shipped becomes a release that
+# every installed box offers in Settings > Update (docs/architecture/13-release-and-ota.md).
+#
+# Deliberately NOT here, and each one is a hazard the Linux original had:
+# - workflow_dispatch: dispatched from a branch, its publish step released a
+#   tag named after the branch, and the fleet took it for the latest;
+# - a tag trigger: a hand-pushed tag would publish whatever commit it names;
+# - two runs at once: two merges seconds apart computed the same tag and the
+#   second failed (concurrency below queues them; a newer queued run replaces
+#   an older one, and it carries that one's commits).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'electron/**'
+      - 'update/**'
+      - 'install/**'
+      - 'config/**'
+      - 'assets/**'
+      - 'catalog/**'
+      - 'scripts/**'
+      - 'VERSION'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The same checks as every pull request, before anything is tagged: a red
+  # suite never becomes a release.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: checks
+    runs-on: windows-latest
+    # Belt and braces: the trigger already limits this to pushes to main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      # fetch-depth 0: next_version.py reads the last tag with git describe.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/package-lock.json
+            electron/package-lock.json
+
+      # Computed before the build so a collision stops the run early. Refuses
+      # to move a tag the fleet may already have been offered.
+      - name: Version for this merge
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          next="$(python scripts/next_version.py)"
+          if git ls-remote --exit-code --tags origin "refs/tags/${next}" >/dev/null; then
+            echo "::error::${next} already exists"
+            exit 1
+          fi
+          echo "[release] ${next}"
+          echo "tag=${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # Unsigned: there is no code-signing certificate (an open question in
+      # the dev log); auto-discovery off so the build never picks one up.
+      - name: Pack the shell
+        working-directory: electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npm run pack
+
+      - name: Package the release archive
+        run: python scripts/package-release.py --version "${{ steps.version.outputs.tag }}" --out release
+
+      # gh, not a third-party action holding contents:write. The tag is
+      # created by the release itself, on the commit that was built.
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" release/gamecore-ota.zip release/gamecore-ota.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
