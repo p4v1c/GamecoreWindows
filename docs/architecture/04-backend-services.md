@@ -85,8 +85,6 @@ logged on to the console, the backend in another session), `desktop()` names
 the session, user and primary display, `display_env()` is the environment a
 game starts with (the backend's own plus `SDL_GAMECONTROLLERCONFIG_FILE`).
 See [1](01-runtime-topology.md#on-windows-the-backend-runs-in-the-console-users-session).
-`wayland_env()` / `kscreen_available()` are Linux helpers `display.py`,
-`standby.py` and `desktop_power.py` still call (steps 5 and 7).
 
 ### `window_focus.py` — who is in front
 
@@ -124,7 +122,7 @@ A new profile starts on `shipped()` too.
 
 Covered by `backend/tests/test_themes.py`.
 
-## `gamepad_monitor.py` — evdev, the source of truth for input
+## `gamepad_monitor.py` — SDL in the backend, the source of truth for input
 
 Runs as a lifespan task. It exists because the browser Gamepad API cannot be
 trusted for the Guide button and cannot see anything while a fullscreen
@@ -133,9 +131,9 @@ emulator owns the display.
 | Function | Role |
 |---|---|
 | `run()` | main loop — rescans for devices every few seconds, watches each |
-| `_find_gamepad_devices()` | in `gamepad_devices.py`: `path → (name, uniq, is_pad, vendor, product)` for every readable `/dev/input/event*` |
-| `pads_by_key()`, `dup_indexes()`, `_can_read(path)` | in `gamepad_devices.py`: one entry per physical pad, per-name duplicate counters, permission probe |
-| `_watch_device(path)` | reads one device until it disconnects or is cancelled |
+| `_find_gamepad_devices()` | in `gamepad_devices.py`: `device → (name, uniq, is_pad, vendor, product, bus)` from SDL's snapshot (`platform/gamepads.py`); `device` is `sdl<instance>`, `uniq` the Bluetooth address when SDL knows it |
+| `pads_by_key()`, `dup_indexes()` | in `gamepad_devices.py`: one entry per physical pad (wheels and flight sticks take no slot), per-name duplicate counters |
+| `_watch_device(device)` | reads one pad's pad-layer events (`platform/gamepads.py` `subscribe`) until `GONE` or cancelled |
 | `ActivityFilter` | in `input_activity.py`: which events mean somebody is at the pad (a button down, the d-pad hat, a quarter of an axis's travel), for `standby.on_input()` |
 | `_on_guide_pressed()` | the double-press logic; the pair means what held the screen at its **first** press (`_guide_from_game`), then `_suspend_to_interface()` |
 | `_suspend_to_interface(gesture, foreground_only, from_game)` | suspends the foreground session and broadcasts `gp:guide` (`backgrounded`, `failed`, or `home` for a pair begun in the interface) |
@@ -154,12 +152,12 @@ Assigns P1…P4 and keeps them stable across reconnects.
 | Function | Role |
 |---|---|
 | `normalize_mac(value)` | extracts a lowercased `aa:bb:…` from any MAC-ish string |
-| `key_for(uniq, path)` | stable key: the MAC when known, else the device node |
-| `identity(key, vendor, product)` | what a profile remembers a pad by: the MAC, else `vendor:product` (a devnode changes on replug; two identical pads without a MAC read as one) |
+| `key_for(uniq, device)` | stable key: the MAC when known, else the SDL device |
+| `identity(key, vendor, product)` | what a profile remembers a pad by: the MAC, else `vendor:product` (an SDL device changes on replug; two identical pads without a MAC read as one) |
 | `has(key)` / `label_for(key)` / `player_for(key)` | lookups |
 | `connect(key, label)` | assigns the **lowest free slot**; idempotent for a known key |
 | `disconnect(key)` | frees the slot, returns the player number it held |
-| `player_for_mac(value)` | slot for any MAC-bearing string — used to attach a sysfs battery to a player |
+| `player_for_mac(value)` | slot for any MAC-bearing string |
 | `snapshot()` | `[{player, label}]` ordered by slot — what `/api/sysinfo` returns |
 
 ---
@@ -167,7 +165,7 @@ Assigns P1…P4 and keeps them stable across reconnects.
 ## `controller_roster.py` — the pads the controller screen draws
 
 `connected_pads()` joins `gamepad_monitor.roster()` (the last scan), the
-registry slot, the sysfs battery and the pad's identity into one row per pad:
+registry slot, the SDL battery level and the pad's identity into one row per pad:
 `{id, player, name, kernelName, vendor, product, connection, battery, charging,
 known, controls, analogTriggers}`.
 
@@ -184,7 +182,7 @@ known, controls, analogTriggers}`.
 
 | Function | Role |
 |---|---|
-| `read_batteries()` | sysfs → `[{name, level, charging}]`; only supplies whose device has a gamepad button (`_is_gamepad`): a mouse or keyboard battery is not a controller pill |
+| `read_batteries()` | SDL's power level per pad → `[{name, label, player, level, charging}]`: empty 5, low 20, medium 60, full 100 (`POWER_PERCENT`); a wired pad (no level) and a wheel are not listed; `charging` is always false (SDL2 does not say) |
 | `_check(batteries)` | **pure** — returns the alerts to send for this poll, so it is unit-testable |
 | `run()` | polls and broadcasts `gp:battery` |
 
@@ -208,7 +206,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`; each step isolated |
 | `wake_source.remember()` / `report()` | `event_count` of every `/sys/class/wakeup/wakeup*` on `PrepareForSleep(true)`, compared first thing after the wake; logs `wake_source: woken by <name> (<USB product>) +N` (+ `/sys/power/pm_wakeup_irq` when set). `moved()` is pure |
 | `resume.announce_sleep()` / `is_sleeping()` | `power:sleeping` on `PrepareForSleep(true)`; true until `power:resumed` |
-| `display_ready.wait_for_display(settle, root, max_wait)` | poll `/sys/class/drm/card*-*` (`status`, `enabled`, `dpms`) every 200 ms until one connector is lit, `WAIT_MAX_SECS` = 10 s; no DRM at all means no wait. `connector_ready()` is pure |
+| `display_ready.wait_for_display(settle, probe, max_wait)` | polls `platform/display.py` `display_ready()` (an active monitor on an adapter attached to the desktop) every 200 ms, `WAIT_MAX_SECS` = 10 s; `probe` is injectable for tests |
 | `bt_wake.pads_to_arm(objects, roster_macs)` | **pure**: paired devices with `Icon` input-gaming or a roster MAC, never keyboard/mouse, whose `WakeAllowed` is false |
 | `bt_wake.others_to_disarm(objects)` | **pure**: paired devices whose `Icon` is in `NOT_PADS` (keyboard, mouse, tablet) and `WakeAllowed` is true; `set_wake_permissions()` sets them false in the same pass that arms the pads |
 | `bt_wake.pads_to_turn_off(objects, roster_macs)` / `turn_off_pads()` | **pure** / edge: connected paired pads (same pad rule as `pads_to_arm`); `Device1.Disconnect` on each, concurrently, `BUSCTL_SECS` each; returns how many |
@@ -225,65 +223,47 @@ HUD instead, because the React toast is hidden under the emulator.
 |---|---|
 | `load_config()` / `save_config(cfg)` | `config/standby.json` |
 | `get_state()` | `active` / `screensaver` / `asleep` |
-| `_run_cmd(*argv)` | helper, returns success |
-| `_screen(on)` | DPMS on/off |
-| `_governor(gov)` | `cpupower frequency-set -g …` — optional, needs a sudoers rule |
-| `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before DPMS |
+| `_power(action, *args)` | the one door to `platform/power.py` (in a thread); `None` when Windows refused; the suite replaces it |
+| `_screen(on)` | `screen_on()` / `screen_off()` |
+| `_signal_user_activity()` | `signal_activity()`: Windows' display and sleep idle timers restart, nothing held |
+| `_governor(gov)` | `powersave`: the Power saver plan, the active one noted in `power-plan-handoff.json` under the config folder (the plan outlives the backend); `performance`: that plan back. Best effort: a PC without Power saver keeps its plan |
+| `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before the screen goes off |
 | `ui_dark()` | the UI's fade to black is over (`POST /api/standby/dark`) |
 | `exit_standby()` | wake — **unconditional** |
 | `resume_after_restart()` | called from the lifespan; forces the screen on at startup |
-| `on_input()` | called from the evdev loop on any controller button |
-| `_ensure_timers_owned(enabled)` | re-asserts `desktop_power.claim()` (standby on) or `claim_x()` (standby off), at most once a minute |
+| `on_input()` | called from `gamepad_monitor`'s read loop on any controller input |
+| `_ensure_timers_owned(enabled)` | re-asserts `desktop_power.claim()` while standby is on, at most once a minute |
 | `run()` | the idle poll loop |
 
-A running game blocks standby entirely — GameCore's standby, which is not the
-only one on the box.
+A running game blocks standby entirely: GameCore's standby, which is not the
+only one on the PC.
 
-**Blocking GameCore's own standby is not enough, and a film going dark mid-play
-is how that was found.** Nothing in the journal accused the watcher, and it was
-innocent: Stremio for 27 minutes, melonDS for 43, Ryujinx for 74, and not one
-`active → screensaver` in any of them. What blanked the television was the
-**X server**. GameCore's session is an X11 session
-(`/usr/share/xsessions/gamecore.desktop` → `gamecore-session` → `kwin_x11`) and
-PowerDevil is not running in it, but a real X server is — with its own screen
-saver and its own DPMS delays, which nothing ever reset: a DualShock 4's buttons
-are tagged `ID_INPUT_JOYSTICK`, which the X server does not count as input, so a
-film in a kiosk browser is perfect silence to it.
+**Windows has its own idle timers, and they cannot see a gamepad.** XInput
+and HID pad input do not reset them, so the active plan's "turn off the
+display" would blank a film or a pad-only menu at its own fifteen minutes,
+whatever Settings → Standby says. Two mechanisms:
 
-`_signal_user_activity()` cannot cover that. It speaks to
-`org.freedesktop.ScreenSaver`, which in GameCore's own session **nobody owns** —
-the box said `ServiceUnknown: The name is not activatable` fifteen times a
-minute for the whole of every game. It is a best effort for the desktop session,
-not the protection.
+- `_signal_user_activity()` restarts those timers on pad input (throttled to
+  one call per `_ACTIVITY_SIGNAL_GAP`) and on every tick during a game. Never
+  held with `ES_CONTINUOUS`: a hold would outlive a crashed backend and the
+  PC would never sleep again.
+- `desktop_power.claim()` takes the timers themselves while standby is on:
+  "turn off the display" and "sleep after", on AC and battery, set to never,
+  the previous values written down so `release()` can hand them back.
+  `_tick()` re-asserts the claim, before the early return it takes for a
+  foreground game: the owner may change the plan from Windows' own settings in
+  desktop mode.
 
-What protects it is `desktop_power.claim()`, which takes the idle timers
-themselves (both arms: PowerDevil's screen-off *and* `xset s` / `xset dpms`).
-That claim cannot be made once at startup and left: the backend is a **system**
-service and starts at boot, before any session exists — boot at 07:39:06, the
-session's compositor at 07:39:20 — and each switch between GameCore's session
-and the desktop is a new X server with its delays back at the default. So
-`_tick()` re-asserts it, before the early return it takes for a foreground game.
+Standby switched off releases the timers (`main.py`, `POST /api/standby/config`)
+and nothing re-takes them: Windows' own timings decide, as the owner set them
+in Windows.
 
-The X arm is never handed back, even with standby switched off: X's delays
-cannot see a pad or a game, and handing them back blanked Ryujinx ten minutes
-in. Standby off keeps X's timers at zero (`claim_x()`) and only gives the
-desktop's PowerDevil timeout back (`release()`).
-
-**The state is in memory; its effect is not.** `xset dpms force off` is a
-property of the X server, and X belongs to SDDM — it does not restart with the
-backend. So a box asleep when the backend restarted (crash, `systemctl restart`,
-the end of an OTA) came back holding `_state == "active"` with the TV still
-dark. `on_input()` tests `_state != "active"` before waking, so a button press
-did nothing; pad events arrive over evdev rather than X, so DPMS never re-armed
-by itself; and `POST /api/standby/exit` returned at its first line. SSH or a USB
-keyboard were the only ways out.
-
-Hence both halves: `resume_after_restart()` in the lifespan repairs a box already
-in that state, and `exit_standby()` no longer short-circuits on
-`_state == "active"` — asking to wake up is never a no-op.
-
-`_run_cmd` awaits `session.display_env()` for the environment of the tools it
-runs (on Linux a display probe that could block for seconds stood behind it).
+**The state is in memory; its effect is not.** A screen turned off by the
+previous backend stays off across a crash, a restart or an OTA, while the new
+process starts at `_state == "active"`. Hence both halves:
+`resume_after_restart()` in the lifespan repairs a PC already in that state, and
+`exit_standby()` no longer short-circuits on `_state == "active"`: asking to
+wake up is never a no-op.
 
 ---
 
@@ -853,8 +833,12 @@ serves. Looked up by name, never joined into a path.
 ### `display.py` — mode switching with a revert timer
 
 `state()`, `set_mode()`, `confirm()`, `revert_now()`, `ui_scale()`,
-`set_scale()`, `preferred_mode()`. The timer lives in the backend because a
-refused mode blanks the settings screen that would otherwise run it.
+`set_scale()`, `preferred_mode()`, `restore_preferred()`. The timer lives in
+the backend because a refused mode blanks the settings screen that would
+otherwise run it. A mode is applied for the session only; `confirm()` writes it
+to `display.json` and to Windows' registry (`apply_mode(..., persist=True)`),
+so an unconfirmed mode never survives a restart. `backend` is always
+`"windows"`.
 
 ### `paths.py` — the two roots
 
@@ -888,10 +872,26 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `window_control.py` | `top_level_windows(pids)`, `windows_of_executables(names)` | `EnumWindows` by owner pid / by process image, visible unowned app windows | `_NET_CLIENT_LIST` + `_NET_WM_PID` / `WM_CLASS` |
 | | `bring_to_front(hwnd)` | `SetForegroundWindow`; when refused, again with `AttachThreadInput` to the foreground thread, never to a frozen one (`SendMessageTimeoutW` probe) | `_NET_ACTIVE_WINDOW` |
 | | `make_borderless_fullscreen(hwnd)`, `covers_its_monitor(hwnd)` | frame styles off (`SetWindowLongPtrW`), `SetWindowPos` over the monitor (`SWP_ASYNCWINDOWPOS`), in per-monitor DPI | `_NET_WM_STATE_FULLSCREEN` |
+| `audio.py` | `list_outputs()`, `get_volume()`, `set_volume(percent)`, `set_default_output(id)` | active render endpoints and the default one (pycaw over Core Audio); the default is set for every role through `IPolicyConfig`. COM is initialised once per worker thread and never released: comtypes frees its pointers at garbage collection, after which `CoUninitialize` crashed the process | `wpctl` (PipeWire) |
+| `com.py` | `ensure_com()`, `wmi_query(namespace, wql, fields)` | COM initialised once per worker thread and never released; WQL rows as dicts, `OSError` when WMI refuses | — |
+| `network.py` | `adapters()`, `join_adapters(adapters, configs)` | every adapter: name, GUID, `kind` (wifi / ethernet / other from the NDIS medium), connected, `virtual` (Hyper-V, WSL, VMware, VirtualBox, VPN), IPv4, gateway, DNS, MAC; `MSFT_NetAdapter` joined to `Win32_NetworkAdapterConfiguration` | `nmcli dev show`, `nmcli con show --active` |
+| `wifi.py` | `scan(rescan)`, `connect(ssid, password)`, `disconnect()`, `connected_ssid()`, `adapter_guid()`, `access()` | WinRT `WiFiAdapter`: one row per access point (signal 0-100 from dBm, security label, channel from the frequency), joins with a `PasswordCredential`, `(ok, wrong_password, error)` | `nmcli dev wifi` |
+| | `forget(ssid, interface_guid)` | Native Wifi `WlanDeleteProfile` on the profile named after the SSID (netsh exits 0 whether or not it found it) | `nmcli con delete` |
+| `radios.py` | `enabled(kind)`, `set_enabled(kind, on)`, `read_state(state)` | WinRT `Radio` for `WIFI` and `BLUETOOTH`: the quick-settings switches; `RadioBlocked` when disabled below Windows | `nmcli radio wifi`, rfkill |
+| `bluetooth.py` | `paired_devices()`, `scan(seconds)`, `pair(mac)`, `unpair(mac)`, `format_address(raw)` | WinRT association endpoints of the classic and LE protocols (address, connected, paired); a scan watches both for `seconds` and drops unnamed LE advertisers (random-address phones and beacons, 20 of 28 in one measured scan); pairing answers Windows' confirm / display-PIN requests | `bluetoothctl` |
+| `display.py` | `primary_output()`, `modes(output)`, `current_mode(output)`, `apply_mode(output, w, h, rate, persist)`, `display_ready()`, `unique_modes(raw)` | Win32 `EnumDisplaySettingsW` / `ChangeDisplaySettingsExW` on the primary display; one mode per size and whole-hertz rate (Windows lists each once per scaling option); `persist` = `CDS_UPDATEREGISTRY` with `CDS_NORESET` (registry only, no second mode change) | `xrandr`, `kscreen-doctor`, `/sys/class/drm` |
+| `power.py` | `screen_off()`, `screen_on()`, `signal_activity()` | `SC_MONITORPOWER` posted to every top-level window; on adds a zero-length `SendInput` mouse move (what lights a panel Windows turned off) and `signal_activity()`; `SetThreadExecutionState` once, without `ES_CONTINUOUS` | `xset dpms`, `kscreen-doctor --dpms`, `SimulateUserActivity` |
+| | `idle_timeouts()`, `set_idle_timeouts(values)` | the active plan's display and sleep timeouts on AC and battery, in seconds, 0 = never (PowrProf `PowerRead/WriteAC/DCValueIndex`, then the plan re-applied) | PowerDevil's `TurnOffDisplayIdleTimeoutSec`, `xset s` / `xset dpms` |
+| | `active_scheme()`, `set_active_scheme(guid)`, `POWER_SAVER` | the power plan | `cpupower frequency-set -g` |
+| `volumes.py` | `list_volumes()`, `is_external(drive_type, bus)`, `bus_type(letter)`, `human_size(n)` | every drive letter that is removable (`GetDriveTypeW`) or a fixed disk on a USB, SD, MMC or FireWire bus (`IOCTL_STORAGE_QUERY_PROPERTY`), never the system drive; label, serial, filesystem, size | `lsblk` |
+| | `eject(letter)` | "Safely remove": the disk's PnP instance (SetupAPI, matched by `IOCTL_STORAGE_GET_DEVICE_NUMBER`), `CM_Request_Device_EjectW` on its parent; a veto (a program holding a file) answers why | `udisksctl unmount` |
+| `gamepads.py` | `start()`, `pads()`, `subscribe(device)`, `unsubscribe()`, `unavailable()`, `sdl2_library()` | one thread owns SDL2 (pysdl2, bundled `SDL2.dll`) with background events allowed (`SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS`) and PS4/PS5 rumble off; a snapshot of every joystick (`PadInfo`: name, vendor, product, GUID, serial, bus from the GUID, slot or not, guide or not, SDL's counts, axes at rest, power level); events handed to each subscriber's loop as `PadEvent(type, code, value, layer)` in the evdev vocabulary: layer `pad` (game-controller view: `BTN_MODE`, `BTN_START`, `BTN_SELECT`, `ABS_*`, d-pad as a hat) and `raw` (SDL's indices, for the wizard) | evdev, `/dev/input` |
+| `usb.py` | `inventory()`, `parse_devices(rows)` | `vid:pid → name` from WMI `Win32_PnPEntity` (`USB\VID_…&PID_…`), interfaces folded | `/sys/bus/usb/devices` |
+| `network.py` | `pick_lan_ip(route_ip, adapters)` | the default route's address unless it is a virtual adapter's (VPN, Hyper-V), then the first connected physical one, wired first: the IP the top bar shows | `nmcli` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`), `gamepad_devices.py`, `gamepad_monitor.py`, `battery.py`, `controller_capture.py`, `configgen/controllers.py` and `sdl_probe.py` (`gamepads.py`), `usb_devices.py` (`usb.py`), `routers/sysinfo.py` (`network.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
@@ -950,23 +950,21 @@ Pluggable per system, because an N64 cartridge dump carries no serial at all.
 
 ### `controller_capture.py` — the mapping wizard's engine
 
-Turns "the owner pressed this" into an SDL mapping line. What arrives from the
-kernel is an evdev code (`BTN_SOUTH`, 0x130); what must be written is SDL's
-vocabulary (`b0`, `a3`, `h0.1`), where the numbers are SDL's joystick indices, not
-the kernel's codes.
-
-**Nothing bridges those two by inspection.** SDL assigns indices by walking the
-device's declared capabilities in a fixed order, so index 0 is "the first button
-this device declares" — and the same physical button is a different number on a
-pad that declares one extra key. `sdl_layout()` reproduces that walk. Guessing
-here produces a mapping that looks plausible and binds the wrong buttons.
+Turns "the owner pressed this" into an SDL mapping line (`b0`, `a3`, `h0.1`).
+The backend reads the pad through SDL itself (`platform/gamepads.py`, raw
+layer), so button n arrives as SDL's button n: `sdl_layout(buttons, axes,
+hats)` is an identity map, and a hat arrives as two signed pseudo axes that
+`binding_for()` folds back into SDL's bitmask. An axis is pressed far from
+where it rests (SDL's initial axis state), per direction. Lines are written
+`platform:Windows`: SDL ignores a line filed for another OS.
 
 ### `usb_devices.py` — the peripherals that are not SDL gamepads
 
-The autoconfig pipeline knows exactly one kind of device: a pad declaring
-`BTN_SOUTH` on an evdev node. Everything else — the GameCube adapter Dolphin
+The autoconfig pipeline knows exactly one kind of device: a pad SDL opens.
+Everything else — the GameCube adapter Dolphin
 drives over raw libusb, light guns, dance mats — is invisible to it. This module
-is that second roster, declared per pack under `usb`. It **never refuses a
+is that second roster, declared per pack under `usb`, checked against
+Windows' USB device list (`platform/usb.py`). It **never refuses a
 launch**: a USB accessory is optional by nature, so blocking would be GameCore
 inventing a fault. It only speaks.
 
@@ -1055,12 +1053,14 @@ pack, because saves are not controller config.
 ### `storage.py` — external disks
 
 "I plug my ROM disk in" is one of the first three things anyone expects from a
-console in a living room, and before this there was no udisks, no mount, nothing
-anywhere in the repository — a disk plugged into the box did exactly nothing.
+console in a living room. `list_volumes()`, `link_volume()` / `unlink_volume()`
+(a junction under `<DATA>/volumes/`), `stale_links()`, `mount()` (Windows mounts
+by itself: it only reports), `unmount()` (`platform/volumes.py` `eject()`),
+`describe()`, `find(device)`. See [7](07-config-and-data.md#external-disks--servicesstoragepy-servicesstorage_monitorpy).
 
 ### `storage_monitor.py` — reacting to a disk arriving or leaving
 
-Mounts an arrival, re-points its stable link, tells the frontend. **Nothing is
+Links an arrival, re-points its stable link, tells the frontend. **Nothing is
 invalidated on the way, and that is not an omission**: a system's games are
 scanned per request from its `romsPath`, and `romsPath` points at the stable link
 rather than at a mount point — so the next scan already reads the new disk. There
@@ -1071,12 +1071,5 @@ be a line nobody could ever prove still works.
 
 | Function | Does |
 |---|---|
-| `parse_radio(text)` | `WIFI-HW:WIFI` from `nmcli -t -f WIFI-HW,WIFI radio` → `True`/`False`, `None` with no Wi-Fi hardware |
-| `radio_enabled()` | the state, `None` when nmcli fails or hangs |
-| `set_radio(enabled)` | `nmcli radio wifi on` or `off`, then reads the state back; `ServiceError` 502 (nmcli refused, its sentence as detail), 504 (hung, killed after `NMCLI_SECS`), 409 (turned on under an rfkill hard block) |
-
-The backend is a system unit with no logind session. polkit still grants it
-`org.freedesktop.NetworkManager.enable-disable-wifi` ("implicit active: yes")
-because its user owns the active seat session (autologin): polkit falls back to
-the user's display session. Check on a box with
-`pkcheck --action-id org.freedesktop.NetworkManager.enable-disable-wifi --process <backend pid>`.
+| `radio_enabled()` | Windows' Wi-Fi radio (`platform/radios.py`): `True`/`False`, `None` with no Wi-Fi hardware, or when it fails or hangs |
+| `set_radio(enabled)` | switches it and reads the state back; `ServiceError` 502 (Windows refused, its sentence as detail), 504 (no answer in `RADIO_SECS`), 409 (blocked below Windows: hardware switch, firmware, or an "on" that did not take) |

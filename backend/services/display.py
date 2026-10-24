@@ -1,13 +1,12 @@
 """Display mode (resolution + refresh) and UI scale, with a revert timer.
 
-Backends, chosen at runtime:
-  · `kscreen-doctor` when a Wayland session answers (XWayland cannot set modes);
-  · `xrandr` otherwise.
-kscreen modes are addressed by ID: `WxH@rate` is not unique on real outputs.
+The primary output's modes are read and set through `platform/display.py`
+(Win32 `ChangeDisplaySettingsEx`).
 
 Applying a mode arms a revert timer HERE, in the backend: a mode the TV refuses
 is a black screen, and the settings screen is exactly what disappears behind
-it. Only an explicit player action (`confirm`) keeps the mode.
+it. Only an explicit player action (`confirm`) keeps the mode, and only then is
+it written to the registry and to `display.json`.
 
 Refused while a game is resident (running or suspended): changing the mode
 under an emulator's swapchain kills it.
@@ -15,13 +14,11 @@ under an emulator's swapchain kills it.
 import asyncio
 import json
 import logging
-import re
 
 from .errors import ServiceError
 from .paths import config_dir
+from .platform import display as platform_display
 from .process_manager import process_manager
-from .session import display_env
-from .session import kscreen_available, wayland_env
 
 log = logging.getLogger(__name__)
 
@@ -32,131 +29,7 @@ class DisplayError(ServiceError):
 # Long enough to read a sentence and find a button on a pad, short enough that
 # a black screen is an inconvenience rather than a reinstall.
 REVERT_SECS = 12
-
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-_OUTPUT_RE = re.compile(r"^(\S+)\s+connected\b")
-# "Output: 1 HDMI-A-1 <uuid>"
-_KS_OUTPUT_RE = re.compile(r"^Output:\s+\d+\s+(\S+)")
-# "  12:1280x800@60.00*!"  — id, geometry, rate, then the current/preferred marks
-_KS_MODE_RE = re.compile(r"(\d+):(\d+)x(\d+)@([\d.]+)([*!]*)")
-# "   1920x1080     60.00*+  50.00    59.94"
-_MODE_RE = re.compile(r"^\s+(\d+)x(\d+)\s+(.*)$")
-_RATE_RE = re.compile(r"(\d+\.\d+)([*+]*)")
-
-
-# Module-level aliases so tests can swap the session probes.
-_wayland_env = wayland_env
-_kscreen_available = kscreen_available
-
-
-#: How long a display tool may take before it counts as failed. Measured on the
-#: reference box: `kscreen-doctor -o` from the backend service never answers at
-#: all, and with no bound the whole Display page waited on it forever — Scale,
-#: on its own endpoint, was the only row that ever arrived.
-PROBE_SECS = 5
-_kscreen_hangs = False
-
-
-async def _communicate(proc, name: str) -> tuple[int, str]:
-    """(returncode, output), or (124, "") when the tool hangs — killed, not left behind."""
-    try:
-        out, _ = await asyncio.wait_for(proc.communicate(), PROBE_SECS)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        log.warning("display: %s did not answer in %ss", name, PROBE_SECS)
-        return 124, ""
-    return proc.returncode or 0, out.decode(errors="replace")
-
-
-async def _run_env(env: dict, *args: str) -> tuple[int, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env,
-    )
-    code, out = await _communicate(proc, args[0])
-    return code, _ANSI_RE.sub("", out)
-
-
-def parse_kscreen(text: str) -> dict:
-    """The first enabled output, its modes, and which one is live.
-
-    `*` marks the current mode and `!` the preferred one, and both can sit on
-    the same entry — matched as a group rather than compared, the same hazard as
-    xrandr's `60.00*+`.
-    """
-    output = ""
-    modes: list[dict] = []
-    current: dict | None = None
-    for line in text.splitlines():
-        m = _KS_OUTPUT_RE.match(line.strip())
-        if m:
-            if output:            # a second output: stop at the first
-                break
-            output = m.group(1)
-            continue
-        if not output or "Modes:" not in line:
-            continue
-        for mid, w, h, rate, flags in _KS_MODE_RE.findall(line):
-            entry = {"id": mid, "width": int(w), "height": int(h), "rate": float(rate)}
-            modes.append(entry)
-            if "*" in flags:
-                current = dict(entry)
-    return {"output": output, "modes": modes, "current": current}
-
-
-async def _run(*args: str) -> tuple[int, str]:
-    env = await display_env()
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        env=env,
-    )
-    return await _communicate(proc, args[0])
-
-
-def parse_modes(text: str) -> dict:
-    """The connected output, its modes, and which one is live.
-
-    Only the FIRST connected output is read. A box with two screens is not a
-    case this can serve honestly — `xrandr` would need a layout, not a mode —
-    and picking one at random would move a picture the owner cannot see.
-
-    A rate carries `*` when it is current and `+` when it is the monitor's
-    preferred one. Both markers can appear on the same rate, which is why they
-    are matched as a group rather than tested for equality.
-    """
-    output = ""
-    modes: list[dict] = []
-    current: dict | None = None
-    in_output = False
-
-    for line in text.splitlines():
-        m = _OUTPUT_RE.match(line)
-        if m:
-            if output:            # a second connected output: stop at the first
-                break
-            output = m.group(1)
-            in_output = True
-            continue
-        if not in_output:
-            continue
-        m = _MODE_RE.match(line)
-        if not m:
-            # Any non-indented line ends this output's mode list.
-            if line.strip() and not line.startswith(" "):
-                in_output = False
-            continue
-        w, h = int(m.group(1)), int(m.group(2))
-        for rate, flags in _RATE_RE.findall(m.group(3)):
-            entry = {"width": w, "height": h, "rate": float(rate)}
-            modes.append(entry)
-            if "*" in flags:
-                current = dict(entry)
-    return {"output": output, "modes": modes, "current": current}
+BACKEND = "windows"
 
 
 # What to go back to, and the task that will do it. Module state rather than a
@@ -182,45 +55,28 @@ def _cancel_pending() -> None:
     _pending = None
 
 
-async def read_state() -> dict:
-    """What the session's own tool says, whichever that is."""
-    global _kscreen_hangs
-    env = _wayland_env() if _kscreen_available() and not _kscreen_hangs else None
-    if env is not None:
-        code, out = await _run_env(env, "kscreen-doctor", "-o")
-        # A tool that hung once hangs again: pay the timeout once per backend,
-        # not every time the page opens.
-        _kscreen_hangs = code == 124
-        if code == 0:
-            data = parse_kscreen(out)
-            if data["output"]:
-                return dict(data, backend="kscreen")
-        log.warning("display: kscreen-doctor failed (%s) — falling back to xrandr", code)
-    code, out = await _run("xrandr", "--query")
-    if code != 0:
+def _read_state_sync() -> dict:
+    output = platform_display.primary_output()
+    if not output:
         return {"output": "", "modes": [], "current": None, "backend": ""}
-    return dict(parse_modes(out), backend="xrandr")
+    return {"output": output, "modes": platform_display.modes(output),
+            "current": platform_display.current_mode(output), "backend": BACKEND}
 
 
-async def _apply(state_backend: str, output: str, mode: dict) -> tuple[bool, str]:
-    """Put one mode on screen.
+async def read_state() -> dict:
+    """The primary output, its modes and the one on screen."""
+    try:
+        return await asyncio.to_thread(_read_state_sync)
+    except OSError as e:
+        log.warning("display: modes unreadable: %s", e)
+        return {"output": "", "modes": [], "current": None, "backend": ""}
 
-    kscreen is addressed by mode ID: `1920x1080@60.00` appears twice in the
-    reference box's list, so the name is not a handle. xrandr has no IDs and
-    takes the geometry, which is unambiguous there.
-    """
-    if state_backend == "kscreen":
-        env = _wayland_env()
-        if env is None:
-            return False, "no Wayland session"
-        code, out = await _run_env(env, "kscreen-doctor",
-                                   f"output.{output}.mode.{mode['id']}")
-        return code == 0, out.strip()
-    code, out = await _run(
-        "xrandr", "--output", output,
-        "--mode", f"{mode['width']}x{mode['height']}", "--rate", f"{mode['rate']:g}",
-    )
-    return code == 0, out.strip()
+
+async def _apply(state_backend: str, output: str, mode: dict,
+                 persist: bool = False) -> tuple[bool, str]:
+    """Put one mode on screen; `persist` writes the one already there to the registry."""
+    return await asyncio.to_thread(platform_display.apply_mode, output, mode["width"],
+                                   mode["height"], mode["rate"], persist)
 
 
 async def _revert_after(delay: float, previous: dict, seq: int = 0) -> None:
@@ -320,11 +176,8 @@ def _preference_path():
 def preferred_mode() -> dict | None:
     """The mode the player last confirmed, or None.
 
-    Read at graphical startup by gamecore-xsetup. Until this
-    existed, nothing wrote the choice down at all: `gamecore-xsetup` forces
-    1080p at every boot for the pre-session X server, so a player who picked
-    1280x720 in the settings — and confirmed it, on a screen they could read —
-    found 1080p again at the next start, with nothing to say why.
+    Windows keeps the confirmed mode in its own registry too (`confirm`); this
+    copy is what a wake checks the output against (`restore_preferred`).
     """
     try:
         data = json.loads(_preference_path().read_text(encoding="utf-8"))
@@ -401,6 +254,9 @@ async def confirm() -> dict:
         _cancel_pending()
     if wanted:
         _remember(wanted)
+        ok, detail = await _apply(wanted["backend"], wanted["output"], wanted, persist=True)
+        if not ok:
+            log.warning("display: confirmed mode kept for this session only: %s", detail)
     return {"ok": True, "confirmed": pending}
 
 
@@ -428,8 +284,7 @@ def _same_mode(a: dict, b: dict) -> bool:
 async def restore_preferred() -> bool:
     """Put the confirmed mode back if a wake left the output on another one.
 
-    A TV that was off while the box slept can hand X a different mode on
-    resume. No revert timer: the player confirmed this mode already. Returns
+    A TV that was off while the box slept can come back on another mode. No revert timer: the player confirmed this mode already. Returns
     True when a mode was applied.
     """
     wanted = preferred_mode()

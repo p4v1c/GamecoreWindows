@@ -24,14 +24,13 @@ the part of Batocera's structure worth taking — the flattening is not.
 from __future__ import annotations
 
 import contextlib
-import glob
 import logging
 import os
 import time
 from dataclasses import dataclass
 
-from ..gamepad_devices import KEYBOARD_KEYS, VIRTUAL_PAD_PHYS
 from ..paths import backend_data_dir
+from ..platform import gamepads as platform_gamepads
 from . import sdl_probe
 # Public API for generators (`controllers.sdl2_probe`, `.bundled_sdl2`,
 # `.bundled_sdl3`, `.sdl3_identity`, `.probe_env`). Tests that stub the flatpak
@@ -389,24 +388,11 @@ def ryu_guid_from_sdl2(sdl_hex: str) -> str | None:
 
 
 def pad_has_hat(vendor: str, product: str) -> bool | None:
-    """Whether the pad exposes its D-pad as an evdev hat (ABS_HAT0X) rather
-    than buttons — the D-pad-only fallback. None when the pad can't be found."""
-    try:
-        import evdev
-    except ImportError:
-        return None
-    for path in glob.glob("/dev/input/event*"):
-        try:
-            dev = evdev.InputDevice(path)
-            info = dev.info
-            if f"{info.vendor:04x}" == vendor and f"{info.product:04x}" == product:
-                abs_codes = [a[0] if isinstance(a, tuple) else a
-                             for a in dev.capabilities().get(3, [])]
-                dev.close()
-                return 0x10 in abs_codes
-            dev.close()
-        except (OSError, PermissionError):
-            continue
+    """Whether the pad exposes its D-pad as a hat rather than buttons (the
+    D-pad-only fallback), as SDL counts it. None when the pad can't be found."""
+    for pad in platform_gamepads.pads():
+        if (pad.vendor, pad.product) == (vendor, product):
+            return pad.counts[2] > 0
     return None
 
 
@@ -533,34 +519,16 @@ class Pad:
 
 
 def detect_pads(max_n: int = 4) -> list[tuple[str, str, str]]:
-    """[(vendor, product, evdev_name), …], one per physical device (deduped by
-    uniq/MAC), in the same order controller_registry.py would assign slots."""
-    try:
-        import evdev
-    except ImportError:
-        return []
+    """[(vendor, product, name), …], one per physical pad (deduped by its
+    Bluetooth address), in the order controller_registry.py assigns slots."""
     seen: set[str] = set()
     pads: list[tuple[str, str, str]] = []
-    for path in sorted(glob.glob("/dev/input/event*")):
-        try:
-            dev = evdev.InputDevice(path)
-            keys = dev.capabilities().get(1, [])
-            # BTN_SOUTH, and not a keyboard: the same rule as the arrival
-            # toast, or Sunshine's virtual keyboard takes player 2 here.
-            if (0x130 not in keys or KEYBOARD_KEYS <= set(keys)
-                    or (dev.phys or "").startswith(VIRTUAL_PAD_PHYS)):
-                dev.close()
-                continue
-            info = dev.info
-            vendor, product, name = f"{info.vendor:04x}", f"{info.product:04x}", dev.name
-            key = dev.uniq or path
-            dev.close()
-        except (PermissionError, OSError):
-            continue
-        if key in seen:
+    for pad in platform_gamepads.pads():
+        key = pad.serial or pad.device
+        if not pad.is_pad or key in seen:
             continue
         seen.add(key)
-        pads.append((vendor, product, name))
+        pads.append((pad.vendor, pad.product, pad.name))
         if len(pads) >= max_n:
             break
     return pads

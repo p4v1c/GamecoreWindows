@@ -1,57 +1,52 @@
-"""configgen.detect_pads: which devices get a player slot in emulator configs."""
-from __future__ import annotations
+"""configgen.detect_pads: which devices get a player slot in emulator configs.
 
-import sys
-import types
+SDL's snapshot (`platform/gamepads.py` `pads()`) is replaced with a list.
+"""
+from __future__ import annotations
 
 import pytest
 
 from backend.services.configgen import controllers
+from backend.services.platform import gamepads as platform_gamepads
 
-BTN_SOUTH = 0x130
 
-
-class FakeDevice:
-    def __init__(self, name, keys, vendor, product, uniq="", phys=""):
-        self.name, self._keys, self.uniq, self.phys = name, keys, uniq, phys
-        self.info = types.SimpleNamespace(vendor=vendor, product=product)
-
-    def capabilities(self):
-        return {1: self._keys}
-
-    def close(self):
-        pass
+def pad(device, name, vendor, product, serial="", is_pad=True):
+    return platform_gamepads.PadInfo(device=device, name=name, vendor=vendor,
+                                     product=product, guid="0" * 32, serial=serial,
+                                     bus=5, is_pad=is_pad, has_guide=True)
 
 
 @pytest.fixture
-def devices(monkeypatch):
-    found: dict[str, FakeDevice] = {}
-    module = types.ModuleType("evdev")
-    module.InputDevice = lambda path: found[path]
-    monkeypatch.setitem(sys.modules, "evdev", module)
-    monkeypatch.setattr(controllers.glob, "glob", lambda pattern: list(found))
-    return found
+def connected(monkeypatch):
+    pads: list = []
+    monkeypatch.setattr(platform_gamepads, "pads", lambda: list(pads))
+    return pads
 
 
-def test_a_virtual_keyboard_does_not_push_pad_two_to_player_three(devices):
-    """Sunshine's "libvirtualhid Keyboard" declares every key, BTN_SOUTH
-    included. Sorted between two real pads, it took player 2 and moved the
-    second pad to player 3 in every emulator config."""
-    devices["/dev/input/event10"] = FakeDevice("Wireless Controller", [BTN_SOUTH], 0x054C, 0x09CC)
-    devices["/dev/input/event11"] = FakeDevice("libvirtualhid Keyboard", list(range(1, 0x2FF)),
-                                               0x1209, 0x0002)
-    devices["/dev/input/event12"] = FakeDevice("Xbox Wireless Controller", [BTN_SOUTH],
-                                               0x045E, 0x0B13)
-
-    assert controllers.detect_pads() == [
-        ("054c", "09cc", "Wireless Controller"),
-        ("045e", "0b13", "Xbox Wireless Controller"),
-    ]
+def test_pads_come_in_the_order_they_connected(connected):
+    connected += [pad("sdl3", "PS4 Controller", "054c", "09cc"),
+                  pad("sdl7", "Xbox Series X Controller", "045e", "0b13")]
+    assert controllers.detect_pads() == [("054c", "09cc", "PS4 Controller"),
+                                         ("045e", "0b13", "Xbox Series X Controller")]
 
 
-def test_the_pc_packs_virtual_xbox_pad_is_not_a_player(devices):
-    devices["/dev/input/event10"] = FakeDevice("Wireless Controller", [BTN_SOUTH], 0x054C, 0x09CC)
-    devices["/dev/input/event24"] = FakeDevice("Microsoft X-Box 360 pad", [BTN_SOUTH], 0x045E,
-                                               0x028E, phys="gamecore-virtual-pad/1")
+def test_a_wheel_does_not_push_pad_two_to_player_three(connected):
+    connected += [pad("sdl1", "PS4 Controller", "054c", "09cc"),
+                  pad("sdl2", "Racing Wheel", "046d", "c24f", is_pad=False),
+                  pad("sdl3", "Xbox Series X Controller", "045e", "0b13")]
+    assert [p[2] for p in controllers.detect_pads()] == ["PS4 Controller",
+                                                        "Xbox Series X Controller"]
 
-    assert controllers.detect_pads() == [("054c", "09cc", "Wireless Controller")]
+
+def test_one_pad_listed_twice_under_one_address_is_one_player(connected):
+    connected += [pad("sdl1", "PS4 Controller", "054c", "09cc", serial="84:30:95:07:c8:1c"),
+                  pad("sdl2", "PS4 Controller", "054c", "09cc", serial="84:30:95:07:c8:1c")]
+    assert len(controllers.detect_pads()) == 1
+
+
+def test_the_d_pad_shape_is_what_sdl_counts(connected):
+    with_hat = pad("sdl1", "Generic", "0079", "0006")
+    with_hat.counts = (12, 4, 1)
+    connected.append(with_hat)
+    assert controllers.pad_has_hat("0079", "0006") is True
+    assert controllers.pad_has_hat("dead", "beef") is None

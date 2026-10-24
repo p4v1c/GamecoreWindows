@@ -1,8 +1,8 @@
 """Sleep switches the screen off only once the UI has faded to black.
 
-DPMS used to cut the panel in the same breath as `standby:sleep`, so the TV
+The screen used to go off in the same breath as `standby:sleep`, so the TV
 went from the standby picture to no signal in one frame. The UI now fades,
-then posts `/api/standby/dark`; the backend waits for that before DPMS.
+then posts `/api/standby/dark`; the backend waits for that before the screen goes off.
 """
 import asyncio
 import sys
@@ -21,15 +21,14 @@ def screen(monkeypatch):
     """Record every screen and governor command instead of running it."""
     calls: list[tuple[str, ...]] = []
 
-    async def fake_run_cmd(*argv, **kw):
+    async def fake_power(*argv, **kw):
         calls.append(argv)
         return True
 
     async def fake_broadcast(event, data=None):
         calls.append(("ws", event))
 
-    monkeypatch.setattr(standby, "_run_cmd", fake_run_cmd)
-    monkeypatch.setattr(standby, "kscreen_available", lambda: False)
+    monkeypatch.setattr(standby, "_power", fake_power)
     monkeypatch.setattr(ws, "broadcast", fake_broadcast)
     monkeypatch.setattr(ws, "has_clients", lambda: True)
     standby._state = "screensaver"
@@ -38,7 +37,7 @@ def screen(monkeypatch):
 
 
 def _screen_off(calls) -> bool:
-    return ("xset", "dpms", "force", "off") in calls
+    return ("screen_off",) in calls
 
 
 def test_screen_stays_on_until_the_ui_is_dark(screen):

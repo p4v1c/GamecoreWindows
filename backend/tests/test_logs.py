@@ -116,6 +116,20 @@ def test_a_purge_empties_the_logs_a_running_game_still_writes(data):
     assert logs.usage()["files"] == 1
 
 
+def test_a_purge_survives_an_older_log_another_game_still_holds(data):
+    """Windows refuses to delete a file another process has open: a suspended
+    game still holds its older launch log. That file is emptied instead, and
+    the purge goes on."""
+    folder = data / "launch" / "gb"
+    folder.mkdir(parents=True)
+    held = folder / "20260101-000000-suspended.log"
+    held.write_text("suspended game output")
+    (folder / "20260102-000000-now.log").write_text("now")
+    with held.open("ab"):
+        logs.purge()
+    assert held.read_text() == "", "a file that cannot go is emptied"
+
+
 def test_logging_keeps_working_after_a_purge(data):
     logger = logging.getLogger("gamecore.test.logs")
     logger.setLevel(logging.INFO)

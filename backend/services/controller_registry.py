@@ -5,12 +5,11 @@ gets the lowest free slot (1-based), like on a console — plug a second pad
 while the first is connected and it becomes player 2; unplug player 1 and
 the next pad to arrive takes slot 1 back.
 
-battery.py joins the sysfs power supplies back to a slot through the pad's
-MAC address (evdev `uniq`, also embedded in the supply directory name), so
-alerts and the TopBar pills can say "Controller 2" instead of a device name.
+A pad is keyed by its Bluetooth address when SDL reports one (its serial),
+else by its SDL device, so battery alerts and the TopBar pills can say
+"Controller 2" instead of a device name.
 
-Pure logic, no evdev/sysfs access — unit-testable (see
-tests/test_controller_registry.py).
+Pure logic, no SDL access — unit-testable (see tests/test_controller_registry.py).
 """
 import logging
 import re
@@ -19,7 +18,7 @@ log = logging.getLogger(__name__)
 
 _MAC_RE = re.compile(r"([0-9a-f]{2}(?::[0-9a-f]{2}){5})")
 
-# registry key (normalized MAC, else device path) → player slot (1-based)
+# registry key (normalized MAC, else SDL device) → player slot (1-based)
 _slots: dict[str, int] = {}
 _labels: dict[str, str] = {}
 
@@ -27,9 +26,8 @@ _labels: dict[str, str] = {}
 def normalize_mac(value: str | None) -> str:
     """Extract a lowercased aa:bb:cc:dd:ee:ff from any MAC-ish string.
 
-    Handles evdev `uniq` ("84:30:95:07:C8:1C") as well as sysfs power-supply
-    names ("ps-controller-battery-84:30:95:07:c8:1c",
-    "sony_controller_battery_84:30:95:07:c8:1c"). Returns '' when no MAC is
+    Handles an SDL serial ("84:30:95:07:C8:1C") and names that embed one
+    ("ps-controller-battery-84:30:95:07:c8:1c"). Returns '' when no MAC is
     present.
     """
     if not value:
@@ -39,42 +37,14 @@ def normalize_mac(value: str | None) -> str:
 
 
 def key_for(uniq: str | None, path: str) -> str:
-    """Stable registry key for a pad: its MAC when known, else the devnode."""
+    """Stable registry key for a pad: its MAC when known, else its SDL device."""
     return normalize_mac(uniq) or path
 
 
 def identity(key: str, vendor: str, product: str) -> str:
     """What a profile remembers a pad by: its MAC, else its model. Two
-    identical pads without a MAC read as one; a devnode changes on replug."""
+    identical pads without a MAC read as one; an SDL device changes on replug."""
     return normalize_mac(key) or f"{vendor}:{product}"
-
-
-def nodes_by_key(nodes: list[tuple[str | None, str]]) -> dict[str, list[str]]:
-    """registry key → EVERY devnode that belongs to that physical controller.
-
-    `key_for()` already collapses a pad's nodes onto its MAC, and
-    `gamepad_devices.pads_by_key()` uses that to count a controller once. But it
-    keeps only the FIRST node it meets (`setdefault`), because all it needs is
-    the pad's identity.
-
-    A capture session needs the opposite: all of them. A Bluetooth pad publishes
-    several `event*` nodes — a DualShock 4 adds a touchpad and a motion sensor —
-    and which one carries the BUTTONS is not something the caller can choose by
-    position. Measured on this box, a DS4 arrives as three nodes and the gamepad
-    one is not always the lowest-numbered: reading a single node picked by
-    convention gives a wizard where half the buttons do nothing, intermittently,
-    depending on the order the kernel happened to create them in.
-
-    Order is preserved within a key, so a caller that still wants one node gets
-    the same one `pads_by_key()` would have chosen.
-
-    Pure, like the rest of this module: the caller does the evdev opening and
-    hands over (uniq, path) pairs.
-    """
-    out: dict[str, list[str]] = {}
-    for uniq, path in nodes:
-        out.setdefault(key_for(uniq, path), []).append(path)
-    return out
 
 
 def has(key: str) -> bool:

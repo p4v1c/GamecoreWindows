@@ -22,11 +22,9 @@ Routers parse, validate and delegate; the logic lives in
 
 1. **`standby.resume_after_restart()`** — forces the screen back on
    unconditionally. Standby state is a module variable but its effect is not:
-   `xset dpms force off` belongs to the X server, which SDDM owns and which does
-   not restart with the backend. A box asleep when the backend restarted came
-   back believing it was awake with the TV dark, and nothing could wake it (pad
-   events arrive over evdev, not X, so DPMS never re-armed). Restarting the
-   backend is what a stuck user will try — so that is what now fixes it.
+   a screen turned off by the previous backend stays off, and the new one
+   would believe it awake. Restarting the backend is what a stuck user will
+   try, so that is what fixes it.
 2. **`process_manager.adopt_orphan()`** — re-attaches to a game a previous
    process left running, so the double-PS shortcut can still close it. See
    `config/session.json` in doc 7.
@@ -294,52 +292,56 @@ and an async `_run(*args)`.
 
 ### `settings/display.py` — resolution, refresh rate, UI scale
 
-Thin: six endpoints over `backend/services/display.py`, which picks
-`kscreen-doctor` (Wayland) or `xrandr`, arms the revert timer and writes
+Thin: six endpoints over `backend/services/display.py`, which sets the mode
+through `platform/display.py`, arms the revert timer and writes
 `config/display.json` / `config/ui-scale.json`. `DisplayError(status, detail)`
 becomes the HTTP error.
 
 | Route | Notes |
 |---|---|
-| `GET /settings/display` | modes, current, backend, `pending`, `revert_secs` |
+| `GET /settings/display` | modes, current, backend (`windows`), `pending`, `revert_secs` |
 | `POST /settings/display/mode` | 409 while a game is resident · 400 mode not advertised · arms the revert timer |
-| `POST /settings/display/confirm` | keeps the mode and persists it — the only writer of `display.json` |
+| `POST /settings/display/confirm` | keeps the mode and persists it (registry and `display.json`) — the only writer of `display.json` |
 | `POST /settings/display/revert` | goes back now |
 | `GET/POST /settings/display/scale` | one of `SCALES`; applied by the front end as a zoom |
 
-### `settings/wifi.py` — `nmcli`
+### `settings/wifi.py` — WinRT and WMI
 
 | Function | Route |
 |---|---|
-| `_wifi_iface()` | — active WiFi interface name |
-| `scan_networks()` (+ `_rescan()`) | `GET /wifi/networks` |
-| `_iface_ip(iface)`, `_ethernet_status()` | — |
-| `wifi_status()` | `GET /wifi/status` — SSID, IP **and wired status**, so the UI can skip the WiFi flow entirely on ethernet; `radio` true/false (null: no Wi-Fi hardware) |
+| `scan_networks()` | `GET /wifi/networks` — rescans; one entry per SSID (`best_per_ssid`: connected first, then strongest) |
+| `wifi_details()` | `GET /wifi/details` — security, channel, band per SSID (`details_per_ssid`, strongest access point); `rate` is always `""` (WinRT reports none) |
+| `wifi_status()` | `GET /wifi/status` — SSID, IP **and wired status** (`ethernet_status`: first connected physical wired adapter), so the UI can skip the Wi-Fi flow on ethernet; `radio` true/false (null: no Wi-Fi hardware); gateway, DNS, MAC of the Wi-Fi adapter, same keys when disconnected |
 | `set_radio(req)` | `POST /wifi/radio` `{enabled}` → `{enabled}` read back; logic in [`wifi_radio.py`](04-backend-services.md#wifi_radiopy--the-wi-fi-radio-switch) |
-| `connect_wifi(req)` | `POST /wifi/connect` — returns `wrong_password` distinctly |
+| `connect_wifi(req)` | `POST /wifi/connect` — returns `wrong_password` distinctly (`INVALID_CREDENTIAL`); bounded by `CONNECT_TIMEOUT` |
 | `disconnect_wifi()` | `DELETE /wifi/connect` |
-| `_spawn_bg(coro, label)` | — background task helper with error logging |
 
-The PSK goes to `nmcli` on **stdin**, via `nmcli --ask`. In argv it was visible
-in `/proc/<pid>/cmdline` to every local user for the length of the connect. An
-SSID beginning with `-` is refused rather than escaped: the SSID is positional
-with nothing marking the end of the options, such a network is vanishingly rare,
-and guessing at `nmcli`'s option parsing is not worth being clever about.
+The calls are in [`platform/wifi.py` and `platform/network.py`](04-backend-services.md#platform--every-call-into-windows).
+A connect with a password deletes the saved profile named after the SSID
+first and again after a failure (`_forget`): a profile holding an old or
+refused key would be retried instead of the one just typed. The SSID and the
+password travel to WinRT as values; no command line is built from them.
 
-### `settings/audio.py`
+### `settings/audio.py` — Core Audio
 
-`get_audio()`, `list_sinks()`, `set_volume(req)`, `set_sink(req)`.
+`get_audio()`, `list_sinks()`, `set_volume(req)`, `set_sink(req)`. The calls are
+in [`platform/audio.py`](04-backend-services.md#platform--every-call-into-windows);
+a sink `id` is the Windows endpoint id string. A Core Audio refusal answers an
+empty list, volume 100, or `{ok: false, error}`: the page shows what it has.
 
-### `settings/bluetooth.py` — `bluetoothctl`
+### `settings/bluetooth.py` — WinRT
 
-`list_devices()`, `start_scan()` (scans 10 s, answers what is in range and not
-paired), `pair_device`, `connect_device`, `disconnect_device`, `remove_device(mac)`.
+`list_devices()`, `start_scan()` (scans `SCAN_SECS`, answers what is in range
+and not paired), `pair_device` (bounded by `PAIR_SECS`), `connect_device`,
+`disconnect_device`, `remove_device(mac)` (unpairs, then reads the paired list
+back). The calls are in [`platform/bluetooth.py`](04-backend-services.md#platform--every-call-into-windows).
 
-> Pairing runs one *interactive* `bluetoothctl --agent=NoInputNoOutput`
-> (`_pair_with_agent`): in direct subcommand mode (`-- pair`) bluetoothctl 5.87
-> registers no agent, and bluetoothd refused every device that needed a
-> confirmation or an authorization ("No agent available"). A `(yes/no)`
-> prompt is answered yes: the player picked the device.
+> Windows connects a paired device when the device asks (a pad switched on)
+> and has no call to force or drop one device's link: `/connect` answers ok
+> only for a device already connected and says how to connect the others;
+> `/disconnect` answers ok only for one already down. Pairing accepts Windows'
+> confirmation itself; a device that wants a typed PIN is refused with that
+> reason.
 
 > Bluetooth device names are attacker-controlled strings that reach the UI.
 > They are one of the reasons `escHtml()` exists in Electron.
@@ -404,4 +406,7 @@ Every write broadcasts `profiles:changed` `{active}`; a change of active profile
 
 ### `storage.py` — external disks
 
-`GET /storage/volumes`, `POST /storage/mount`, `POST /storage/unmount`.
+`GET /storage/volumes`, `POST /storage/mount`, `POST /storage/unmount`. A device
+is a drive (`E:`, any case). Mount only reports the drive Windows gave the disk;
+unmount is Windows' "Safely remove" and answers 409 with Windows' reason when a
+program still holds a file on the disk.

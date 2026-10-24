@@ -77,7 +77,7 @@ You navigate with a gamepad, launch emulators, and never touch a keyboard.
 | GPU | Any — hardware acceleration recommended |
 | RAM | 4 GB |
 | Storage | 80 GB + (60 GB system + your ROM library) |
-| Controller | Any XInput / evdev gamepad |
+| Controller | Any gamepad SDL2 opens (XInput, DualShock 4 / DualSense, Switch Pro, generic HID) |
 
 All emulators are installed via **Flatpak**. Make sure Flatpak is available on your system before running the installer.
 
@@ -610,25 +610,18 @@ screensaver (Orbit and Shelf: a room at night where a CRT plays short videos
 of the games you play most; Jelly: your covers floating in jellies on the cyan
 floor, one of them growing now and then to play its game's video; other
 themes: a cover-art slideshow), then turns
-the screen off via DPMS and drops the
-CPU governor to powersave. The box itself stays up: backend, SSH and OTA
-updates keep working. **Any controller button wakes it** (evdev-based, so
-it works even with the UI asleep); mouse/keyboard input works too. A
-running game always blocks standby.
+the screen off and switches to Windows' Power saver plan when the PC has one.
+The PC itself stays up: backend, SSH and OTA updates keep working. **Any
+controller button wakes it** (read by the backend, so it works even with the UI
+asleep); mouse/keyboard input works too. A running game always blocks standby.
+While standby is on, GameCore sets Windows' own "turn off the display" and
+"sleep after" timers to never and gives them back when standby is switched off.
 
 The standby videos come from ScreenScraper, so they need its account (the same
 one that brings the 3D boxes). The backend downloads them in the background,
 the most played games first, never while a game is running, and keeps at most
 5 GB; `GAMECORE_STANDBY_VIDEO_CAP_GB=2` in the backend's environment lowers
 that, `0` turns the videos off and deletes them.
-
-Governor switching is optional and needs a sudoers rule (the screen is
-the real power sink — skip this if you don't care):
-
-```
-# /etc/sudoers.d/gamecore-standby
-your_user ALL=(root) NOPASSWD: /usr/bin/cpupower frequency-set -g powersave, /usr/bin/cpupower frequency-set -g performance
-```
 
 ### Rest mode
 

@@ -54,11 +54,10 @@ inflate the library stats.
 **In-memory state whose effect is on disk (or in the X server) needs a
 startup reconciliation.** Two instances of the same bug:
 
-- Standby is a module variable, but `xset dpms force off` belongs to the X
-  server, which SDDM owns and which does not restart with the backend. A box
-  asleep when the backend restarted came back believing it was awake with the TV
-  dark, and no button could wake it. The lifespan now forces the screen on
-  unconditionally.
+- Standby is a module variable, but a screen turned off stays off when the
+  backend restarts. A box asleep when the backend restarted came back believing
+  it was awake with the TV dark, and no button could wake it. The lifespan now
+  forces the screen on unconditionally.
 - The running game lived only in `_proc`. A restarted backend saw
   `is_running == False`, so `kill()` returned immediately and the emulator was
   fullscreen and unkillable. The job's name is persisted to
@@ -179,9 +178,9 @@ suspended. Judged at the second press, the pair that left the game opened the
 session menu on some suspends and not others.
 
 **The browser cannot see the Guide button reliably.**
-Chromium often hides it, and the UI has no focus under a fullscreen emulator.
-The evdev monitor in the backend is the primary path; the browser is the
-fallback.
+Chromium never exposes it, and the UI has no focus under a fullscreen emulator.
+The SDL reader in the backend (background events allowed) is the primary path;
+the browser is the fallback.
 
 **The controller screen closes on a double □, and ○ does not close it.**
 Every button there is a test target, so no button may be an action.
@@ -392,7 +391,7 @@ belong here:
 emulator configs.** Not hypothetical: a `pytest` run rewrote Player 1 of this
 machine's RPCS3 `Default.yml` and emptied Ryujinx's `input_config`. The chain is
 short and nothing in it looks dangerous — the lifespan starts
-`gamepad_monitor.run()`, the monitor scans the **real** `/dev/input`, finds
+`gamepad_monitor.run()`, the monitor reads the **real** pads, finds
 whatever pad the developer left plugged in, and profiles it against a `HOME`
 read at import time. `conftest.py` points `HOME` at a throwaway root before any
 import; `test_home_isolation.py` now guards that it stays pointed there, because

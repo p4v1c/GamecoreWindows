@@ -13,8 +13,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 1. Repo, skills, docs read, dev log, CI skeleton | merged | #1 |
 | 2. Platform layer + paths, backend passes the ported suite | merged | #3 |
 | 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
-| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | in review | #5 |
-| 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | — | — |
+| 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | merged | #5 |
+| 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | in review | #6 |
 | 6. Rest mode (sleep, wake by pad, splash after wake) | — | — |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
 | 8. OTA update + rollback, release workflow | — | — |
@@ -51,6 +51,13 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D24 | Only `GAMECORE_MANAGED=1` stops the shell from starting its own backend; the logon task (step 7) must set it | systemd's `INVOCATION_ID` was the Linux signal and does not exist here; unset now means "a checkout run by hand" |
 | D25 | Chromium's device scale factor is pinned to 1 | Settings → Display → Scale (a page zoom) is the interface's only zoom, as under X11; Windows scaling a 4K TV to 150 % would apply on top |
 | D26 | Desktop mode starts `explorer.exe` when the session has none, then quits; the HUD toast is shown with `showInactive()` | the console session will run without Explorer (step 7). A shown window activates on Windows: the toast would pull a game out of fullscreen |
+| D27 | Wi-Fi, radios and Bluetooth go through **WinRT** (pywinrt), audio through **Core Audio** (pycaw), addresses and USB devices through **WMI**, pads through **SDL2 in the backend** (pysdl2 + its bundled `SDL2.dll`); never `netsh` text | `netsh` prints in the display language (French on the owner's PC): a parser written against English reads nothing. The typed APIs answer the same on every Windows |
+| D28 | Bluetooth Connect / Disconnect report the state instead of changing it | Windows connects a paired device when the device asks and has no public call to force or drop one device's link. `/connect` is ok for a connected device and says how to connect the others |
+| D29 | Standby switched off **hands Windows its own timers back**; nothing re-takes them (the Linux "X arm" held even with standby off has no counterpart) | on Windows the plan's display and sleep timeouts are the only idle timers; games and Chromium video hold the display themselves. Standby on: GameCore owns them (set to never, previous values noted) |
+| D30 | The sleep stage switches to the **Power saver** plan when the PC has one and puts the previous plan back, noted on disk (`power-plan-handoff.json`) | Windows' equivalent of the `cpupower` governor; the plan is system state and outlives the backend, so the way back cannot live in memory |
+| D31 | A display mode is applied for the session only and written to the registry on confirm | an unconfirmed mode (a black screen) must not survive a restart, exactly what the revert timer exists for |
+| D32 | Battery = SDL2's power **level** mapped to 5 / 20 / 60 / 100 %; a wired pad lists no battery | SDL2 has no percent (SDL3 does); the bands land on the 25 % and 5 % alerts. Exact percent (DualShock HID report or SDL3) left as an open question |
+| D33 | A pad's device id is `sdl<instance>`, its registry key the Bluetooth address when SDL reports one | SDL gives a new instance on every connection, like a new `/dev/input/eventN` on Linux; the address keeps the slot, as the MAC did |
 
 ## Baseline on Windows (19/10/2026, before any port change)
 
@@ -150,6 +157,29 @@ The pytest drop is the overlay code's own tests, removed with it (D7):
 vitest drop is `OverlayScreen` and the bezel rows of the options panel.
 `main.js` 1 147 → 499 lines: no longer over the file-size budget.
 
+## After step 5 (24/10/2026)
+
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
+
+| | Before (main at `4f7b0ab`) | After |
+|---|---|---|
+| pytest passed | 2 332 | 2 375 |
+| pytest skipped | 271 | 245 |
+| vitest | 755 | 755 |
+| Electron bench | 42 | 42 |
+| `linux_until_port` items ([list](windows-port-linux-tests.md)) | 371 in 51 files | 345 in 44 files (all 22 step-5 items gone with their code; the Flatpak branch lookup moves to step 7 with the Linux packs; one Rest-mode test lost its subject) |
+
+Deleted with their code: the `wpctl`, `nmcli`, `bluetoothctl`, `xrandr` /
+`kscreen-doctor` parsers' tests, the X11 idle-timer arm
+(`test_standby_x11_timers.py`), the evdev discovery and sysfs battery /
+USB / disk fixtures, the evdev layout walk (`sdl_layout` over key codes, its
+`/dev/uinput` verifier `scripts/verify-sdl-layout.py`) and the node grouping
+(`nodes_by_key`). New: `test_platform_power.py`, `fake_display.py`,
+`fake_volumes.py`, and the platform cases in each settings suite. Known flaky
+here, not "fixed" (owner rule): `test_launch_reconcile` timing under load, and
+`test_platform_window_control` (3 tests) whenever this PC's desktop refuses the
+foreground; both fail the same way on the step-4 tree.
+
 ## Done
 
 - Both originals cloned read-only; the clone's `upstream` remote has its push
@@ -197,15 +227,42 @@ vitest drop is `OverlayScreen` and the bezel rows of the options panel.
   pointer hidden over the interface; a sign-out (`session-end`) ends the shell;
   `electron-builder --win` (D23). Doc 06 renamed `06-electron-shell.md`.
 
+- Step 5: `backend/services/platform/` gains `audio.py`, `com.py`,
+  `network.py`, `wifi.py`, `radios.py`, `bluetooth.py`, `display.py`,
+  `power.py`, `volumes.py`, `gamepads.py`, `usb.py`. Settings routers (audio,
+  Wi-Fi, Bluetooth, display) keep their endpoints and shapes. Standby and
+  `desktop_power` own Windows' screen, idle timers and plan; storage links
+  drives with junctions and ejects through PnP; pads, the guide gesture, the
+  chord, standby's activity, the wizard and batteries read SDL2 in the
+  backend; the top bar's IP skips VPN and virtual adapters; a log purge
+  empties what a suspended game still holds. `conftest.py` now keeps every
+  machine-changing call out of reach for the whole session. `evdev` and
+  `python-xlib` left the requirements.
+
 ## Next
 
-Step 5: pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage,
-logs. Carry over from step 4: the logon task (step 7) starts the interface
+Step 6: Rest mode (sleep, wake by pad, splash after wake): `rest_mode.py`,
+`sleep_guard.py`, `resume.py`, `bt_wake.py`, `wake_source.py`. Carry over from
+step 5: Desktop mode should hand Windows its idle timers back
+(`desktop_power.release()`) when the shell leaves for Explorer, and take them
+again on return (step 7, with the session); every subprocess the backend
+starts (the SDL probes) needs `CREATE_NO_WINDOW` if the logon task runs the
+backend without a console (step 7). Carry over from step 4: the logon task (step 7) starts the interface
 with `GAMECORE_MANAGED=1`; the updater (step 8) must stop the shell with
 `taskkill /F` or by the backend, since a plain `WM_CLOSE` makes the kiosk
 rebuild its window; `electron/start-ui.sh` (Linux) leaves with step 7.
 
 ## Open questions for the owner
+
+- Step 5, conservative choices made: D28 (Bluetooth Connect reports instead
+  of forcing), D29 (standby off = Windows' own timers), D32 (battery in SDL2
+  bands; exact percent through SDL3 or the DualShock HID report later?).
+- Step 5: Windows 11 24H2 asks for location access before a desktop app may
+  scan Wi-Fi; the installer (step 7) may have to grant it, or the scan is
+  empty. This PC (23H2) scans without it.
+- Step 5: `configgen`'s `evdev_driven` / `guid_read_through_evdev` names and
+  the "no capture under a HIDAPI GUID" rule date from Linux; on Windows a
+  capture comes from the backend's own SDL. Revisit with the packs.
 
 - Answered 20/10: games stay elevated (D8), no kill-on-close (D17), the
   overlay and its backend leave at step 4 (D22).
@@ -223,6 +280,14 @@ rebuild its window; `electron/start-ui.sh` (Linux) leaves with step 7.
 
 | What | When | Result |
 |---|---|---|
+| Step 5, audio: outputs listed, volume read and written back unchanged, the default output set again, a bogus id refused | 24/10/2026 | green |
+| Step 5, Wi-Fi: status (SSID, IP, gateway, DNS, MAC, radio), a scan (15 SSIDs, security, channel, band), `WlanDeleteProfile` on a missing profile answers "not found" | 24/10/2026 | green. Not run: join, leave, radio off (they cut this session's network), deleting a real profile |
+| Step 5, Bluetooth: 10 paired devices read (address, connected), a 6 s scan (unnamed LE advertisers dropped) | 24/10/2026 | green. Not run: pair, unpair (the owner's devices) |
+| Step 5, display: 1920x1080 120 Hz → 60 Hz → 120 Hz through `apply_mode`, the current mode written to the registry, an unsupported mode refused, monitor reported active | 24/10/2026 | green |
+| Step 5, power: idle timers read (900 / 180 / 0 / 10 800 s), set to never and restored (checked with `powercfg`), screen off then on | 24/10/2026 | green; the screen state itself was not observable from here |
+| Step 5, storage: the system NVMe (bus 17) excluded from the list | 24/10/2026 | green. Not run: a real USB disk, eject (none plugged in) |
+| Step 5, pads: the SDL thread starts with background events, the probe subprocess loads the bundled `SDL2.dll` | 24/10/2026 | green. Not run: a real pad (none connected): guide double-press, chord, battery, wizard capture |
+| Step 5, LAN IP: the Wi-Fi address chosen over the VMware and VirtualBox host-only adapters | 24/10/2026 | green |
 | The checks above | 19/10/2026 | as in the baseline table |
 | Junctions made, followed, removed and swept by `rmtree` on NTFS from an account without elevation (`test_platform_filesystem.py`) | 19/10/2026 | green |
 | `BootId` read from the registry without admin; `psutil` start times of live and dead processes; the adoption identity end to end on real child processes (`test_platform_processes.py`) | 19/10/2026 | green |

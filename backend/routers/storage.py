@@ -6,9 +6,8 @@ a question anyone can answer by looking at it. A button that flushes and detache
 is the only honest answer, and it is why this router exists rather than a
 paragraph of documentation asking players to be careful.
 
-Mount and unmount go through `udisksctl`, which does the privileged part over
-D-Bus as the logged-in user — no sudoers rule, and the backend never runs as
-root to do it.
+Windows mounts a disk itself; Eject is Windows' "Safely remove"
+(`platform/volumes.py`).
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -22,16 +21,14 @@ router = APIRouter(tags=["storage"])
 def list_volumes():
     """Every external disk, mounted or not.
 
-    Internal disks are never listed. The NVMe holding the system also has a
-    label and a mount point, and putting it in a screen with an Eject button
-    would be handing someone a way to unmount their own root filesystem from a
-    sofa.
+    Internal disks are never listed: an Eject button next to the system drive
+    is a way to break the PC from a sofa.
     """
     return {"ok": True, "volumes": storage.report()}
 
 
 class DeviceBody(BaseModel):
-    """A `/dev/...` path, never a list index.
+    """A drive (`E:`), never a list index.
 
     A row position is not a handle: a disk arriving while the screen is open
     renumbers the list, and an Eject that acted on "the third row" would then
@@ -67,8 +64,7 @@ def unmount_volume(body: DeviceBody):
     """
     ok, detail = storage.unmount(_volume_or_404(body.device))
     if not ok:
-        # "target is busy" is the common failure and it is actionable: a game
-        # is still reading the disk. Passing udisks's own words through beats
-        # replacing them with a generic failure the player cannot act on.
+        # "busy" is the common failure and it is actionable: a game is still
+        # reading the disk. The reason is passed through as it is.
         raise HTTPException(409, detail)
     return {"ok": True, "detail": detail}

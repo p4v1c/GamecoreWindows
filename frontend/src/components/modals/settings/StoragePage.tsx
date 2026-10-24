@@ -8,11 +8,10 @@ import { PadHints } from '../../../lib/padKey'
 /**
  * Settings → Storage: external disks, and ejecting one safely.
  *
- *  · Eject flushes and detaches — the reason this is a screen.
- *  · Shown path is `<DATA>/volumes/<label>`, stable across replugs (udisks
- *    renames a second mount `ROMS 1`); romsPath should use it.
- *  · exFAT/NTFS carry no POSIX permissions: ROMs fine, saves not. Amber, never
- *    red.
+ *  · Eject is Windows' "Safely remove": the reason this is a screen.
+ *  · Shown path is `<DATA>/volumes/<label>`, stable across replugs (the drive
+ *    letter is not); romsPath should use it.
+ *  · FAT32/exFAT keep no journal: ROMs fine, saves not. Amber, never red.
  *
  * The list repolls: the browser gets no event when a disk arrives.
  */
@@ -54,8 +53,8 @@ export function StoragePage({ onClose, onBack }: { onClose: () => void; onBack: 
     setMessage('')
     api.storage.unmount(v.device)
       .then(() => { setMessage(`${v.label || v.device} can be unplugged.`); refresh() })
-      // udisks's own words: "target is busy" is actionable — a game is still
-      // reading the disk. A generic failure would leave nothing to act on.
+      // Windows' reason: "busy" is actionable, a game is still reading the
+      // disk. A generic failure would leave nothing to act on.
       .catch((e: Error) => setMessage(e.message || 'Could not eject this disk.'))
       .finally(() => setBusy(''))
   }, [refresh])
@@ -114,8 +113,8 @@ export function StoragePage({ onClose, onBack }: { onClose: () => void; onBack: 
             <div style={{ fontSize: 15, color: DIM }}>{v.size}, {v.fstype}</div>
           </div>
 
-          {/* What a romsPath should be written against — never the mount point,
-              which udisks renames to "ROMS 1" on the second plug. */}
+          {/* What a romsPath should be written against: never the drive
+              letter, which changes when another device is plugged first. */}
           {v.mounted && v.stable_path && (
             <div style={{
               fontSize: 14, color: 'var(--gc-ink-3)', marginTop: 6,

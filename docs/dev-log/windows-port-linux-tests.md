@@ -7,18 +7,16 @@ with its step named (`linux_until_port`, [`../TESTING.md`](../TESTING.md)) and i
 disagree.
 
 Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
-(Bluetooth, audio, installer), which run on Windows through the
-`posix_boundary` fixture (`backend/tests/posix_boundary.py`) until steps 5
-and 7. Step 3 removed its process half (`os.killpg`, the signals): the
+(the installer), which run on Windows through the `posix_boundary` fixture
+(`backend/tests/posix_boundary.py`) until step 7. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 20/10/2026 (step 4): 371 test items in 51 files, by step:
+Measured on 24/10/2026 (step 5): 345 test items in 44 files, by step:
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
-| 5 | pads (SDL), battery, storage, Bluetooth | 22 | sysfs trees whose names hold `:`; `lsblk`/`udisksctl` and `/run/media` links; an interactive `bluetoothctl` |
-| 6 | Rest mode: sleep, wake by pad | 12 | bash helper over sysfs; sudoers and systemd units |
-| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 299 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
+| 6 | Rest mode: sleep, wake by pad | 7 | bash helper over sysfs; sudoers and systemd units |
+| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 300 | 145 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
 | 8 | OTA updater and release workflow | 26 | `update/linux.sh` in bash, rsync, `systemctl` |
 | 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
@@ -29,16 +27,9 @@ rest of the file runs on Windows.
 
 | Step | File | Marked tests | Linux mechanism |
 |---|---|---|---|
-| 5 | `backend/tests/test_battery.py` | `test_a_mouse_battery_is_not_a_controller` | sysfs `power_supply` names hold `:` |
-| 5 | `backend/tests/test_bluetooth_router.py` | `test_pairing_registers_an_agent_and_confirms_the_passkey` | pairing drives an interactive `bluetoothctl` session |
-| 5 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink |
-| 5 | `backend/tests/test_storage.py` | `test_the_link_points_at_wherever_the_disk_landed`, `test_replugging_repoints_the_link_instead_of_failing`, `test_a_link_left_over_from_a_previous_session_is_found`, `test_a_romspath_under_the_stable_link_resolves_onto_the_disk`, `test_the_scanner_reads_nothing_from_a_disk_that_has_gone`, `test_a_busy_disk_reports_why_rather_than_a_generic_failure` | `lsblk`/`udisksctl`, `/run/media` symlinks |
-| 5 | `backend/tests/test_storage_monitor.py` | `test_a_disk_plugged_in_is_mounted_linked_and_announced`, `test_the_mount_point_is_re_read_rather_than_guessed`, `test_a_disk_that_arrives_already_mounted_still_gets_its_link`, `test_a_websocket_that_throws_does_not_stop_disks_being_noticed` | `lsblk`/`udisksctl`, `/run/media` symlinks |
-| 5 | `backend/tests/test_storage_router.py` | `test_the_listing_describes_what_a_romspath_should_point_at` | `/run/media` symlinks |
-| 5 | `backend/tests/test_sysinfo_router.py` | `test_a_laptop_battery_is_not_a_controller`, `test_a_model_name_is_preferred_over_the_sysfs_directory_name` | sysfs `power_supply` names hold `:` |
-| 5 | `backend/tests/test_usb_devices.py` | `test_inventory_reads_devices_and_skips_their_interfaces`, `test_inventory_ignores_a_node_whose_ids_are_unreadable`, `test_declared_adapter_present_is_reported_present`, `test_declared_adapter_absent_is_reported_absent_with_the_packs_note`, `test_case_does_not_decide_whether_a_device_is_found`, `test_launch_notice_is_empty_when_the_device_is_there` | sysfs USB tree (`3-1:1.0`) |
+| 7 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink: the Linux packs' emulator lookup, kept until the packs are rewritten |
 | 6 | `backend/tests/test_rest_mode_install.py` | `test_the_step_installs_every_piece_and_enables_the_unit`, `test_the_sudoers_rule_grants_suspend_and_nothing_else`, `test_a_second_run_changes_nothing`, `test_the_ota_migration_path_installs_them_too` | sudoers, systemd units |
-| 6 | `backend/tests/test_wake_setup_helper.py` | `test_the_adapter_and_the_pads_are_armed_and_nothing_else`, `test_the_helper_and_the_backend_agree_on_what_a_pad_is`, `test_a_second_run_writes_nothing`, `test_udev_mode_arms_one_device` | bash `gamecore-wake-setup`, sysfs |
+| 6 | `backend/tests/test_wake_setup_helper.py` | `test_the_adapter_and_the_pads_are_armed_and_nothing_else`, `test_a_second_run_writes_nothing`, `test_udev_mode_arms_one_device` | bash `gamecore-wake-setup`, sysfs |
 | 7 | `backend/tests/test_boot_review_fixes.py` | `test_graphical_start_applies_only_the_confirmed_mode` | bash `gamecore-xsetup` (7) and `update/linux.sh` (8) |
 | 7 | `backend/tests/test_catalog_consumers.py` | `test_the_prune_resolves_the_token_instead_of_reading_it_as_an_app_id`, `test_the_prune_still_drops_a_tile_whose_whole_list_is_absent`, `test_the_shell_side_sandbox_grants_the_data_root_too` | Flatpak sandbox flags, bash `flatpakify-systems.sh` |
 | 7 | `backend/tests/test_console_session_lockdown.py` | `test_the_window_manager_is_given_a_configuration_of_the_sessions_own`, `test_alt_tab_and_the_meta_key_are_taken_away`, `test_the_window_manager_leaves_the_handovers_to_the_theme`, `test_openbox_is_given_a_keyboard_with_nothing_on_it`, `test_openbox_is_told_which_file_to_read`, `test_the_lockdown_is_reported_so_a_journal_can_show_it`, `test_the_auto_login_drop_in_is_readable_without_root`, `test_a_file_it_cannot_read_is_said_out_loud_rather_than_skipped`, `test_status_still_answers_when_everything_is_readable`, `test_the_launcher_can_arm_the_console_session`, `test_the_launcher_refuses_an_argument_it_does_not_know`, `test_the_return_path_is_granted_without_a_password` | X session scripts run by bash, SDDM, openbox/KWin |

@@ -1,141 +1,126 @@
-"""One owner for the screen, and the handover back.
+"""Who owns the screen timeout: GameCore's standby, or Windows' power plan.
 
-Two standby systems were configured on the reference box and neither knew the
-other existed: GameCore at 4 and 6 minutes, and KDE's power manager at 900 s.
-The one with the settings page could not reach the screen, so the number the
-owner set was capped by a second, invisible timer — "Never" meant fifteen
-minutes, and thirty minutes meant fifteen minutes.
-
-The dangerous half is not the claim, it is the release. Disabling the desktop's
-screen-off and then turning GameCore's standby off leaves NOBODY turning the
-screen off: the television stays lit all night, behind a switch the owner just
-used believing it did the opposite. Most of what is below is about that.
+Windows' "turn off the display" and "sleep after" timers cannot see a pad, so
+they capped GameCore's own timings. `desktop_power` takes them while standby
+is on and must hand them back. The plan is faked in every test (`plan`);
+nothing here writes this PC's power settings.
 """
-import asyncio
-import json
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import asyncio
+import time
 
 import pytest
 
 from backend.services import desktop_power as dp
+from backend.services.platform import power as platform_power
 
-
-@pytest.fixture
-def desktop(monkeypatch, tmp_path):
-    """A KDE session that answers, with its timeout in a dict we can read.
-
-    Replaces the module's single subprocess door — everything it does to the
-    outside world goes through `_run`, which is the whole reason that function
-    exists.
-    """
-    state = {"timeout": "900", "reparsed": 0, "writes": [], "argv": []}
-
-    async def fake_run(*argv, **kw):
-        if argv[0] == "kreadconfig6":
-            return 0, state["timeout"]
-        if argv[0] == "kwriteconfig6":
-            value = argv[-1]
-            state["argv"].append(list(argv))
-            state["writes"].append(value)
-            state["timeout"] = value
-            return 0, ""
-        if argv[0] == "gdbus":
-            state["reparsed"] += 1
-            return 0, "()"
-        return 1, ""
-
-    monkeypatch.setattr(dp, "_run", fake_run)
-    monkeypatch.setattr(dp, "available", lambda: True)
-    monkeypatch.setattr(dp, "_HANDOFF", tmp_path / "handoff.json")
-    return state
+WINDOWS = {"display_ac": 900, "display_dc": 180, "sleep_ac": 1800, "sleep_dc": 600}
+NEVER = {k: 0 for k in WINDOWS}
 
 
 def run(coro):
     return asyncio.run(coro)
 
 
-# ── claiming ─────────────────────────────────────────────────────────────────
+@pytest.fixture
+def plan(monkeypatch, tmp_path):
+    """A fake active plan: `timers` is what Windows holds, `writes` what was set."""
+    state = {"timers": dict(WINDOWS), "writes": [], "refuse": False, "unreadable": False}
 
-def test_claiming_disables_the_desktops_own_screen_off(desktop):
+    def idle_timeouts():
+        if state["unreadable"]:
+            raise OSError("PowerReadACValueIndex failed")
+        return dict(state["timers"])
+
+    def set_idle_timeouts(values):
+        state["writes"].append(dict(values))
+        if state["refuse"]:
+            raise OSError("PowerWriteACValueIndex failed")
+        state["timers"].update(values)
+
+    monkeypatch.setattr(platform_power, "idle_timeouts", idle_timeouts)
+    monkeypatch.setattr(platform_power, "set_idle_timeouts", set_idle_timeouts)
+    monkeypatch.setattr(dp, "_HANDOFF", tmp_path / "handoff.json")
+    return state
+
+
+def test_claiming_sets_both_windows_timers_to_never(plan):
     assert run(dp.claim()) is True
-    assert desktop["timeout"] == "-1"
+    assert plan["timers"] == NEVER
 
 
-def test_the_previous_value_is_written_down_before_it_is_lost(desktop):
+def test_the_previous_values_are_written_down_before_they_are_lost(plan):
     run(dp.claim())
-    assert json.loads(dp._HANDOFF.read_text())["previous"] == "900"
+    assert dp._note()[dp._KEY] == WINDOWS
 
 
-def test_the_desktop_is_told_to_reread_its_config(desktop):
-    # Otherwise it goes on using what it read at login, and on a box nobody
-    # logs out of that means the handover never takes effect at all.
-    run(dp.claim())
-    assert desktop["reparsed"] == 1
-
-
-def test_claiming_twice_does_not_forget_the_real_setting(desktop):
-    # Runs on every startup. A second claim re-reads -1, and writing THAT down
-    # would erase the only record of what the owner actually had.
+def test_claiming_twice_does_not_forget_the_real_setting(plan):
     run(dp.claim())
     run(dp.claim())
-    assert json.loads(dp._HANDOFF.read_text())["previous"] == "900"
-    assert desktop["writes"] == ["-1"]
+    assert dp._note()[dp._KEY] == WINDOWS
+    assert len(plan["writes"]) == 1, "an already-held claim was written again"
 
 
-# ── releasing, which is the half that matters ────────────────────────────────
-
-def test_releasing_gives_the_desktop_its_timer_back(desktop):
+def test_releasing_gives_windows_its_timers_back(plan):
     run(dp.claim())
     assert run(dp.release()) is True
-    assert desktop["timeout"] == "900"
+    assert plan["timers"] == WINDOWS
 
 
-def test_a_release_leaves_nothing_behind_to_replay(desktop):
+def test_a_release_leaves_nothing_behind_to_replay(plan):
     run(dp.claim())
     run(dp.release())
     assert not dp._HANDOFF.exists()
-
-
-def test_releasing_without_a_claim_changes_nothing(desktop):
-    # A box that never claimed — standby switched off since install, or a
-    # desktop that refused the write. Restoring a value we never took would be
-    # inventing one.
     assert run(dp.release()) is False
-    assert desktop["writes"] == []
 
 
-def test_claim_release_claim_still_knows_the_original(desktop):
-    for _ in range(3):
-        run(dp.claim())
-        run(dp.release())
-    assert desktop["timeout"] == "900"
+def test_releasing_without_a_claim_changes_nothing(plan):
+    assert run(dp.release()) is False
+    assert plan["writes"] == []
 
 
-# ── a box that is not KDE ────────────────────────────────────────────────────
+def test_claim_release_claim_still_knows_the_original(plan):
+    run(dp.claim())
+    run(dp.release())
+    run(dp.claim())
+    assert dp._note()[dp._KEY] == WINDOWS
 
-def test_nothing_happens_where_there_is_no_kde(monkeypatch, desktop):
-    monkeypatch.setattr(dp, "available", lambda: False)
+
+def test_timers_already_at_never_are_ours_and_noted_nowhere(plan):
+    plan["timers"] = dict(NEVER)
+    assert run(dp.claim()) is True
+    assert plan["writes"] == [] and not dp._HANDOFF.exists()
+
+
+def test_a_plan_that_cannot_be_read_is_not_claimed(plan):
+    plan["unreadable"] = True
     assert run(dp.claim()) is False
-    assert desktop["writes"] == []
+    assert not dp._HANDOFF.exists()
 
 
-def test_a_desktop_that_will_not_answer_is_not_claimed(monkeypatch, tmp_path):
-    async def silent(*argv, **kw):
-        return 1, ""
-
-    monkeypatch.setattr(dp, "_run", silent)
-    monkeypatch.setattr(dp, "available", lambda: True)
-    monkeypatch.setattr(dp, "_HANDOFF", tmp_path / "handoff.json")
+def test_a_claim_that_could_not_write_leaves_no_note_behind(plan):
+    plan["refuse"] = True
     assert run(dp.claim()) is False
-    assert not (tmp_path / "handoff.json").exists()
+    assert not dp._HANDOFF.exists(), "a note for a claim that never happened"
+
+
+def test_a_release_that_could_not_write_keeps_the_note(plan):
+    run(dp.claim())
+    plan["refuse"] = True
+    assert run(dp.release()) is False
+    assert dp._note()[dp._KEY] == WINDOWS
+
+
+def test_a_note_from_the_linux_box_is_dropped_without_writing(plan):
+    dp._HANDOFF.write_text('{"previous": "900", "x_previous": {"s": "600 600"}}')
+    assert run(dp.release()) is False
+    assert plan["writes"] == [] and not dp._HANDOFF.exists()
 
 
 # ── the switch, end to end ───────────────────────────────────────────────────
 
-def test_turning_standby_off_hands_the_screen_back(desktop, monkeypatch, tmp_path):
+def test_turning_standby_off_hands_the_screen_back(plan, monkeypatch, tmp_path):
     """The failure this whole module has to avoid: both disarmed at once."""
     from fastapi.testclient import TestClient
 
@@ -144,47 +129,68 @@ def test_turning_standby_off_hands_the_screen_back(desktop, monkeypatch, tmp_pat
 
     monkeypatch.setattr(standby, "CONFIG_FILE", tmp_path / "standby.json")
     run(dp.claim())
-    assert desktop["timeout"] == "-1"
-
     with TestClient(main.app) as c:
         r = c.post("/api/standby/config", json={"enabled": False})
     assert r.status_code == 200, r.text
-    assert desktop["timeout"] == "900", "the television would never go dark again"
+    assert plan["timers"] == WINDOWS, "the television would never go dark again"
 
 
-# ── the bug that shipped ─────────────────────────────────────────────────────
+# ── the claim must be RE-MADE, not made once ────────────────────────────────
 
-def test_the_value_is_passed_after_a_separator(desktop):
-    """kwriteconfig6 reads a leading dash as an option, and the value we most
-    need to write is `-1`:
+@pytest.fixture
+def watcher(monkeypatch):
+    """The standby watcher, with the claim replaced by a counter."""
+    from backend.services import process_manager as pm
+    from backend.services import standby
 
-        $ kwriteconfig6 --file powerdevilrc … --key TurnOff… -1
-        kwriteconfig6: Unknown option '1'.        (exit 1)
+    attempts = []
 
-    Which is how it shipped, and what the box said the first time it ran for
-    real: "could not disable the desktop's screen-off (was 900 s)". Every
-    positive value worked, so nothing here noticed — these tests drive a fake
-    `_run` and never meet the argument parser, which is precisely why this test
-    asserts the SHAPE of the command rather than its effect.
-    """
-    run(dp.claim())
-    argv = desktop["argv"][0]
-    assert argv[-2:] == ["--", "-1"], argv
+    async def fake_claim():
+        attempts.append("claim")
+        return True
+
+    async def quiet(*argv, **kw):
+        return True
+
+    monkeypatch.setattr(dp, "claim", fake_claim)
+    monkeypatch.setattr(standby, "_power", quiet)
+    monkeypatch.setattr(type(pm.process_manager), "is_foreground", property(lambda self: True))
+    standby._last_claim_attempt = 0.0
+    standby._state = "active"
+    standby._last_input = time.monotonic()
+    yield attempts
+    standby._last_claim_attempt = 0.0
+    standby._state = "active"
 
 
-def test_a_claim_that_could_not_write_leaves_no_note_behind(monkeypatch, tmp_path):
-    """"There is a note" is what release() reads as "we hold the claim"."""
-    async def read_ok_write_fails(*argv, **kw):
-        if argv[0] == "kreadconfig6":
-            return 0, "900"
-        return 1, "kwriteconfig6: Unknown option '1'."
+CFG_ON = {"enabled": True, "screensaver_mins": 10, "sleep_mins": 20}
+CFG_OFF = {**CFG_ON, "enabled": False}
 
-    monkeypatch.setattr(dp, "_run", read_ok_write_fails)
-    monkeypatch.setattr(dp, "available", lambda: True)
-    monkeypatch.setattr(dp, "_HANDOFF", tmp_path / "handoff.json")
 
-    assert run(dp.claim()) is False
-    assert not (tmp_path / "handoff.json").exists()
-    # And release must then know it holds nothing, rather than writing a value
-    # back over a desktop nobody took.
-    assert run(dp.release()) is False
+def test_the_watcher_claims_the_timers_before_the_foreground_return(watcher):
+    from backend.services import standby
+    asyncio.run(standby._tick(CFG_ON))
+    assert watcher == ["claim"], "the foreground early return skipped the claim"
+
+
+def test_it_is_not_re_attempted_every_fifteen_seconds(watcher):
+    from backend.services import standby
+    for _ in range(4):
+        asyncio.run(standby._tick(CFG_ON))
+    assert len(watcher) == 1
+
+
+def test_a_minute_later_it_is_attempted_again(watcher):
+    """The owner may change the plan's timeouts from Windows' own settings."""
+    from backend.services import standby
+    asyncio.run(standby._tick(CFG_ON))
+    standby._last_claim_attempt -= standby._CLAIM_RETRY_SECS + 1
+    asyncio.run(standby._tick(CFG_ON))
+    assert len(watcher) == 2
+
+
+def test_standby_switched_off_takes_nothing_back(watcher):
+    """Off means Windows' own timers decide: the watcher must not re-take them."""
+    from backend.services import standby
+    asyncio.run(standby._tick(CFG_OFF))
+    assert watcher == []

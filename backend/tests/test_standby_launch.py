@@ -7,7 +7,7 @@ undoes a standby that had already begun.
 
 Which is reachable. The pad is not the only thing that can start a game: the web
 UI on a phone posts the same endpoint. Box asleep, launch from the sofa, and the
-emulator comes up behind a screen the backend has switched off through DPMS,
+emulator comes up behind a screen the backend has switched off,
 with `_state` still saying "sleep".
 
 That was already wrong. It became worse with the input guard, because the guard
@@ -29,14 +29,14 @@ from backend.services import standby
 
 @pytest.fixture
 def screen_calls(monkeypatch):
-    """Swallow xset/cpupower and record what standby tried to run."""
+    """Swallow the screen and plan calls and record what standby asked for."""
     calls: list[tuple[str, ...]] = []
 
-    async def fake_run_cmd(*argv, **kw):
+    async def fake_power(*argv, **kw):
         calls.append(argv)
         return True
 
-    monkeypatch.setattr(standby, "_run_cmd", fake_run_cmd)
+    monkeypatch.setattr(standby, "_power", fake_power)
     return calls
 
 
@@ -63,13 +63,13 @@ def test_launching_a_game_wakes_the_box(launcher, stage):
 
 
 def test_launching_puts_the_screen_back_on(launcher, screen_calls):
-    # Not just the flag: `sleep` cut the panel through DPMS, and a state that
-    # says "active" over a screen that is still off is the exact disagreement
+    # Not just the flag: `sleep` turned the panel off, and a state that says
+    # "active" over a screen that is still off is the exact disagreement
     # exit_standby() was written to be unconditional about.
     standby._state = "sleep"
     screen_calls.clear()
     launcher.post("/api/games/launch", json={"system_id": "ghost"})
-    assert any("dpms" in " ".join(c) and "on" in c for c in screen_calls), screen_calls
+    assert ("screen_on",) in screen_calls, screen_calls
 
 
 def test_a_refused_launch_still_wakes(launcher):

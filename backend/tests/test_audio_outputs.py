@@ -1,91 +1,92 @@
-"""/api/settings/audio/sinks — the outputs, and only the outputs.
+"""/api/settings/audio — outputs and volume over Core Audio.
 
-`wpctl status` is a tree, and this used to be read as a flat list with one
-escape hatch: the section was left on `Sink endpoints:` and on nothing else.
-That heading is optional. **This box does not print it** — measured on
-PipeWire/WirePlumber 1.6.7, where `Sinks:` is followed straight by `Sources:` —
-so the parser stayed inside the sinks for the rest of the output and offered
-the microphone as somewhere to send sound to. Video's own `Sinks:` was on the
-far side of the same gate.
-
-The 2026-09-04 audit filed this as conditional, on the grounds that the machine
-it examined did print the heading. The condition holds here, which is why it is
-fixed rather than noted.
-
-Nothing below runs wpctl.
+The router is driven with a fake `platform/audio.py`: nothing here changes this
+PC's sound. One test reads the real endpoints, which a CI runner may not have.
 """
 from __future__ import annotations
 
-import asyncio
-import sys
-from pathlib import Path
-from unittest.mock import AsyncMock
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
+from backend.routers.settings import audio
+from backend.services.platform import audio as platform_audio
 
-from backend.routers.settings import audio                        # noqa: E402
-
-# What this box answers, trimmed. No `Sink endpoints:` anywhere in it.
-THIS_BOX = """PipeWire 'pipewire-0' [1.6.7, pavic@GameCore, cookie:4190901850]
- └─ Clients:
-        32. kwin_wayland                        [1.6.7, pid:934]
-
-Audio
- ├─ Devices:
- │      43. Radeon High Definition Audio Controller [alsa]
- │  
- ├─ Sinks:
- │  *   52. Ryzen HD Audio Controller Analog Stereo [vol: 1.18]
- │      54. Radeon HDMI Audio             [vol: 1.00]
- │  
- ├─ Sources:
- │  *   53. Ryzen HD Audio Controller Analog Stereo [vol: 1.00]
- │  
- ├─ Filters:
- └─ Streams:
-
-Video
- ├─ Devices:
- ├─ Sinks:
- │      70. Screen capture                [vol: 1.00]
- ├─ Sources:
-"""
-
-# The older shape, which the previous parser was written against.
-WITH_ENDPOINTS = """Audio
- ├─ Sinks:
- │  *   41. HDMI Output                   [vol: 0.70]
- │  
- ├─ Sink endpoints:
- │      99. Something else                [vol: 0.10]
- │  
- ├─ Sources:
- │  *   42. Microphone                    [vol: 1.00]
-"""
+SPEAKERS = "{0.0.0.00000000}.{14fb75af-fe3b-40c9-822a-548347055f38}"
+HDMI = "{0.0.0.00000000}.{d1710a0a-80d4-4fb5-9d99-58e6b1581659}"
 
 
-def _sinks(monkeypatch, status: str):
-    monkeypatch.setattr(audio, "_run", AsyncMock(return_value=(0, status)))
-    return asyncio.run(audio.list_sinks())
+@pytest.fixture
+def client():
+    app = FastAPI()
+    app.include_router(audio.router, prefix="/api")
+    return TestClient(app)
 
 
-def test_a_microphone_is_not_an_audio_output(monkeypatch):
-    rows = _sinks(monkeypatch, THIS_BOX)
-    assert [r["id"] for r in rows] == ["52", "54"]
-    assert rows[0]["default"] is True and rows[1]["default"] is False
-    assert rows[0]["name"] == "Ryzen HD Audio Controller Analog Stereo"
+def test_the_outputs_are_listed_with_the_default_marked(client, monkeypatch):
+    outputs = [{"id": SPEAKERS, "name": "Speakers (Realtek(R) Audio)", "default": False},
+               {"id": HDMI, "name": "LG TV (HDMI)", "default": True}]
+    monkeypatch.setattr(platform_audio, "list_outputs", lambda: outputs)
+    assert client.get("/api/settings/audio/sinks").json() == outputs
 
 
-def test_video_has_sinks_too_and_they_are_not_speakers(monkeypatch):
-    assert "70" not in [r["id"] for r in _sinks(monkeypatch, THIS_BOX)]
+def test_no_audio_service_is_an_empty_list_not_an_error(client, monkeypatch):
+    def refuse():
+        raise OSError("Core Audio refused")
+    monkeypatch.setattr(platform_audio, "list_outputs", refuse)
+    assert client.get("/api/settings/audio/sinks").json() == []
 
 
-def test_the_older_layout_still_reads_the_same_way(monkeypatch):
-    """A heading this parser no longer depends on must not break it either."""
-    rows = _sinks(monkeypatch, WITH_ENDPOINTS)
-    assert [r["id"] for r in rows] == ["41"]
+def test_the_volume_and_mute_are_read_from_the_default_output(client, monkeypatch):
+    monkeypatch.setattr(platform_audio, "get_volume", lambda: (37, True))
+    assert client.get("/api/settings/audio").json() == {"volume": 37, "muted": True}
 
 
-def test_a_box_with_no_audio_at_all_answers_an_empty_list(monkeypatch):
-    assert _sinks(monkeypatch, "PipeWire 'pipewire-0' [1.6.7]\n") == []
+def test_an_unreadable_volume_answers_the_old_default(client, monkeypatch):
+    def refuse():
+        raise OSError("no output")
+    monkeypatch.setattr(platform_audio, "get_volume", refuse)
+    assert client.get("/api/settings/audio").json() == {"volume": 100, "muted": False}
+
+
+def test_the_volume_is_clamped_before_it_reaches_windows(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(platform_audio, "set_volume", seen.append)
+    assert client.post("/api/settings/audio/volume", json={"volume": 140}).json() == \
+        {"ok": True, "volume": 100}
+    client.post("/api/settings/audio/volume", json={"volume": -5})
+    assert seen == [100, 0]
+
+
+def test_a_refused_volume_says_why(client, monkeypatch):
+    def refuse(_):
+        raise OSError("No audio output.")
+    monkeypatch.setattr(platform_audio, "set_volume", refuse)
+    assert client.post("/api/settings/audio/volume", json={"volume": 50}).json() == \
+        {"ok": False, "error": "No audio output."}
+
+
+def test_picking_an_output_passes_its_endpoint_id(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(platform_audio, "set_default_output", seen.append)
+    assert client.post("/api/settings/audio/sink", json={"sink": HDMI}).json() == {"ok": True}
+    assert seen == [HDMI]
+
+
+def test_an_output_windows_refuses_is_reported(client, monkeypatch):
+    def refuse(_):
+        raise OSError("Core Audio refused: Paramètre incorrect.")
+    monkeypatch.setattr(platform_audio, "set_default_output", refuse)
+    body = client.post("/api/settings/audio/sink", json={"sink": "bogus"}).json()
+    assert body["ok"] is False and "refused" in body["error"]
+
+
+def test_the_real_endpoints_read_without_changing_anything():
+    try:
+        outputs = platform_audio.list_outputs()
+        volume, muted = platform_audio.get_volume()
+    except OSError:
+        pytest.skip("no audio service on this machine")
+    assert all(set(o) == {"id", "name", "default"} for o in outputs)
+    assert sum(o["default"] for o in outputs) <= 1
+    assert 0 <= volume <= 100 and isinstance(muted, bool)

@@ -28,39 +28,32 @@ from backend.services.platform import jobs
 # ── #13 · standby ────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def recorded_cmds(monkeypatch):
+def recorded_cmds(monkeypatch, tmp_path):
     calls: list[tuple[str, ...]] = []
 
-    async def fake_run_cmd(*argv, **kw):
+    async def fake_power(*argv, **kw):
         calls.append(argv)
         return True
 
-    monkeypatch.setattr(standby, "_run_cmd", fake_run_cmd)
+    monkeypatch.setattr(standby, "_power", fake_power)
+    monkeypatch.setattr(standby, "_PLAN_NOTE", tmp_path / "power-plan-handoff.json")
     return calls
 
 
 def test_exit_standby_is_unconditional(recorded_cmds):
     """The wake that mattered was the one from a state we already believed active.
 
-    _state is in memory, `xset dpms force off` is in the X server, and X does
-    not restart with the backend — so after a restart the two disagreed and the
-    old early return meant POST /api/standby/exit did nothing at all.
+    _state is in memory and the screen's power is not: after a restart the two
+    disagreed and an early return meant POST /api/standby/exit did nothing.
     """
     standby._state = "active"
     asyncio.run(standby.exit_standby())
-    assert any("dpms" in " ".join(c) for c in recorded_cmds), recorded_cmds
+    assert ("screen_on",) in recorded_cmds, recorded_cmds
 
 
 
 def _turns_the_screen_on(argv: tuple) -> bool:
-    """Whatever tool this box answers to, did we ask for the screen back?
-
-    Asserted as intent rather than as `xset`, because the tool is chosen at
-    runtime: a Plasma-on-Wayland box gets kscreen-doctor, because XWayland has
-    no DPMS extension and xset there exits 0 having done nothing. Pinning the
-    command name made this test pass or fail on which machine ran it.
-    """
-    return "dpms" in " ".join(argv) and "on" in argv
+    return argv == ("screen_on",)
 
 
 def test_exit_standby_from_sleep_still_wakes(recorded_cmds):
@@ -75,7 +68,8 @@ def test_resume_after_restart_forces_the_screen_back_on(recorded_cmds):
     asyncio.run(standby.resume_after_restart())
     assert standby.get_state() == "active"
     assert any(_turns_the_screen_on(c) for c in recorded_cmds), recorded_cmds
-    assert any("performance" in " ".join(c) for c in recorded_cmds), recorded_cmds
+    # No plan was noted by a previous sleep: nothing to restore, nothing forced.
+    assert not [c for c in recorded_cmds if c[0] == "set_active_scheme"], recorded_cmds
 
 
 # ── #17 · a game that outlives the backend ───────────────────────────────────

@@ -41,9 +41,6 @@ from backend.tests import characterisation as ch                 # noqa: E402
 VENDOR, PRODUCT, EVDEV = "dead", "beef", "Generic USB Gamepad"
 GUID = "03000325adde0000efbe000011010000"
 
-BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST = 0x130, 0x131, 0x133, 0x134
-BTN_TL, BTN_TR, BTN_SELECT, BTN_START = 0x136, 0x137, 0x13a, 0x13b
-
 # What the owner pressed, step by step, as the wizard records it.
 PRESSED = {
     "a": "b0", "b": "b1", "x": "b2", "y": "b3",
@@ -69,10 +66,9 @@ def box(tmp_path, monkeypatch):
 
     # The device layer the wizard reads.
     monkeypatch.setattr(cap, "detect_pads", lambda *a, **k: [(VENDOR, PRODUCT, EVDEV)])
-    layout = cap.sdl_layout([BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST,
-                             BTN_TL, BTN_TR, BTN_SELECT, BTN_START], [])
-    monkeypatch.setattr(cap, "_pad_nodes",
-                        lambda v, p: (f"{v}:{p}", {"/dev/input/event9": layout}))
+    layout = cap.sdl_layout(8, 0, 0)
+    monkeypatch.setattr(cap, "_pad_device",
+                        lambda v, p: (f"{v}:{p}", {"sdl9": layout}, {"sdl9": ()}))
     monkeypatch.setattr(cap, "sdl_guids", lambda *a, **k: [GUID])
 
     # What the emulators' SDL says about it, once it is connected: the same

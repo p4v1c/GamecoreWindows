@@ -1,4 +1,4 @@
-"""The logs directory: one folder per section, readable without journalctl.
+"""The logs directory: one folder per section, the PC's only log (no journal).
 
     <DATA>/logs/backend/backend.log      every warning and error, whoever wrote it
     <DATA>/logs/<section>/<section>.log  one area's story, from INFO (SECTIONS)
@@ -189,6 +189,16 @@ def usage() -> dict:
     return {"files": len(sizes), "bytes": sum(sizes)}
 
 
+def _remove_or_empty(path: Path) -> None:
+    """Delete `path`; one another process holds open (a suspended game's log:
+    Windows refuses the delete) is emptied instead."""
+    try:
+        path.unlink(missing_ok=True)
+    except PermissionError:
+        with contextlib.suppress(OSError):
+            os.truncate(path, 0)
+
+
 def _empty(root: Path) -> None:
     """Delete the logs. A file another process may still write (the running
     game's, a pack's) is emptied instead, so its space comes back now."""
@@ -201,11 +211,11 @@ def _empty(root: Path) -> None:
                     if p in still_open:
                         os.truncate(p, 0)
                     else:
-                        p.unlink(missing_ok=True)
+                        _remove_or_empty(p)
         elif child.is_dir():
             shutil.rmtree(child, ignore_errors=True)
         else:
-            child.unlink(missing_ok=True)
+            _remove_or_empty(child)
 
 
 def purge() -> dict:

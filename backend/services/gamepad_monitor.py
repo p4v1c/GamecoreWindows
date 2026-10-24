@@ -1,30 +1,30 @@
 """
-Background service that reads gamepad events directly from /dev/input via evdev.
+Background service that reads every pad through SDL, in the backend.
 
-This bypasses the Chromium Gamepad API which blocks button 16 (PS/guide button).
-When the PS/guide button is pressed twice within DOUBLE_PRESS_WINDOW seconds
-(a single press is ignored, to avoid accidental exits):
+This bypasses the Chromium Gamepad API, which never exposes the PS/guide button
+and sees nothing while a game has the focus. When the PS/guide button is
+pressed twice within DOUBLE_PRESS_WINDOW seconds (a single press is ignored,
+to avoid accidental exits):
   - If a game is running  → suspend it and broadcast gp:guide, so the player
     lands back in the interface with the game frozen and intact
   - Otherwise             → broadcast gp:guide (frontend can choose to ignore)
 
 Start+Select held together for CHORD_HOLD_S is the same escape, for the pads
-whose guide button the kernel never reports at all. It acts only while a game
-holds the screen — see ChordWatcher.
+whose guide button SDL does not map. It acts only while a game holds the
+screen — see ChordWatcher.
 
-Permissions: the process must be able to open /dev/input/event* files.
-Either add the user to the 'input' group OR deploy the udev rule from install.sh.
+The events come from `platform/gamepads.py` in the evdev vocabulary (its pad
+layer), so the gestures below read `BTN_MODE`, `BTN_START`, `BTN_SELECT`.
 """
 import asyncio
-import glob
 import logging
 import time
 
 from . import controller_profiles, controller_registry
-from .gamepad_devices import (EV_KEY, GUIDE_CODES, KEY_DOWN, KEY_RELEASE, _can_read,
-                              _event_sort_key, _find_gamepad_devices, dup_indexes,
-                              pads_by_key)
-from .input_activity import ActivityFilter
+from .gamepad_devices import (EV_KEY, GUIDE_CODES, KEY_DOWN, KEY_RELEASE, _event_sort_key,
+                              _find_gamepad_devices, dup_indexes, pads_by_key)
+from .input_activity import PAD_AXES, ActivityFilter
+from .platform import gamepads as platform_gamepads
 
 log = logging.getLogger(__name__)
 
@@ -57,15 +57,14 @@ CHORD_HOLD_S = 1.0
 class ChordWatcher:
     """Start+Select, held together, as a second way back to the interface.
 
-    Some pads report no guide button at all — neither BTN_MODE nor
-    KEY_HOMEPAGE reaches the kernel — and on those the double-press gesture
-    does not exist, which leaves a player with no way out of a game whatsoever.
-    This is that way out.
+    Some pads have no guide button SDL can map, and on those the double-press
+    gesture does not exist, which leaves a player with no way out of a game
+    whatsoever. This is that way out.
 
     Held rather than tapped, because Start and Select are both live buttons
     inside a game and a tapped chord is something an emulator's own bindings
     can produce by accident; a full second of both is not. And *because* it is
-    held, it needs a timer: evdev speaks only when something changes, so
+    held, it needs a timer: a pad speaks only when something changes, so
     nothing else would ever come back to ask whether the second had passed.
 
     Per device, so the chord means one pad's two buttons — not Start on one
@@ -111,8 +110,8 @@ class ChordWatcher:
 
 # Guide button must be pressed twice within this window (seconds) to trigger.
 DOUBLE_PRESS_WINDOW = 1.0
-# Presses closer than this are the same physical press reported twice
-# (e.g. a pad exposing both BTN_MODE and KEY_HOMEPAGE) — ignore them.
+# Presses closer than this are the same physical press reported twice — ignore
+# them.
 DEBOUNCE = 0.05
 
 # When the last *accepted* guide press landed, and whether it is still waiting
@@ -129,27 +128,20 @@ _guide_from_game = False
 
 
 async def _watch_device(path: str) -> None:
-    """Read events from one device until it disconnects or is cancelled."""
-    try:
-        import evdev
-    except ImportError:
-        return
-
-    try:
-        dev = evdev.InputDevice(path)
-    except (PermissionError, OSError) as e:
-        log.debug("gamepad_monitor: cannot open %s — %s", path, e)
-        return
-
-    log.info("gamepad_monitor: watching %s (%s)", path, dev.name)
-    activity = ActivityFilter(dev)
+    """Read one pad's events until it disconnects or is cancelled."""
+    queue = platform_gamepads.subscribe(path)
+    log.info("gamepad_monitor: watching %s", path)
+    activity = ActivityFilter(PAD_AXES)
     chord = ChordWatcher(lambda: _suspend_to_interface("start+select", foreground_only=True))
     try:
-        async for event in dev.async_read_loop():
-            # Anything that means somebody is there — a button, the d-pad,
-            # a stick or a trigger — counts as activity and wakes the box.
-            # It used to be buttons alone, which on a DualShock 4 leaves out
-            # every direction: the d-pad is a hat, not four keys.
+        while True:
+            event = await queue.get()
+            if event.layer == platform_gamepads.GONE.layer:
+                break
+            if event.layer != "pad":
+                continue
+            # Anything that means somebody is there (a button, the d-pad, a
+            # stick, a trigger) counts as activity and wakes the box.
             if activity.is_activity(event):
                 from . import standby
                 standby.on_input()
@@ -159,33 +151,20 @@ async def _watch_device(path: str) -> None:
             if event.type != EV_KEY or event.value != KEY_DOWN:
                 continue
             if event.code in GUIDE_CODES:
-                log.info("gamepad_monitor: guide/PS button detected (code=%d) on %s",
-                         event.code, path)
+                log.info("gamepad_monitor: guide/PS button on %s", path)
                 await _on_guide_pressed()
-            else:
-                log.debug("gamepad_monitor: key down code=0x%x (%d) on %s",
-                          event.code, event.code, dev.name)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        log.debug("gamepad_monitor: device %s disconnected or error", path)
     finally:
         chord.cancel()
-        try:
-            dev.close()
-        except Exception:
-            pass
+        platform_gamepads.unsubscribe(path, queue)
 
 
 async def _on_guide_pressed() -> None:
     """One guide/PS press, from a pad that may well report it twice.
 
     The pairing is deliberately written around a single "when did the last
-    press we believed land" clock, and every branch updates it. The version
-    before this one cleared that clock when the gesture fired, which left the
-    duplicate report of the *acting* press looking like a brand-new first
-    press — so on a pad that exposes the button on both BTN_MODE and
-    KEY_HOMEPAGE, a double press suspended the game and armed the next single
+    press we believed land" clock, and every branch updates it. Clearing that
+    clock when the gesture fired left the duplicate report of the *acting*
+    press looking like a brand-new first press, which armed the next single
     press to suspend or resume again on its own.
     """
     global _last_guide_press, _guide_armed, _guide_from_game
@@ -331,8 +310,8 @@ _applied: dict[str, tuple[tuple | None, int]] = {}
 _scanned = False
 # The scan loop is alive. Without it nothing will ever profile anything, so
 # there is nothing to wait for — a launch on a box whose monitor never started
-# (evdev missing, the service disabled, a test that does not run it) must not
-# pay the budget for a pass that is never coming.
+# (SDL missing, a test that does not run it) must not pay the budget for a pass
+# that is never coming.
 _running = False
 # Something outside the scan loop changed what a pass would produce, so the
 # next one must run even though no pad moved. Turning autoconfig back on is the
@@ -397,9 +376,8 @@ async def await_profiled(budget: float) -> list[str]:
     dict lookups and no I/O, so a 100 ms poll costs nothing next to the six
     seconds it is there to cover.
 
-    Deliberately NOT a scan of /dev/input: `_find_gamepad_devices()` measures
-    608 ms on this box, which is a poll that would cost more than the wait.
-    The roster the loop publishes is at most one scan period old.
+    Deliberately NOT a fresh scan: the roster the loop publishes is at most
+    one scan period old, and that is the answer the launch path needs.
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + budget
@@ -602,30 +580,14 @@ async def _reconcile(was: dict[str, tuple[str, str, str, int]],
 async def run() -> None:
     """Main loop: scan for gamepad devices every few seconds and watch them."""
     global _running, _scanned
-    try:
-        import evdev  # noqa: F401
-    except ImportError:
-        log.warning(
-            "gamepad_monitor: evdev not installed — PS/guide button kill disabled. "
-            "Fix: pip install evdev"
-        )
+    if not await asyncio.to_thread(platform_gamepads.start):
         # Left False on purpose, so `unprofiled()` answers "nothing to wait
-        # for" rather than "not scanned yet". No pad will ever be profiled on
-        # this box; a launch that waited for one would wait its whole budget,
-        # every time, for a pass that cannot happen.
+        # for" rather than "not scanned yet": no pad will ever be profiled.
+        log.error("gamepad_monitor: no pad can be read (%s): no guide shortcut, "
+                  "no player slots", platform_gamepads.unavailable())
         return
 
-    log.info("gamepad_monitor: started (GUIDE_CODES=%s)", GUIDE_CODES)
-
-    # Check permissions upfront and warn clearly
-    accessible = [p for p in glob.glob("/dev/input/event*")
-                  if _can_read(p)]
-    if not accessible:
-        log.warning(
-            "gamepad_monitor: no /dev/input/event* readable. "
-            "Fix: sudo usermod -aG input $USER && re-login, "
-            "OR deploy the udev rule from install.sh"
-        )
+    log.info("gamepad_monitor: started (SDL)")
 
     from .. import ws
 
@@ -651,9 +613,9 @@ async def run() -> None:
             devices = _find_gamepad_devices()
             current = set(devices)
 
-            # Watch every device that declares a Guide button or is a pad. This is
-            # about the guide shortcut only; player slots are decided below, from
-            # the device list rather than from which watchers happen to be alive.
+            # Watch every joystick: the guide shortcut and standby's activity.
+            # Player slots are decided below, from the device list rather than
+            # from which watchers happen to be alive.
             for path in sorted(current - set(watched), key=_event_sort_key):
                 watched[path] = asyncio.create_task(_watch_device(path), name=f"gpad:{path}")
             for path in [p for p, t in watched.items() if t.done()]:

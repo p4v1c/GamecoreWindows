@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+from ..platform import gamepads as platform_gamepads
+
 log = logging.getLogger(__name__)
 
 
@@ -241,8 +243,9 @@ def sdl2_probe(vendor: str, product: str, lib: str = "") -> dict[str, str]:
     indices for a pad SDL reads through HIDAPI — and the caller has no way to
     tell the two apart.
 
-    `lib` picks WHICH SDL2 answers. Empty means the host's. Pass an emulator's
-    bundled one whenever the answer is going into that emulator's config.
+    `lib` picks WHICH SDL2 answers. Empty means the backend's own SDL2.dll
+    (`platform/gamepads.py`). Pass an emulator's bundled one whenever the
+    answer is going into that emulator's config.
 
     Run in a SUBPROCESS because the backend has already loaded SDL3 into its
     own address space, and because these answers must come from the same SDL2
@@ -253,7 +256,8 @@ def sdl2_probe(vendor: str, product: str, lib: str = "") -> dict[str, str]:
     if cached and time.monotonic() - ts <= 5.0:
         return cached
     try:
-        r = subprocess.run([sys.executable, "-c", _SDL2_PROBE, vendor, product, lib],
+        r = subprocess.run([sys.executable, "-c", _SDL2_PROBE, vendor, product,
+                            lib or platform_gamepads.sdl2_library()],
                            capture_output=True, text=True, timeout=8,
                            env=probe_env())
     except (OSError, subprocess.SubprocessError) as e:

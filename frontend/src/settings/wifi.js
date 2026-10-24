@@ -1,11 +1,11 @@
 /**
  * Settings → Wi-Fi: middle column and detail column, bare markup (the frame
- * carries the overlay). Behaviour is `sdk.api.wifi.*` (nmcli); `GET /networks`
+ * carries the overlay). Behaviour is `sdk.api.wifi.*` (WinRT); `GET /networks`
  * rescans by itself.
  *
  * The radio switch is the row above the list (`status.radio`; no row when the
- * box has no Wi-Fi hardware or the backend predates it). Not drawn: dBm (nmcli
- * gives 0–100 % without root), "Forget this network" (no route yet; needs a
+ * box has no Wi-Fi hardware or the backend predates it). Not drawn: dBm (the
+ * backend gives 0–100 %), "Forget this network" (no route yet; needs a
  * two-step confirm). The password dialog uses the on-screen keyboard.
  */
 const REFRESH_MS = 10000

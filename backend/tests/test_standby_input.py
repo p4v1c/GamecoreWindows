@@ -5,9 +5,9 @@ to press the PS4 touchpad to wake the box". That is not a
 feeling, it is the rule the code had: `_watch_device` counted `EV_KEY` down and
 nothing else.
 
-On a DualShock 4 — the pad on the box — the d-pad is not EV_KEY. hid-playstation
-reports it as a hat, `ABS_HAT0X` / `ABS_HAT0Y`, and the sticks are `ABS_*` too.
-So the two most natural ways to say "I am here" were invisible:
+The d-pad is not EV_KEY: the pad layer (`platform/gamepads.py`) reports it as
+a hat, `ABS_HAT0X` / `ABS_HAT0Y`, and the sticks are `ABS_*` too. So the two
+most natural ways to say "I am here" would be invisible:
 
   · pressing a direction did not wake the box, and
   · worse, it did not reset the idle timer either — browse a menu with the stick
@@ -44,7 +44,7 @@ class FakeAbsInfo:
 
 
 class FakePad:
-    """Just enough of evdev.InputDevice for the classifier: axis ranges."""
+    """Just enough of a device for the classifier: axis ranges."""
 
     RANGES = {
         ABS_X: (0, 255), ABS_Y: (0, 255),        # sticks, resting at 128
@@ -173,30 +173,13 @@ def test_each_axis_is_judged_on_its_own(watch):
 
 
 # ── and the wiring, because a correct rule the loop never asks is not a fix ───
+#
+# The loop reads the pad layer, in SDL's ranges: sticks -32768..32767 resting
+# at 0, triggers 0..32767 resting at 0.
 
-class FakeReadLoop:
-    """A device that hands the watcher a fixed script of events, then stops."""
-
-    name = "Wireless Controller"
-    RANGES = FakePad.RANGES
-
-    def __init__(self, events):
-        self._events = events
-        self.closed = False
-
-    def absinfo(self, code):
-        if code not in self.RANGES:
-            raise KeyError(code)
-        return FakeAbsInfo(*self.RANGES[code])
-
-    def async_read_loop(self):
-        async def gen():
-            for e in self._events:
-                yield e
-        return gen()
-
-    def close(self):
-        self.closed = True
+def pad(type_, code, value):
+    from backend.services.platform.gamepads import PadEvent
+    return PadEvent(type_, code, value, "pad")
 
 
 @pytest.fixture
@@ -204,64 +187,59 @@ def watched(monkeypatch):
     """Run `_watch_device` over a script and report what standby was told."""
     import asyncio
 
+    from backend.services import standby
+    from backend.services.platform import gamepads as platform_gamepads
+
     def run(events):
         seen = {"n": 0}
-        device = FakeReadLoop(events)
 
-        module = types.ModuleType("evdev")
-        module.InputDevice = lambda path: device
-        monkeypatch.setitem(sys.modules, "evdev", module)
+        def subscribe(device):
+            queue = asyncio.Queue()
+            for event in [*events, platform_gamepads.GONE]:
+                queue.put_nowait(event)
+            return queue
 
-        from backend.services import standby
+        monkeypatch.setattr(platform_gamepads, "subscribe", subscribe)
+        monkeypatch.setattr(platform_gamepads, "unsubscribe", lambda device, queue: None)
         monkeypatch.setattr(standby, "on_input", lambda: seen.__setitem__("n", seen["n"] + 1))
-
-        asyncio.run(gm._watch_device("/dev/input/event0"))
+        asyncio.run(gm._watch_device("sdl0"))
         return seen["n"]
 
     return run
 
 
 def test_the_loop_reports_a_dpad_press_as_activity(watched):
-    # The whole report in one line: on the pad this box is used with, pressing
-    # a direction told standby nothing at all.
-    assert watched([ev(EV_ABS, ABS_HAT0X, 1)]) == 1
+    assert watched([pad(EV_ABS, ABS_HAT0X, 1)]) == 1
 
 
 def test_the_loop_still_reports_a_button(watched):
-    assert watched([ev(EV_KEY, BTN_SOUTH, 1)]) == 1
+    assert watched([pad(EV_KEY, BTN_SOUTH, 1)]) == 1
 
 
 def test_the_loop_reports_a_stick_being_pushed(watched):
-    assert watched([ev(EV_ABS, ABS_X, 128), ev(EV_ABS, ABS_X, 255)]) == 1
+    assert watched([pad(EV_ABS, ABS_X, 0), pad(EV_ABS, ABS_X, 32767)]) == 1
 
 
 def test_the_loop_stays_quiet_for_a_pad_sitting_on_the_sofa(watched):
-    # The failure an over-eager fix produces: a box that never sleeps. This is
-    # what a connected, untouched DualShock 4 actually sends.
-    noise = [ev(EV_ABS, ABS_X, 128), ev(EV_ABS, ABS_Y, 128), ev(EV_ABS, ABS_Z, 0)]
-    noise += [ev(EV_ABS, ABS_X, 128 + (i % 3) - 1) for i in range(30)]
-    noise += [ev(EV_SYN, 0, 0) for _ in range(30)]
-    noise += [ev(EV_KEY, BTN_SOUTH, 0)]
+    # The failure an over-eager fix produces: a box that never sleeps.
+    noise = [pad(EV_ABS, ABS_X, 0), pad(EV_ABS, ABS_Y, 0), pad(EV_ABS, ABS_Z, 0)]
+    noise += [pad(EV_ABS, ABS_X, (i % 3) * 200 - 200) for i in range(30)]
+    noise += [pad(EV_KEY, BTN_SOUTH, 0)]
     assert watched(noise) == 0
+
+
+def test_the_raw_layer_is_the_wizards_not_standbys(watched):
+    from backend.services.platform.gamepads import PadEvent
+    assert watched([PadEvent(EV_KEY, 0, 1, "raw")]) == 0
 
 
 # ── and what the box does with what it counted ──────────────────────────────
 #
-# Counting the press was only ever half of it. Reported next, from the same
-# sofa: the television goes dark during a game and no button brings it back,
-# while the pad's own touchpad does.
-#
-# That asymmetry is not GameCore's doing and cannot be fixed in GameCore's own
-# standby. The box runs Plasma on Wayland; the screen is blanked by the
-# session's power manager on a timer of its own, and the compositor never sees
-# a button because the kernel tags those `ID_INPUT_JOYSTICK` and libinput does
-# not handle joysticks. The touchpad arrives on a separate node tagged
-# `ID_INPUT_TOUCHPAD`, which it does handle — hence "only the controller is
-# affected", on the very same controller.
-#
-# So on_input() now also says so on the session bus. These tests pin the two
-# properties that make that safe: it is said on a press, and it is NOT said
-# eighty times a second while somebody swings a stick.
+# Counting the press was only ever half of it: Windows' own idle timer cannot
+# see a pad, so on_input() also tells Windows somebody is there. These tests
+# pin the two properties that make that safe: it is said on a press, and it is
+# NOT said eighty times a second while somebody swings a stick.
+
 import asyncio  # noqa: E402
 
 from backend.services import standby  # noqa: E402
@@ -272,11 +250,11 @@ def bus(monkeypatch):
     """Record what standby would run, with the throttle wound back to zero."""
     calls: list[tuple] = []
 
-    async def fake_run_cmd(*argv, **kw):
+    async def fake_power(*argv, **kw):
         calls.append(argv)
         return True
 
-    monkeypatch.setattr(standby, "_run_cmd", fake_run_cmd)
+    monkeypatch.setattr(standby, "_power", fake_power)
     monkeypatch.setattr(standby, "_last_activity_signal", 0.0)
     monkeypatch.setattr(standby, "_state", "active")
     return calls
@@ -292,13 +270,16 @@ def press(n: int = 1) -> None:
 
 
 def signals(calls) -> list[tuple]:
-    return [c for c in calls if c and c[0] == "gdbus"]
+    return [c for c in calls if c and c[0] == "signal_activity"]
 
 
-def test_a_button_tells_the_session_somebody_is_there(bus):
+def screen_on(calls) -> list[tuple]:
+    return [c for c in calls if c == ("screen_on",)]
+
+
+def test_a_button_tells_windows_somebody_is_there(bus):
     press()
-    assert len(signals(bus)) == 1
-    assert "org.freedesktop.ScreenSaver.SimulateUserActivity" in signals(bus)[0]
+    assert signals(bus) == [("signal_activity",)]
 
 
 def test_it_is_said_even_when_gamecore_believes_it_is_awake(bus):
@@ -313,7 +294,7 @@ def test_it_is_said_even_when_gamecore_believes_it_is_awake(bus):
 
 def test_a_burst_of_input_is_not_a_burst_of_calls(bus):
     # A stick swung hard produces a retained event per sample. Without the
-    # throttle this is one D-Bus round trip per frame, for the whole game.
+    # throttle this is one Windows call per frame, for the whole game.
     press(50)
     assert len(signals(bus)) == 1
 
@@ -328,28 +309,25 @@ def test_it_is_said_again_once_the_gap_has_passed(bus):
 
 # ── and a press has to be able to bring the screen BACK ──────────────────────
 #
-# Measured on the box, with the television already blanked by the session's
-# power manager: SimulateUserActivity returns success and the screen stays off.
-# It resets the idle timer; it does not undo what the timer already did. So the
-# activity signal alone would have kept the box from going dark and left
-# somebody sitting in front of a dark one with no way back — which is exactly
-# the reported symptom, fixed only halfway.
+# Restarting Windows' idle timer does not light a screen the timer already
+# turned off. So the activity signal alone would keep the box from going dark
+# and leave somebody in front of a dark one with no way back.
 
 def test_the_first_press_after_a_long_silence_turns_the_screen_back_on(bus, monkeypatch):
     monkeypatch.setattr(standby, "_last_press", 0.0)      # nobody has touched it
     press()
-    assert [c for c in bus if "dpms" in " ".join(c)], bus
+    assert screen_on(bus), bus
 
 
 def test_pressing_through_a_game_does_not_reassert_it_every_time(bus, monkeypatch):
     # The reason this is gated on a silence rather than done on every press:
     # while somebody is playing, input never stops long enough for the screen
-    # to have gone out, and spawning a screen tool per press would be pure cost.
+    # to have gone out, and a screen-on per press would be pure cost.
     monkeypatch.setattr(standby, "_last_press", 0.0)
     press()
     bus.clear()
     press(20)
-    assert not [c for c in bus if "dpms" in " ".join(c)], bus
+    assert not screen_on(bus), bus
 
 
 def test_a_press_says_both_things_when_it_comes_back_to_a_dark_room(bus, monkeypatch):
@@ -357,4 +335,4 @@ def test_a_press_says_both_things_when_it_comes_back_to_a_dark_room(bus, monkeyp
     monkeypatch.setattr(standby, "_last_press", 0.0)
     press()
     assert signals(bus), "the idle timer was not reset"
-    assert [c for c in bus if "dpms" in " ".join(c)], "the screen was not turned on"
+    assert screen_on(bus), "the screen was not turned on"

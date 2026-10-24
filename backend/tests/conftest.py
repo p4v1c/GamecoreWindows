@@ -39,9 +39,8 @@ os.environ["GAMECORE_TEST_ROOT"] = str(_ROOT)
 # the console lost an emulator to a passing `pytest`.
 os.environ["GAMECORE_DATA"] = str(_ROOT)
 
-# And the runtime directory: `session.wayland_env()` (Linux, until step 5)
-# looks for a Wayland socket there, and must find the suite's, never the
-# machine's.
+# And the runtime directory: the Linux session scripts still tested in bash
+# (steps 7-8) look there, and must find the suite's, never the machine's.
 os.environ["XDG_RUNTIME_DIR"] = str(_ROOT.parent / "runtime")
 (_ROOT.parent / "runtime").mkdir(parents=True, exist_ok=True)
 
@@ -100,6 +99,8 @@ import pytest as _pytest  # noqa: E402
 
 from backend.tests.posix_boundary import posix_boundary  # noqa: E402,F401  (fixture)
 from backend.tests.fake_jobs import spawner  # noqa: E402,F401  (fixture)
+from backend.tests.fake_display import fake_screen  # noqa: E402,F401  (fixture)
+from backend.tests.fake_volumes import disks  # noqa: E402,F401  (fixture)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -115,28 +116,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(_pytest.mark.skip(reason=message))
 
 
-# ── The box is not a test bench: no sudo, no xset ────────────────────────────
+# ── The box is not a test bench: no screen, no plan, no BlueZ ───────────────
 #
-# `TestClient(main.app)` runs the lifespan, which calls
-# `standby.resume_after_restart()` → `xset dpms force on` and
-# `sudo -n cpupower frequency-set -g performance` on the REAL machine.
-# Measured 2026-08-17: one suite run fired 38 `sudo cpupower` and pushed `xset`
-# into the TV session. Stubbed at `_run_cmd`, standby's only way out of the
-# process. test_standby_switch, test_standby_launch and test_session_robustness
-# add their own function-scoped patch on top to observe the attempts.
+# `TestClient(main.app)` runs the lifespan, which turns the screen on and
+# restores the power plan (`standby.resume_after_restart()`) and claims
+# Windows' idle timers (`desktop_power.claim()`). Stubbed at `standby._power`,
+# standby's only way to Windows; the timers by the machine guard below.
+# test_standby_switch, test_standby_launch and test_standby_dark add their own
+# function-scoped patch on top to observe the attempts.
 
 
 @_pytest.fixture(autouse=True, scope="session")
 def _no_real_commands_from_the_suite():
-    from backend.services import desktop_power, standby
+    from backend.services import standby
 
     async def refuse(*argv, **kw):
         return True          # "it worked": standby treats failure as best effort
-
-    # desktop_power would reach the real session bus (reparseConfiguration).
-    # (1, "") is a plain "no KDE here", so claim() and release() do nothing.
-    async def no_desktop(*argv, **kw):
-        return 1, ""
 
     # Rest mode's lifespan tasks: the real BlueZ would get WakeAllowed set on
     # the developer's own pads, and gdbus would follow the real logind.
@@ -146,11 +141,52 @@ def _no_real_commands_from_the_suite():
     async def no_bluez(*argv, **kw):
         return 1, "no bus under test"
 
-    originals = (standby._run_cmd, desktop_power._run, bt_wake._busctl,
-                 resume.LOGIND_MONITOR, sleep_guard.INHIBIT_CMD)
-    standby._run_cmd, desktop_power._run = refuse, no_desktop
+    originals = (standby._power, bt_wake._busctl, resume.LOGIND_MONITOR,
+                 sleep_guard.INHIBIT_CMD)
+    standby._power = refuse
     bt_wake._busctl, resume.LOGIND_MONITOR = no_bluez, ("true",)
     sleep_guard.INHIBIT_CMD = ("cat",)
     yield
-    (standby._run_cmd, desktop_power._run, bt_wake._busctl,
-     resume.LOGIND_MONITOR, sleep_guard.INHIBIT_CMD) = originals
+    (standby._power, bt_wake._busctl, resume.LOGIND_MONITOR,
+     sleep_guard.INHIBIT_CMD) = originals
+
+
+# ── This PC is not a test bench: no platform call that changes it ────────────
+#
+# The Windows calls that change the machine (display mode, screen power, power
+# plan and idle timers, disk eject) are replaced for the whole session; a test
+# that needs one fakes it on top (`fake_display.fake_screen`,
+# `fake_volumes.disks`). Reads stay real, except the idle timers (a claim would
+# read the real plan, then write it), the disks (the lifespan's storage
+# monitor would link the developer's USB drives into the test root) and the
+# pads: SDL is never started, so the lifespan's monitor stops at once, as it
+# did on a box without evdev, and never profiles the developer's own pad.
+
+
+@_pytest.fixture(autouse=True, scope="session")
+def _no_machine_changes_from_the_suite():
+    from backend.services.platform import display as platform_display
+    from backend.services.platform import gamepads as platform_gamepads
+    from backend.services.platform import power as platform_power
+    from backend.services.platform import volumes as platform_volumes
+
+    def no_screen(*args, **kwargs):
+        return False, "no screen under test"
+
+    def nothing(*args, **kwargs):
+        return None
+
+    def no_plan(*args, **kwargs):
+        raise OSError("no power plan under test")
+
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(platform_display, "apply_mode", no_screen)
+        for name in ("screen_on", "screen_off", "signal_activity"):
+            mp.setattr(platform_power, name, nothing)
+        for name in ("idle_timeouts", "set_idle_timeouts", "active_scheme", "set_active_scheme"):
+            mp.setattr(platform_power, name, no_plan)
+        mp.setattr(platform_volumes, "list_volumes", lambda: [])
+        mp.setattr(platform_volumes, "eject", lambda letter: (False, "no disk under test"))
+        mp.setattr(platform_gamepads, "start", lambda: False)
+        mp.setattr(platform_gamepads, "pads", lambda: [])
+        yield

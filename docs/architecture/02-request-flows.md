@@ -53,7 +53,7 @@ sequenceDiagram
     participant ui as React
 
     alt player presses PS twice within 1 s
-        pad->>gm: evdev BTN_MODE
+        pad->>gm: SDL guide (BTN_MODE on the pad layer)
         gm->>gm: _on_guide_pressed()
         gm->>r: POST /api/games/kill
     else emulator exits on its own
@@ -71,8 +71,9 @@ sequenceDiagram
 
 Why it is built this way:
 
-- **evdev, not the browser.** Chromium often hides the Guide button, and the
-  UI is buried under a fullscreen emulator anyway.
+- **SDL in the backend, not the browser.** Chromium never exposes the Guide
+  button and sees nothing while a fullscreen emulator has the focus; SDL with
+  background events does.
 - **Double press.** A single Guide press must never kill a game by accident
   (`GUIDE_DOUBLE_PRESS_MS`, mirrored in the frontend hook).
 - **The job, never one process.** A launcher that starts the game and exits,
@@ -192,23 +193,23 @@ stateDiagram-v2
     [*] --> Active
     Active --> Screensaver: idle > screensaver delay
     Screensaver --> Asleep: idle > sleep delay
-    Asleep --> Active: on_input() from evdev
+    Asleep --> Active: on_input() from the pad reader
     Screensaver --> Active: on_input()
     Active --> Active: a game is running (standby blocked)
 ```
 
 `services/standby.py:run()` polls. `_enter(stage)` drives the transitions,
-`_screen(False)` cuts the display over DPMS, `_governor("powersave")` drops the
-CPU (optional, needs a sudoers rule). `on_input()` is called from
-`gamepad_monitor`'s evdev loop — which is why a controller wakes the box even
-though the UI is asleep and the browser is not listening.
+`_screen(False)` turns the display off (`SC_MONITORPOWER`), `_governor("powersave")`
+switches to the Power saver plan when the PC has one. `on_input()` is called from
+`gamepad_monitor`'s read loop (SDL in the backend), which is why a controller
+wakes the box even though the UI is asleep and the browser is not listening.
 
 Every stage change reaches the UI as a crossfade: `frontend/src/lib/standbyFade.ts`
 writes the stage inside `document.startViewTransition` (500 ms, set in
 `frontend/index.html`; skipped under reduced motion), so every theme's standby
 fades in and out without knowing it. Going to sleep, `_enter("sleep")`
 broadcasts, then waits for the TV window's `POST /api/standby/dark` (sent when the
-fade to black ends) before DPMS, so the TV loses signal on a black frame. It
+fade to black ends) before the screen goes off, so the TV loses signal on a black frame. It
 waits at most `_UI_DARK_WAIT_SECS` (3 s), not at all with no WebSocket client,
 and does not cut the screen if a press woke the box meanwhile.
 
@@ -249,14 +250,12 @@ sequenceDiagram
   finds nothing and releases at once.
 - The TV first: after a wake the HDMI link is back seconds before the
   picture. `power:sleeping` (and Rest mode's own second press) puts a plain
-  black layer over everything; `resume.on_resume()` waits for a connector in
-  `/sys/class/drm/card*-*` that is `connected`, `enabled` and `dpms` On
-  (`services/display_ready.py`, 10 s at most, then it goes on anyway), then
-  the player's `wake_settle_secs` (Settings → System, 0-8 s, 2.5 s default),
-  and only then counts the wake and sends `power:resumed`. sysfs rather than
-  xrandr: no X connection or privilege needed, and X is the slowest thing to
-  come back. The sysfs state can still read "lit" from before the sleep for an
-  instant, which the settle delay also covers.
+  black layer over everything; `resume.on_resume()` waits for an active
+  monitor on an adapter attached to the desktop (`services/display_ready.py`,
+  10 s at most, then it goes on anyway), then the player's `wake_settle_secs`
+  (Settings → System, 0-8 s, 2.5 s default), and only then counts the wake and
+  sends `power:resumed`. Windows can report the monitor active an instant
+  before the TV shows the picture, which the settle delay covers.
 - Power key: the same drop-in sets `HandlePowerKey=suspend`. In GameCore's own
   session nothing else takes the key (no PowerDevil), so a short press is a
   sleep with games closed; in a Plasma desktop session PowerDevil keeps its own

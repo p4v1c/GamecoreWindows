@@ -126,7 +126,7 @@ export const createBluetoothPage = (sdk, useSlow) => {
     }
 
     // Unpair and forget: the device has to be paired again before it can
-    // reconnect. The router only says yes once BlueZ's paired list no longer
+    // reconnect. The router only says yes once Windows' paired list no longer
     // holds it, and the list shown afterwards is the one read back from the
     // adapter, never this page's guess.
     const forget = (d) => {

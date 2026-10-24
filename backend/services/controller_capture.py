@@ -1,62 +1,27 @@
 """Live pad capture — turning "the owner pressed this" into an SDL mapping line.
 
-The wizard shows one button at a time and waits. What arrives from the kernel is
-an evdev event: a key code like `BTN_SOUTH` (0x130), or an absolute axis. What
-has to be WRITTEN is SDL's own vocabulary — `b0`, `a3`, `h0.1` — where the
-numbers are SDL's joystick indices, not the kernel's codes.
+The wizard shows one button at a time and waits. What has to be WRITTEN is
+SDL's own vocabulary — `b0`, `a3`, `h0.1` — where the numbers are SDL's
+joystick indices. The backend reads the pad through SDL itself
+(`platform/gamepads.py`, raw layer), so the indices arrive as SDL numbers
+them: button n, axis n, and each hat as two signed pseudo axes that
+`binding_for` folds back into SDL's hat bitmask.
 
-Nothing bridges those two by inspection. SDL assigns its indices by walking the
-device's declared capabilities in a fixed order, so index 0 is "the first button
-this device declares", and the same physical button is a different number on a
-pad that declares one extra key. `sdl_layout()` reproduces that walk.
+## Why a session
 
-**Reproducing it is a claim about someone else's code, so it is measured rather
-than trusted.** `scripts/verify-sdl-layout.py` creates a virtual pad through
-/dev/uinput, asks the real SDL how many buttons, axes and hats it sees and which
-GUID it computed, and compares. It is not in the suite — CI has no /dev/uinput —
-but `test_controller_capture.py` replays the layouts that script measured, so
-the derivation is locked against real answers rather than against itself.
+One pad at a time, keyed by controller (`controller_registry.key_for`): with
+two pads connected there is no way to know which one the owner is holding.
 
-## Why a session, and why it is keyed by controller and not by node
+## Rest, not zero
 
-A Bluetooth pad publishes several `event*` nodes. Reading one picked by
-convention gives a wizard where some buttons never register, and it is not even
-stable between boots. The session opens every node
-`controller_registry.nodes_by_key()` groups under the pad's MAC — **every node
-that is a joystick**, which is not the same thing and is the correction below.
-
-## The two measurements that made the wizard unusable
-
-Reported from the sofa: the step on screen "clignote et avance seule", inputs
-nobody pressed arrive, a double press quits. Both causes were measured on this
-box with a DualShock 4 lying untouched on the table.
-
-**It was reading the motion sensors.** A DS4 publishes three nodes under one
-MAC — the pad, the touchpad and `Motion Sensors` — and grouping by MAC took all
-three. In three seconds of the pad sitting still, the accelerometer node
-emitted **4335 events**, which `binding_for` turned into 2561 axis tokens named
-`a0`…`a5`: the same names as the real pad's sticks, because each node is
-numbered from its OWN capabilities. Every one of them armed the wizard's
-press-and-hold timer, and the hold is what skips a step. `_is_joystick()` is
-the fix, and it is not a heuristic — SDL never enumerates those nodes either,
-so an index taken from one names nothing SDL will ever compute. udev agrees
-with it exactly: `ID_INPUT_JOYSTICK=1` on the pad, `ID_INPUT_ACCELEROMETER` and
-`ID_INPUT_TOUCHPAD` on the other two.
-
-**And the rest-zone guard did nothing.** `flat` was read as "the kernel
-publishes the axis's rest zone; anything inside it is noise". Measured, that
-DualShock 4's ABS_X reports `min=0 max=255 flat=0`, resting at **128** — so
-`abs(value) <= flat` was `128 <= 0`, every single stick report was a press, and
-because the release test was the same comparison it never released either. The
-assumption is that an axis rests at zero, and a stick that rests at its
-midpoint is the commonest case there is. `Axis` below measures deflection from
-where the axis actually sits instead, which needs no assumption about sticks
-against triggers.
+An axis is pressed when it is far from where it RESTS, measured per direction
+(`Axis`): a stick rests at its centre, a trigger at its minimum, and SDL
+reports both on the same -32768..32767 scale. The rest comes from SDL's
+initial axis state, read when the pad was opened.
 """
 from __future__ import annotations
 
 import asyncio
-import glob
 import logging
 import time
 from dataclasses import dataclass, field
@@ -69,28 +34,20 @@ from .configgen.controllers import (
     display_name,
     sdl2_probe,
 )
+from .platform import gamepads as platform_gamepads
 
 log = logging.getLogger(__name__)
 
-# evdev constants. Spelled out rather than imported from `evdev`, because this
-# half of the module must stay importable — and testable — on a box where
-# python-evdev is not installed, which is every CI runner.
+# The raw layer's vocabulary (`platform/gamepads.py`): a button is EV_KEY n,
+# an axis EV_ABS n, hat h the pseudo axes ABS_HAT0X + 2h and ABS_HAT0Y + 2h.
 EV_KEY, EV_ABS = 0x01, 0x03
-BTN_JOYSTICK = 0x120
-KEY_MAX = 0x2FF
-ABS_HAT0X, ABS_HAT3Y = 0x10, 0x17
-ABS_MAX = 0x40
+ABS_HAT0X = 0x10
+# Above this the pseudo hat axes start: SDL axis indices stay below it.
+MAX_AXES = ABS_HAT0X
+SDL_AXIS_RANGE = (-32768, 32767)
 
-# The SDL hat bitmask, which is NOT the kernel's representation: evdev reports a
-# hat as two signed axes and SDL folds them into one bitfield per hat.
+# The SDL hat bitmask: the pseudo axes are folded back into it.
 HAT_UP, HAT_RIGHT, HAT_DOWN, HAT_LEFT = 1, 2, 4, 8
-
-# The key ranges the kernel reserves for joysticks and gamepads, and the extra
-# range a pad with more buttons than names spills into. A device declaring one
-# of these is a device SDL's linux joystick driver enumerates; one declaring
-# none of them is not, whatever else it publishes.
-BTN_JOYSTICK, BTN_GAMEPAD_LAST = 0x120, 0x13F
-BTN_TRIGGER_HAPPY, BTN_TRIGGER_HAPPY_LAST = 0x2C0, 0x2FF
 
 # How far an axis must be from where it rests to count as pressed, and how
 # close it must come back to count as released, both as a fraction of the
@@ -106,11 +63,10 @@ AXIS_PRESSED, AXIS_AT_REST = 0.6, 0.3
 
 @dataclass(frozen=True)
 class Layout:
-    """SDL's view of one device's inputs, derived from its evdev capabilities.
+    """SDL's view of one device's inputs: `raw-layer code → SDL index`.
 
-    Each map is `evdev code → SDL index`. A code the device does not declare is
-    simply absent, which is what makes a press on an undeclared input
-    unmappable rather than mapped to something plausible and wrong.
+    A code the device does not have is simply absent, which is what makes a
+    press on it unmappable rather than mapped to something plausible and wrong.
     """
     buttons: dict[int, int] = field(default_factory=dict)
     axes: dict[int, int] = field(default_factory=dict)
@@ -127,14 +83,13 @@ class Layout:
 class Axis:
     """One analogue axis: where it rests, and how far it can go from there.
 
-    Built from the kernel's `absinfo` at the moment the capture starts, which
-    is the only way to tell a stick from a trigger: on a DualShock 4 both
-    report `min=0 max=255`, and the only thing separating them is that one sits
-    at 128 and the other at 0. Nothing in the descriptor says which is which.
+    The rest is what tells a stick from a trigger: SDL reports both on the
+    same scale, and only where they sit at rest separates them.
 
-    Travel is measured PER DIRECTION. A stick at its midpoint can move 127
-    either way; a trigger at its minimum can move 255. Dividing by the full
-    span instead would make a fully pushed stick read as half pressed.
+    Travel is measured PER DIRECTION. A stick at its midpoint can move half
+    the scale either way; a trigger at its minimum can move all of it.
+    Dividing by the full span instead would make a pushed stick read as half
+    pressed.
     """
     minimum: int
     maximum: int
@@ -149,68 +104,11 @@ class Axis:
         return abs(value - self.rest) / self.travel if self.travel else 0.0
 
 
-def _is_joystick(key_codes) -> bool:
-    """Whether SDL's linux joystick driver would enumerate this node.
-
-    The test is the kernel's own vocabulary: a device that declares no key in
-    the joystick or gamepad ranges is not a joystick, and its axes are not
-    joystick axes. A DualShock 4's motion node declares no keys at all and its
-    touchpad node declares BTN_LEFT and the touch tools — mouse and touchpad
-    codes, all outside these ranges.
-
-    Capabilities rather than udev's `ID_INPUT_JOYSTICK`, though the two agree
-    on every node measured here: this is the same source `sdl_layout()` walks,
-    so the decision and the numbering cannot disagree, and it still answers on
-    a box with no udev to ask.
-    """
-    return any(BTN_JOYSTICK <= code <= BTN_GAMEPAD_LAST
-               or BTN_TRIGGER_HAPPY <= code <= BTN_TRIGGER_HAPPY_LAST
-               for code in key_codes)
-
-
-def sdl_layout(key_codes, abs_codes) -> Layout:
-    """SDL's joystick indices for a device declaring these evdev codes.
-
-    The walk is SDL's, from its Linux joystick driver, and the ORDER is the
-    whole content of this function:
-
-      1. buttons from BTN_JOYSTICK (0x120) up to KEY_MAX, ascending;
-      2. then buttons BELOW BTN_JOYSTICK, ascending. Keyboard-range keys on a
-         pad — some arcade sticks and clones declare them — land after the
-         real buttons rather than before, and getting this backwards shifts
-         every index a gamepad actually uses;
-      3. axes from 0 to ABS_MAX ascending, SKIPPING the hat range entirely;
-      4. hats, in pairs, from ABS_HAT0X.
-
-    Identical in SDL2 and SDL3 — both were measured through /dev/uinput, see
-    the module docstring.
-    """
-    keys = sorted(set(key_codes))
-    absolutes = sorted(set(abs_codes))
-
-    buttons: dict[int, int] = {}
-    for code in keys:
-        if BTN_JOYSTICK <= code < KEY_MAX:
-            buttons[code] = len(buttons)
-    for code in keys:
-        if code < BTN_JOYSTICK:
-            buttons[code] = len(buttons)
-
-    axes: dict[int, int] = {}
-    for code in absolutes:
-        if ABS_HAT0X <= code <= ABS_HAT3Y or code >= ABS_MAX:
-            continue
-        axes[code] = len(axes)
-
-    hats: dict[int, int] = {}
-    for base in range(ABS_HAT0X, ABS_HAT3Y + 1, 2):
-        if base in absolutes or base + 1 in absolutes:
-            index = len(set(hats.values()))
-            for code in (base, base + 1):
-                if code in absolutes:
-                    hats[code] = index
-
-    return Layout(buttons=buttons, axes=axes, hats=hats)
+def sdl_layout(buttons: int, axes: int, hats: int) -> Layout:
+    """The raw layer's codes for a joystick SDL counts this way: identity maps."""
+    return Layout(buttons={i: i for i in range(buttons)},
+                  axes={i: i for i in range(min(axes, MAX_AXES))},
+                  hats={ABS_HAT0X + 2 * h + d: h for h in range(hats) for d in (0, 1)})
 
 
 def binding_for(layout: Layout, ev_type: int, code: int, value: int,
@@ -218,15 +116,8 @@ def binding_for(layout: Layout, ev_type: int, code: int, value: int,
     """The SDL token for one event, or None when it says nothing.
 
     `axis` describes the analogue axis this event belongs to, and an axis event
-    without one is unmappable rather than mapped: a resting stick reports a
-    large number every few milliseconds, and deciding what that means needs to
-    know where the thing rests.
-
-    This took a `flat` — the kernel's rest zone — and compared `abs(value)`
-    against it. That is only right for an axis centred on zero. The DualShock 4
-    this box is used with reports its sticks as `0..255` resting at 128 with
-    `flat=0`, so the guard passed everything AND the matching release test never
-    fired: one stick held the wizard's press timer down for ever.
+    without one is unmappable rather than mapped: deciding what a reading means
+    needs to know where the thing rests.
     """
     if ev_type == EV_KEY:
         if value != 1:                       # presses only, never the release
@@ -264,10 +155,8 @@ def half_axis(binding: str, value: int, axis: Axis | None = None) -> str:
     """`a3` → `+a3` or `-a3`. For the steps where the direction is the point —
     a trigger, or a stick direction bound to a d-pad.
 
-    Which half is decided against where the axis RESTS, not against zero. A
-    DualShock 4 stick runs 0..255 from its midpoint, so every reading is
-    positive and pushing it left used to come out `+a0` — the same token as
-    pushing it right.
+    Which half is decided against where the axis RESTS, not against zero: a
+    trigger resting at -32768 reads negative when half pulled.
     """
     if not binding.startswith("a"):
         return binding
@@ -310,12 +199,14 @@ OPTIONAL = frozenset({"guide", "leftstick", "rightstick",
 
 
 def mapping_line(guid: str, name: str, bindings: dict[str, str],
-                 platform: str = "Linux") -> str:
-    """One SDL_GameControllerDB line.
+                 platform: str = "Windows") -> str:
+    """One SDL_GameControllerDB line, for SDL on Windows.
 
-    Fields are emitted in STEPS order rather than in whatever order the wizard
-    filled them, so the same pad mapped twice produces the same line and a diff
-    between two captures is readable.
+    SDL ignores a line whose `platform:` is another OS, so a capture filed as
+    `Linux` here would be stored and never used. Fields are emitted in STEPS
+    order rather than in whatever order the wizard filled them, so the same pad
+    mapped twice produces the same line and a diff between two captures is
+    readable.
     """
     if not name.strip():
         raise ValueError("a mapping line needs a device name")
@@ -383,10 +274,10 @@ def _profilable_app_ids() -> list[str]:
 
 # ── the session ──────────────────────────────────────────────────────────────
 
-# A session left open holds file descriptors on /dev/input and keeps the pad's
-# events away from nothing at all — reading is non-exclusive — but it is still
-# state, and the UI it belongs to is one a player can walk away from. Ten
-# minutes is long enough for the slowest pass through 21 buttons.
+# A session left open subscribes to the pad's events (reading is shared, the
+# interface still gets them) but it is still state, and the UI it belongs to is
+# one a player can walk away from. Ten minutes is long enough for the slowest
+# pass through 21 buttons.
 SESSION_TTL = 600.0
 
 
@@ -406,6 +297,7 @@ class Session:
     layouts: dict[str, Layout]
     guids: list[str]
     started: float
+    rests: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
     @property
     def expired(self) -> bool:
@@ -431,59 +323,17 @@ def cancel() -> bool:
     return had
 
 
-def _pad_nodes(vendor: str, product: str) -> tuple[str, dict[str, Layout]]:
-    """(registry key, {devnode: layout}) for the pad with this vendor:product.
+def _pad_device(vendor: str, product: str) -> tuple[str, dict[str, Layout],
+                                                 dict[str, tuple[int, ...]]]:
+    """(registry key, {device: layout}, {device: axis rests}) for that pad.
 
-    Every JOYSTICK node the pad owns, grouped by `nodes_by_key` — the whole
-    reason this is not a single `InputDevice` — and each with its OWN layout:
-    a pad that splits its buttons across nodes needs both read, and each node
-    is numbered from its own capabilities.
-
-    The joystick filter is the correction the module docstring measures. It
-    does not weaken the reason the grouping exists: a node that declares
-    gamepad buttons is still kept however many there are, so a pad whose D-pad
-    lives on a second node is still read whole. What it removes is the nodes
-    SDL never enumerates — an accelerometer, a touchpad — whose indices name
-    nothing any emulator will ever compute, and whose axes stream continuously
-    while the pad sits still.
+    One device: SDL opens a pad once, whatever nodes a driver splits it into.
     """
-    import evdev
-
-    candidates: list[tuple[str | None, str]] = []
-    caps: dict[str, tuple[list[int], list[int]]] = {}
-    skipped: list[str] = []
-    for path in sorted(glob.glob("/dev/input/event*")):
-        try:
-            dev = evdev.InputDevice(path)
-        except (PermissionError, OSError):
-            continue
-        try:
-            info = dev.info
-            if (f"{info.vendor:04x}", f"{info.product:04x}") != (vendor, product):
-                continue
-            capabilities = dev.capabilities()
-            keys = list(capabilities.get(EV_KEY, []))
-            if not _is_joystick(keys):
-                skipped.append(f"{path} ({dev.name})")
-                continue
-            absolutes = [a[0] if isinstance(a, tuple) else a
-                         for a in capabilities.get(EV_ABS, [])]
-            candidates.append((dev.uniq or None, path))
-            caps[path] = (keys, absolutes)
-        finally:
-            dev.close()
-
-    if skipped:
-        log.info("controller_capture: not reading %s — no joystick or gamepad "
-                 "buttons declared, so nothing on it is an input SDL numbers",
-                 ", ".join(skipped))
-    if not candidates:
-        return "", {}
-    grouped = controller_registry.nodes_by_key(candidates)
-    # One vendor:product, so one key in all but the case where two identical
-    # pads are connected — and then the wizard has already refused to start.
-    key, paths = next(iter(grouped.items()))
-    return key, {p: sdl_layout(*caps[p]) for p in paths}
+    for pad in platform_gamepads.pads():
+        if (pad.vendor, pad.product) == (vendor, product) and pad.is_pad:
+            key = controller_registry.key_for(pad.serial, pad.device)
+            return key, {pad.device: sdl_layout(*pad.counts)}, {pad.device: pad.rest}
+    return "", {}, {}
 
 
 def start() -> dict:
@@ -499,18 +349,12 @@ def start() -> dict:
         return {"ok": False,
                 "error": ("connect exactly one controller — the one you want "
                           f"to map — and disconnect the others (found {len(pads)})")}
-    vendor, product, evdev_name = pads[0]
+    vendor, product, sdl_name = pads[0]
 
-    try:
-        key, layouts = _pad_nodes(vendor, product)
-    except ImportError:
-        return {"ok": False,
-                "error": "python-evdev is not installed — no pad can be read"}
+    key, layouts, rests = _pad_device(vendor, product)
     if not layouts:
         return {"ok": False,
-                "error": (f"{vendor}:{product} was detected but none of its "
-                          f"/dev/input nodes could be opened. Is the backend's "
-                          f"account in the `input` group?")}
+                "error": f"{vendor}:{product} was detected but has gone again. Reconnect it."}
 
     guids = sdl_guids(vendor, product, _profilable_app_ids())
     if not guids:
@@ -521,11 +365,11 @@ def start() -> dict:
     _session = Session(
         id=f"{key}-{int(time.time())}",
         key=key, vendor=vendor, product=product,
-        name=display_name(vendor, product, evdev_name),
+        name=display_name(vendor, product, sdl_name),
         nodes=sorted(layouts), layouts=layouts, guids=guids,
-        started=time.monotonic())
-    log.info("controller_capture: mapping %s (%s:%s) over %d node(s), %d GUID(s)",
-             _session.name, vendor, product, len(layouts), len(guids))
+        started=time.monotonic(), rests=rests)
+    log.info("controller_capture: mapping %s (%s:%s), %d GUID(s)",
+             _session.name, vendor, product, len(guids))
     return {"ok": True, "session": _session.id, "controller": _session.name,
             "vendor": vendor, "product": product, "guids": guids,
             "nodes": _session.nodes,
@@ -534,76 +378,39 @@ def start() -> dict:
             "optional": sorted(OPTIONAL)}
 
 
-# Put on the queue by a reader that has finished, so the loop can count how
-# many are left. An object() rather than None: an evdev event is never this.
-_GONE = object()
+def _axes(session: Session) -> dict[tuple[str, int], Axis]:
+    """Every axis of the session's pad, with where it rests."""
+    low, high = SDL_AXIS_RANGE
+    return {(device, index): Axis(minimum=low, maximum=high, rest=rest)
+            for device, rests in session.rests.items()
+            for index, rest in enumerate(rests)}
 
 
 async def events(session: Session):
-    """Yield `{binding, kind, code, value}` for every press on the pad.
+    """Yield `{binding, pressed, kind, signed, code, value, node}` for every input.
 
-    Reads all of the pad's nodes at once. Read-only on /dev/input, which is
-    what the whole capture path is: no ioctl that writes, no grab. Grabbing
-    would take the pad away from the running UI, and the owner would have no
-    way to cancel the wizard.
+    Reads the pad's raw layer; nothing is taken from the interface, which
+    still sees every press (the owner must be able to cancel the wizard).
     """
-    import evdev
+    queues = {device: platform_gamepads.subscribe(device) for device in session.nodes}
+    merged: asyncio.Queue = asyncio.Queue()
 
-    devices = []
-    for path in session.nodes:
-        try:
-            devices.append(evdev.InputDevice(path))
-        except (PermissionError, OSError):
-            log.debug("controller_capture: cannot open %s", path)
-    if not devices:
-        return
+    async def pump(device: str, queue: asyncio.Queue) -> None:
+        while True:
+            event = await queue.get()
+            await merged.put((device, event))
+            if event.layer == platform_gamepads.GONE.layer:
+                return
 
-    # Where every axis rests, read now: the wizard's first screen asks for A,
-    # so nothing is being held. `info.value` is the axis's CURRENT reading,
-    # which for an idle pad is its rest position — and it is the only thing
-    # that separates a stick from a trigger, since a DualShock 4 declares both
-    # as `0..255`.
-    axes: dict[tuple[str, int], Axis] = {}
-    for dev in devices:
-        for entry in dev.capabilities().get(EV_ABS, []):
-            if isinstance(entry, tuple):
-                code, info = entry
-                axes[(dev.path, code)] = Axis(
-                    minimum=getattr(info, "min", 0),
-                    maximum=getattr(info, "max", 0),
-                    rest=getattr(info, "value", 0))
-
-    queue: asyncio.Queue = asyncio.Queue()
-
-    async def pump(dev) -> None:
-        try:
-            async for event in dev.async_read_loop():
-                await queue.put((dev.path, event))
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            log.debug("controller_capture: %s stopped", dev.path)
-        finally:
-            # The end of a reader is news, and it used to be kept to itself: a
-            # pad unplugged mid-wizard left every pump finished and this
-            # generator waiting on a queue with no producer left. Nothing was
-            # ever going to arrive, and nothing timed the wait out — the socket
-            # stayed open and the screen stayed on "press A" for ever.
-            queue.put_nowait((dev.path, _GONE))
-
-    tasks = [asyncio.create_task(pump(d), name=f"capture:{d.path}")
-             for d in devices]
-    live = len(devices)
+    tasks = [asyncio.create_task(pump(d, q), name=f"capture:{d}") for d, q in queues.items()]
+    live = len(tasks)
+    axes = _axes(session)
 
     # What each input is currently reporting, so a return to rest can be sent
     # as the RELEASE of the thing that was held.
     #
     # The wizard's "hold this button, the pad does not have it" gesture needs
-    # both edges: a press alone cannot be told from a hold until it ends. A
-    # first version sent presses only — `binding_for` is deliberately
-    # press-only, because binding on a release would record the button the
-    # player let go of while reaching for the next one — and the hold could
-    # therefore never fire, leaving a wizard with no way past a missing button.
+    # both edges: a press alone cannot be told from a hold until it ends.
     active: dict[tuple[str, int], str] = {}
     try:
         while True:
@@ -617,15 +424,17 @@ async def events(session: Session):
                          session.id)
                 return
             try:
-                path, event = await asyncio.wait_for(queue.get(), timeout=remaining)
+                path, event = await asyncio.wait_for(merged.get(), timeout=remaining)
             except asyncio.TimeoutError:
                 continue                     # the check above ends it
-            if event is _GONE:
+            if event.layer == platform_gamepads.GONE.layer:
                 live -= 1
                 if live <= 0:
-                    log.info("controller_capture: every node of %s is gone — "
-                             "ending the stream", session.name)
+                    log.info("controller_capture: %s is gone — ending the stream",
+                             session.name)
                     return
+                continue
+            if event.layer != "raw":
                 continue
             layout = session.layouts.get(path)
             if layout is None:
@@ -661,11 +470,8 @@ async def events(session: Session):
     finally:
         for task in tasks:
             task.cancel()
-        for dev in devices:
-            try:
-                dev.close()
-            except Exception:
-                pass
+        for device, queue in queues.items():
+            platform_gamepads.unsubscribe(device, queue)
 
 
 def commit(bindings: dict[str, str], name: str = "") -> dict:
@@ -695,9 +501,8 @@ def commit(bindings: dict[str, str], name: str = "") -> dict:
         lines.append(line)
 
     missing = sorted({step[0] for step in STEPS} - set(usable) - OPTIONAL)
-    # Saved is not the same as in force. A capture is measured through
-    # /dev/input, and `mapping_db.servable` withholds it from SDL for a pad SDL
-    # reads through a HIDAPI driver instead — where it would REPLACE SDL's own,
+    # Saved is not the same as in force: `mapping_db.servable` withholds a
+    # capture filed under a HIDAPI GUID, where it would REPLACE SDL's own,
     # correct mapping rather than add to it. Reporting the count rather than
     # only "ok" is what lets the caller, and the log, tell a capture that took
     # effect from one that was stored and set aside.

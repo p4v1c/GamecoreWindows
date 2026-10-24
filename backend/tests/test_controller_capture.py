@@ -1,26 +1,10 @@
-"""The mapping wizard's capture — evdev events in, an SDL mapping line out.
+"""The mapping wizard's capture — SDL raw events in, an SDL mapping line out.
 
 The dangerous failure here is not a crash. It is a mapping whose every number
-is plausible and shifted by one: SDL numbers a pad's buttons by walking its
-declared capabilities in a fixed order, so a derivation that gets the order
-wrong still produces the right COUNT of bindings, writes cleanly, and gives a
-controller where every button does someone else's job.
-
-Counts therefore prove nothing on their own, and the layouts below are not
-invented. They were measured through /dev/uinput against the real SDL by
-`scripts/verify-sdl-layout.py`, which creates each of these pads, presses every
-one of its inputs in turn and asks SDL which of ITS indices moved. That script
-is not in the suite — CI has no /dev/uinput and it is not worth a skip in the
-gate — so what it measured is replayed here.
-
-Re-run it after touching `sdl_layout()`:
-
-    python3 scripts/verify-sdl-layout.py --press
-
-The last run: 5 pads, 59 keys and 22 axes, every input landing on the derived
-index, agreed by the host's SDL3 and SDL2 and by the four SDLs the emulators
-bundle. Swapping the two button loops — the single most tempting simplification
-in that function — moves every index and the script reports it.
+is plausible and shifted by one. The backend reads the pad through SDL itself
+(`platform/gamepads.py`, raw layer), so button n IS SDL's button n: the layout
+is an identity map, and what is tested is that nothing in between renumbers,
+drops or invents an input.
 """
 from __future__ import annotations
 
@@ -34,115 +18,57 @@ sys.path.insert(0, str(ROOT))
 
 from backend.services import controller_capture as cap             # noqa: E402
 from backend.services.configgen import mapping_db                  # noqa: E402
+from backend.services.platform import gamepads as platform_gamepads  # noqa: E402
 
-# evdev codes, spelled out so the test does not need python-evdev either.
-BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST = 0x130, 0x131, 0x133, 0x134
-BTN_TL, BTN_TR = 0x136, 0x137
-BTN_SELECT, BTN_START, BTN_MODE = 0x13A, 0x13B, 0x13C
-BTN_THUMBL, BTN_THUMBR = 0x13D, 0x13E
-BTN_TRIGGER, BTN_THUMB = 0x120, 0x121
-KEY_A, KEY_ENTER = 0x1E, 0x1C
-ABS_X, ABS_Y, ABS_Z, ABS_RX, ABS_RY, ABS_RZ = 0, 1, 2, 3, 4, 5
 ABS_HAT0X, ABS_HAT0Y, ABS_HAT1X, ABS_HAT1Y = 0x10, 0x11, 0x12, 0x13
 
-FACE = [BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST, BTN_TL, BTN_TR,
-        BTN_SELECT, BTN_START, BTN_MODE, BTN_THUMBL, BTN_THUMBR]
 
-# (keys, axes) → (buttons, axes, hats), as the REAL SDL reported them.
-MEASURED = {
-    "plain-pad": ((FACE, [ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ,
-                          ABS_HAT0X, ABS_HAT0Y]), (11, 6, 1)),
-    "keyboard-keys": ((FACE + [BTN_TRIGGER, BTN_THUMB, KEY_A, KEY_ENTER],
-                       [ABS_X, ABS_Y]), (15, 2, 0)),
-    "hats-only": ((FACE, [ABS_HAT0X, ABS_HAT0Y]), (11, 0, 1)),
-    "two-hats": ((FACE, [ABS_X, ABS_Y, ABS_HAT0X, ABS_HAT0Y,
-                         ABS_HAT1X, ABS_HAT1Y]), (11, 2, 2)),
-    "sparse-axes": ((FACE, [ABS_X, ABS_RZ, ABS_HAT0X, ABS_HAT0Y]), (11, 2, 1)),
-}
+# ── SDL's counts to a layout ─────────────────────────────────────────────────
+
+def test_the_layout_is_sdls_own_numbering():
+    layout = cap.sdl_layout(11, 6, 1)
+    assert layout.counts == (11, 6, 1)
+    assert layout.buttons[10] == 10 and layout.axes[5] == 5
 
 
-@pytest.mark.parametrize("pad", sorted(MEASURED))
-def test_the_counts_match_what_sdl_reported(pad):
-    """Necessary, not sufficient — see the module docstring for the other
-    half."""
-    (keys, axes), expected = MEASURED[pad]
-
-    assert cap.sdl_layout(keys, axes).counts == expected
+def test_each_hat_is_two_pseudo_axes_with_one_index():
+    layout = cap.sdl_layout(11, 2, 2)
+    assert layout.hats == {ABS_HAT0X: 0, ABS_HAT0Y: 0, ABS_HAT1X: 1, ABS_HAT1Y: 1}
 
 
-def test_keyboard_range_keys_are_numbered_after_the_gamepad_buttons():
-    """The rule that is easy to get backwards and impossible to notice.
-
-    SDL walks BTN_JOYSTICK..KEY_MAX first, THEN everything below. Arcade
-    sticks and pad clones declare keyboard-range keys, and numbering those
-    first shifts every index a real gamepad uses — measured: the swap puts
-    BTN_SOUTH on b2 where SDL has it on b0.
-    """
-    keys = FACE + [BTN_TRIGGER, BTN_THUMB, KEY_A, KEY_ENTER]
-
-    layout = cap.sdl_layout(keys, [ABS_X, ABS_Y])
-
-    assert layout.buttons[BTN_TRIGGER] == 0, "BTN_JOYSTICK is the first button"
-    assert layout.buttons[BTN_SOUTH] == 2
-    assert layout.buttons[KEY_ENTER] == 13, "keyboard keys come last"
-    assert layout.buttons[KEY_A] == 14
-
-
-def test_the_hat_range_is_skipped_by_the_axis_walk():
-    """A d-pad reported as a hat is not an axis. Counting it as one gives every
-    stick an index one too high, and there is no symptom until a stick is
-    pushed."""
-    layout = cap.sdl_layout(FACE, [ABS_X, ABS_Y, ABS_HAT0X, ABS_HAT0Y, ABS_RX])
-
-    assert layout.axes == {ABS_X: 0, ABS_Y: 1, ABS_RX: 2}
-    assert layout.hats == {ABS_HAT0X: 0, ABS_HAT0Y: 0}
-
-
-def test_axis_indices_follow_position_not_code():
-    """`sparse-axes` exists for this: ABS_RZ is code 5 and the second axis
-    declared. A derivation keyed on the code number would call it a5."""
-    layout = cap.sdl_layout(FACE, [ABS_X, ABS_RZ])
-
-    assert layout.axes == {ABS_X: 0, ABS_RZ: 1}
-
-
-def test_a_second_hat_is_its_own_index():
-    layout = cap.sdl_layout(FACE, [ABS_HAT0X, ABS_HAT0Y, ABS_HAT1X, ABS_HAT1Y])
-
-    assert layout.hats == {ABS_HAT0X: 0, ABS_HAT0Y: 0,
-                           ABS_HAT1X: 1, ABS_HAT1Y: 1}
+def test_axis_indices_never_reach_the_hat_codes():
+    """A device with more axes than fit below the hat codes keeps the first ones:
+    an axis index must never be read as a hat."""
+    layout = cap.sdl_layout(4, 40, 1)
+    assert max(layout.axes) < ABS_HAT0X
 
 
 # ── one event to one token ───────────────────────────────────────────────────
 
 @pytest.fixture
 def layout():
-    return cap.sdl_layout(FACE, [ABS_X, ABS_Y, ABS_Z, ABS_HAT0X, ABS_HAT0Y])
+    return cap.sdl_layout(11, 3, 1)
 
 
 def test_a_press_becomes_a_button_token(layout):
-    assert cap.binding_for(layout, cap.EV_KEY, BTN_SOUTH, 1) == "b0"
-    assert cap.binding_for(layout, cap.EV_KEY, BTN_MODE, 1) == "b8"
+    assert cap.binding_for(layout, cap.EV_KEY, 0, 1) == "b0"
+    assert cap.binding_for(layout, cap.EV_KEY, 8, 1) == "b8"
 
 
 def test_a_release_says_nothing(layout):
     """Binding on the release would record the button the player let go of
     while reaching for the next one."""
-    assert cap.binding_for(layout, cap.EV_KEY, BTN_SOUTH, 0) is None
+    assert cap.binding_for(layout, cap.EV_KEY, 0, 0) is None
 
 
-def test_an_undeclared_input_is_unmappable(layout):
-    """Not "mapped to something plausible": a code the device never declared
-    has no SDL index at all, and inventing one writes a binding for a button
-    that does not exist."""
-    assert cap.binding_for(layout, cap.EV_KEY, 0x2FE, 1) is None
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_RY, 30000) is None
+def test_an_input_the_pad_does_not_have_is_unmappable(layout):
+    assert cap.binding_for(layout, cap.EV_KEY, 30, 1) is None
+    assert cap.binding_for(layout, cap.EV_ABS, 4, 30000, CENTRED_STICK) is None
 
 
-def test_the_hat_bitmask_is_sdls_and_not_the_kernels(layout):
-    """evdev reports a hat as two signed axes; SDL folds them into one
-    bitfield per hat. up=1 right=2 down=4 left=8, and the vertical axis is
-    POSITIVE downwards."""
+def test_the_hat_bitmask_is_sdls(layout):
+    """The pseudo axes fold back into SDL's bitfield: up=1 right=2 down=4
+    left=8, and the vertical axis is POSITIVE downwards."""
     assert cap.binding_for(layout, cap.EV_ABS, ABS_HAT0X, 1) == "h0.2"
     assert cap.binding_for(layout, cap.EV_ABS, ABS_HAT0X, -1) == "h0.8"
     assert cap.binding_for(layout, cap.EV_ABS, ABS_HAT0Y, 1) == "h0.4"
@@ -150,95 +76,51 @@ def test_the_hat_bitmask_is_sdls_and_not_the_kernels(layout):
     assert cap.binding_for(layout, cap.EV_ABS, ABS_HAT0X, 0) is None, "centred"
 
 
-# The two axes a DualShock 4 really declares, read from this box with the pad
-# connected. They are identical apart from where they sit — which is the whole
-# reason the old `flat` test could not work.
-DS4_STICK = cap.Axis(minimum=0, maximum=255, rest=128)
-DS4_TRIGGER = cap.Axis(minimum=0, maximum=255, rest=0)
+def test_what_sdl_reports_for_a_hat_folds_back_to_the_same_token(layout):
+    """End to end through the platform's split: SDL's `up` (1) is `h0.1`."""
+    events = platform_gamepads.hat_events(0, 1, "raw")
+    tokens = [cap.binding_for(layout, e.type, e.code, e.value) for e in events]
+    assert [t for t in tokens if t] == ["h0.1"]
+
+
 CENTRED_STICK = cap.Axis(minimum=-32768, maximum=32767, rest=0)
+# A trigger SDL reports on the same scale, resting at its minimum.
+TRIGGER = cap.Axis(minimum=-32768, maximum=32767, rest=-32768)
 
 
 def test_a_resting_stick_does_not_bind_anything(layout):
-    """The single most common way a naive capture loop produces garbage: an
-    analogue stick at rest drifts continuously, so the first button the player
-    is asked for gets bound to whichever axis twitched.
-
-    This used to compare `abs(value)` against the kernel's `flat`, which only
-    works for an axis centred on zero. A DualShock 4's ABS_X is `0..255` with
-    `flat=0` resting at 128, so the guard passed EVERY reading — the pad sitting
-    still on a table drove the wizard by itself.
-    """
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 128, DS4_STICK) is None
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 133, DS4_STICK) is None
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 255, DS4_STICK) == "a0"
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 0, DS4_STICK) == "a0", (
+    """An analogue stick at rest drifts: the first button the player is asked
+    for must not be bound to whichever axis twitched."""
+    assert cap.binding_for(layout, cap.EV_ABS, 0, 900, CENTRED_STICK) is None
+    assert cap.binding_for(layout, cap.EV_ABS, 0, 30000, CENTRED_STICK) == "a0"
+    assert cap.binding_for(layout, cap.EV_ABS, 0, -30000, CENTRED_STICK) == "a0", (
         "pushed the other way is just as pushed")
-    # And the axis that DOES rest at zero still behaves.
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 900, CENTRED_STICK) is None
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 30000, CENTRED_STICK) == "a0"
 
 
 def test_a_trigger_is_told_from_a_stick_by_where_it_rests(layout):
-    """Nothing in the descriptor separates them — a DualShock 4 declares both
-    as `0..255`. Only the resting value does, and travel is therefore measured
-    per direction: a stick can move 127 from its midpoint, a trigger 255 from
-    its minimum, and dividing by the full span would make a fully pushed stick
-    read as half pressed."""
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_Z, 255, DS4_TRIGGER) == "a2"
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_Z, 20, DS4_TRIGGER) is None
-    # The same number read two ways. 160 is 63% of a trigger's travel and only
-    # 25% of a stick's; 51 is 61% of a stick's and 20% of a trigger's.
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_Z, 160, DS4_TRIGGER) == "a2"
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 160, DS4_STICK) is None
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 51, DS4_STICK) == "a0"
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_Z, 51, DS4_TRIGGER) is None
+    """Travel is per direction: a trigger can move the whole scale from its
+    minimum, a stick half of it from the centre."""
+    assert cap.binding_for(layout, cap.EV_ABS, 2, 32767, TRIGGER) == "a2"
+    assert cap.binding_for(layout, cap.EV_ABS, 2, -30000, TRIGGER) is None
+    # The same reading two ways: 10000 is 66% of a trigger's travel, 30% of a stick's.
+    assert cap.binding_for(layout, cap.EV_ABS, 2, 10000, TRIGGER) == "a2"
+    assert cap.binding_for(layout, cap.EV_ABS, 0, 10000, CENTRED_STICK) is None
 
 
 def test_an_axis_nobody_can_describe_is_unmappable(layout):
-    """Refusal, not a guess. Without knowing where an axis rests there is no
-    way to read its value at all, and a wrong reading here is a binding on
-    something the player never touched."""
-    assert cap.binding_for(layout, cap.EV_ABS, ABS_X, 30000, None) is None
+    assert cap.binding_for(layout, cap.EV_ABS, 0, 30000, None) is None
 
 
 def test_a_direction_can_be_narrowed_to_half_an_axis(layout):
-    """A trigger resting at its minimum and a stick resting at centre produce
-    the same event. Only the step being asked for knows which, so the sign is
-    applied by the caller rather than guessed here."""
     assert cap.half_axis("a2", 30000) == "+a2"
     assert cap.half_axis("a2", -30000) == "-a2"
     assert cap.half_axis("b3", 1) == "b3", "a button has no half"
 
 
 def test_which_half_is_measured_from_rest_not_from_zero(layout):
-    """A DualShock 4 stick runs 0..255 from its midpoint, so every reading is
-    positive: pushing it left came out `+a0`, the same token as pushing it
-    right, and a wizard step asking for a direction recorded the wrong one."""
-    assert cap.half_axis("a0", 255, DS4_STICK) == "+a0"
-    assert cap.half_axis("a0", 0, DS4_STICK) == "-a0"
-
-
-# ── which nodes a session reads ──────────────────────────────────────────────
-
-def test_a_motion_sensor_node_is_not_a_joystick():
-    """Measured on this box: a DualShock 4 lying untouched emitted 4335 events
-    in three seconds from its `Motion Sensors` node, which `binding_for` turned
-    into 2561 axis tokens named a0..a5 — the same names as the real pad's
-    sticks, because each node is numbered from its own capabilities. Every one
-    armed the wizard's hold timer, and a hold skips the step."""
-    assert cap._is_joystick(FACE)
-    assert not cap._is_joystick([]), "the DS4 motion node declares no keys"
-    # Its touchpad node: BTN_LEFT, BTN_TOOL_FINGER, BTN_TOUCH, BTN_TOOL_DOUBLETAP
-    assert not cap._is_joystick([0x110, 0x145, 0x14A, 0x14D])
-
-
-def test_a_pad_with_no_gamepad_names_is_still_a_joystick():
-    """The kernel's joystick range, not just the gamepad one: an arcade stick
-    or a clone declaring BTN_TRIGGER/BTN_THUMB must still be read, and so must
-    a pad with more buttons than names that spills into BTN_TRIGGER_HAPPY."""
-    assert cap._is_joystick([BTN_TRIGGER, BTN_THUMB])
-    assert cap._is_joystick([0x2C0, 0x2C1])
-    assert not cap._is_joystick([KEY_A, KEY_ENTER]), "a keyboard is not one"
+    """A half-pulled trigger reads negative on SDL's scale; it is still `+`."""
+    assert cap.half_axis("a2", -10000, TRIGGER) == "+a2"
+    assert cap.half_axis("a0", -20000, CENTRED_STICK) == "-a0"
 
 
 # ── the line ─────────────────────────────────────────────────────────────────
@@ -253,7 +135,7 @@ def test_the_line_is_a_valid_sdl_mapping():
 
     assert mapping_db.parse(line), f"our own parser rejects what we write: {line}"
     assert line.startswith(f"{GUID},Generic USB Gamepad,")
-    assert line.endswith("platform:Linux,")
+    assert line.endswith("platform:Windows,"), "SDL on Windows ignores a Linux line"
     assert "dpup:h0.1" in line and "lefttrigger:+a2" in line
 
 
@@ -292,6 +174,10 @@ def test_an_empty_capture_is_refused():
 
 # ── the session ──────────────────────────────────────────────────────────────
 
+def _one_device(key):
+    return lambda v, p: (key, {"sdl9": cap.sdl_layout(11, 0, 0)}, {"sdl9": ()})
+
+
 @pytest.fixture
 def clean_session():
     cap.cancel()
@@ -320,8 +206,7 @@ def test_a_pad_no_sdl_can_name_is_refused(clean_session, monkeypatch):
     to file the capture under, and writing it under an invented id is the
     "invented identity" this pipeline refuses everywhere else."""
     monkeypatch.setattr(cap, "detect_pads", lambda *a, **k: [("1d79", "0f0f", "Pad")])
-    monkeypatch.setattr(cap, "_pad_nodes",
-                        lambda v, p: ("aa:bb", {"/dev/input/event9": cap.sdl_layout(FACE, [])}))
+    monkeypatch.setattr(cap, "_pad_device", _one_device("aa:bb"))
     monkeypatch.setattr(cap, "sdl_guids", lambda *a, **k: [])
 
     result = cap.start()
@@ -342,8 +227,7 @@ def test_a_capture_is_written_once_per_sdl_identity(clean_session, monkeypatch, 
 
     guids = ["05008fe54c050000cc09000000006800", "03008fe54c050000cc09000000006800"]
     monkeypatch.setattr(cap, "detect_pads", lambda *a, **k: [("054c", "09cc", "Pad")])
-    monkeypatch.setattr(cap, "_pad_nodes",
-                        lambda v, p: ("84:30", {"/dev/input/event9": cap.sdl_layout(FACE, [])}))
+    monkeypatch.setattr(cap, "_pad_device", _one_device("84:30"))
     monkeypatch.setattr(cap, "sdl_guids", lambda *a, **k: guids)
     monkeypatch.setattr(cap, "display_name", lambda *a: "Generic Pad")
 
@@ -357,15 +241,14 @@ def test_a_capture_is_written_once_per_sdl_identity(clean_session, monkeypatch, 
 
 
 def test_committing_closes_the_session(clean_session, monkeypatch, tmp_path):
-    """A session left open holds file descriptors on /dev/input and would let a
-    second commit re-file whatever the first wrote."""
+    """A session left open would let a second commit re-file whatever the
+    first wrote."""
     monkeypatch.setattr(mapping_db, "USER_DB", tmp_path / "user.txt")
     monkeypatch.setattr(mapping_db, "SERVED_DB", tmp_path / "served.txt")
     monkeypatch.setattr(mapping_db, "DB_FILE", tmp_path / "community.txt")
     (tmp_path / "community.txt").write_text("# nothing\n")
     monkeypatch.setattr(cap, "detect_pads", lambda *a, **k: [("054c", "09cc", "Pad")])
-    monkeypatch.setattr(cap, "_pad_nodes",
-                        lambda v, p: ("84:30", {"/dev/input/event9": cap.sdl_layout(FACE, [])}))
+    monkeypatch.setattr(cap, "_pad_device", _one_device("84:30"))
     monkeypatch.setattr(cap, "sdl_guids", lambda *a, **k: [GUID])
     monkeypatch.setattr(cap, "display_name", lambda *a: "Pad")
 
@@ -385,8 +268,7 @@ def test_the_missing_buttons_are_reported(clean_session, monkeypatch, tmp_path):
     monkeypatch.setattr(mapping_db, "DB_FILE", tmp_path / "community.txt")
     (tmp_path / "community.txt").write_text("# nothing\n")
     monkeypatch.setattr(cap, "detect_pads", lambda *a, **k: [("054c", "09cc", "Pad")])
-    monkeypatch.setattr(cap, "_pad_nodes",
-                        lambda v, p: ("84:30", {"/dev/input/event9": cap.sdl_layout(FACE, [])}))
+    monkeypatch.setattr(cap, "_pad_device", _one_device("84:30"))
     monkeypatch.setattr(cap, "sdl_guids", lambda *a, **k: [GUID])
     monkeypatch.setattr(cap, "display_name", lambda *a: "Pad")
 
@@ -419,54 +301,81 @@ def test_every_step_is_a_field_sdl_understands():
 
 # ── the stream, and how it ends ─────────────────────────────────────────────
 #
-# Finding 18 of the 2026-09-04 audit. Every reader caught its own error and
-# finished quietly, and none of them told the queue — so when the last one had
-# gone, the generator was still waiting on `queue.get()` with no producer left
-# and no deadline. The wizard sat on "press A" for a pad that had been
-# unplugged, and the only other way out of that screen was the pad.
+# A pad unplugged mid-wizard must end the stream: otherwise the wizard sits on
+# "press A" for a pad that has gone, and the only other way out of that screen
+# was the pad.
 
 import asyncio                                                     # noqa: E402
 import time                                                        # noqa: E402
-import types                                                       # noqa: E402
+
+from backend.services.platform.gamepads import GONE, PadEvent       # noqa: E402
 
 
-class _Unplugged:
-    """A node that raises the moment it is read, the way a removed one does."""
+def _session(monkeypatch, scripts: dict, age: float = 0.0, rests=None):
+    """A session over fake devices; each device's queue is fed its script."""
+    def subscribe(device):
+        queue = asyncio.Queue()
+        for event in scripts.get(device, []):
+            queue.put_nowait(event)
+        return queue
 
-    def __init__(self, path):
-        self.path = path
-        self.closed = False
-
-    def capabilities(self):
-        return {}
-
-    async def async_read_loop(self):
-        raise OSError("No such device")
-        yield  # pragma: no cover — makes this an async generator
-
-    def close(self):
-        self.closed = True
-
-
-def _session(monkeypatch, *paths, age: float = 0.0):
-    monkeypatch.setitem(sys.modules, "evdev",
-                        types.SimpleNamespace(InputDevice=_Unplugged))
+    monkeypatch.setattr(platform_gamepads, "subscribe", subscribe)
+    monkeypatch.setattr(platform_gamepads, "unsubscribe", lambda device, queue: None)
+    devices = list(scripts)
     return cap.Session(
         id="probe-1", key="probe", vendor="054c", product="09cc", name="Probe",
-        nodes=list(paths), layouts={p: cap.Layout() for p in paths},
+        nodes=devices, layouts={d: cap.sdl_layout(11, 3, 1) for d in devices},
         guids=["030000004c050000cc09000011810000"],
-        started=time.monotonic() - age)
+        started=time.monotonic() - age,
+        rests=rests or {d: (0, 0, -32768) for d in devices})
 
 
-def test_the_stream_ends_when_the_last_node_disappears(monkeypatch):
-    session = _session(monkeypatch, "/fake/event0")
+async def _collect(stream, n):
+    out = []
+    try:
+        for _ in range(n):
+            out.append(await asyncio.wait_for(anext(stream), timeout=2))
+    finally:
+        await stream.aclose()
+    return out
+
+
+def test_a_press_and_its_release_reach_the_wizard(monkeypatch):
+    session = _session(monkeypatch, {"sdl0": [PadEvent(cap.EV_KEY, 3, 1, "raw"),
+                                              PadEvent(cap.EV_KEY, 3, 0, "raw"), GONE]})
+    events = asyncio.run(_collect(cap.events(session), 2))
+    assert [(e["binding"], e["pressed"]) for e in events] == [("b3", True), ("b3", False)]
+
+
+def test_the_pad_layer_is_not_captured(monkeypatch):
+    """The game-controller view is SDL's mapping, the thing being made; only
+    the raw indices are what a mapping line may contain."""
+    session = _session(monkeypatch, {"sdl0": [PadEvent(cap.EV_KEY, 0x13C, 1, "pad"), GONE]})
+
+    async def scenario():
+        stream = cap.events(session)
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(anext(stream), timeout=2)
+
+    asyncio.run(scenario())
+
+
+def test_a_trigger_is_captured_from_its_resting_minimum(monkeypatch):
+    session = _session(monkeypatch, {"sdl0": [PadEvent(cap.EV_ABS, 2, 32767, "raw"),
+                                              PadEvent(cap.EV_ABS, 2, -32768, "raw"), GONE]})
+    events = asyncio.run(_collect(cap.events(session), 2))
+    assert events[0]["binding"] == "a2" and events[0]["signed"] == "+a2"
+    assert events[1]["pressed"] is False
+
+
+def test_the_stream_ends_when_the_pad_disappears(monkeypatch):
+    session = _session(monkeypatch, {"sdl0": [GONE]})
 
     async def scenario():
         stream = cap.events(session)
         try:
             with pytest.raises(StopAsyncIteration):
-                # The timeout is this test's deadlock detector, not a limit the
-                # code has: before the fix nothing here ever completed.
+                # The timeout is this test's deadlock detector, not a limit the code has.
                 await asyncio.wait_for(anext(stream), timeout=2)
         finally:
             await stream.aclose()
@@ -474,46 +383,10 @@ def test_the_stream_ends_when_the_last_node_disappears(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_one_node_going_does_not_end_a_stream_that_still_has_another(monkeypatch):
-    """A DualShock 4 is three nodes. Losing the motion one is not losing the pad."""
-    session = _session(monkeypatch, "/fake/event0", "/fake/event1")
-    reads: list[str] = []
-
-    class OneAlive(_Unplugged):
-        async def async_read_loop(self):
-            if self.path == "/fake/event0":
-                raise OSError("No such device")
-            reads.append(self.path)
-            await asyncio.sleep(3600)      # a pad nobody is touching
-            yield  # pragma: no cover
-
-    monkeypatch.setitem(sys.modules, "evdev",
-                        types.SimpleNamespace(InputDevice=OneAlive))
-
-    async def scenario():
-        stream = cap.events(session)
-        try:
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(anext(stream), timeout=0.2)
-        finally:
-            await stream.aclose()
-
-    asyncio.run(scenario())
-    assert reads == ["/fake/event1"], "the surviving node was not being read"
-
-
 def test_an_expired_session_ends_its_stream_without_a_press(monkeypatch):
     """`current()` forgets a session after SESSION_TTL, and a stream still
     reading a pad for a session that no longer exists answers to nobody."""
-    session = _session(monkeypatch, "/fake/event0", age=cap.SESSION_TTL + 1)
-
-    class Silent(_Unplugged):
-        async def async_read_loop(self):
-            await asyncio.sleep(3600)
-            yield  # pragma: no cover
-
-    monkeypatch.setitem(sys.modules, "evdev",
-                        types.SimpleNamespace(InputDevice=Silent))
+    session = _session(monkeypatch, {"sdl0": []}, age=cap.SESSION_TTL + 1)
 
     async def scenario():
         stream = cap.events(session)

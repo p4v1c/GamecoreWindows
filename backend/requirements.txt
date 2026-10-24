@@ -3,13 +3,25 @@ uvicorn[standard]>=0.30.0
 aiosqlite>=0.20.0
 httpx>=0.27.0
 python-multipart>=0.0.9
-# Linux only: imported lazily by code the Windows port replaces later
-# (evdev: step 5, Xlib: steps 3 and 4 — docs/dev-log/windows-port.md).
-evdev>=1.6.1; sys_platform == "linux"
-python-xlib>=0.33; sys_platform == "linux"
 # The platform layer, backend/services/platform/.
 pywin32>=306; sys_platform == "win32"
 psutil>=5.9.0; sys_platform == "win32"
+# Core Audio (outputs, volume, the default output): platform/audio.py.
+pycaw>=20240316; sys_platform == "win32"
+# Pads, battery, capture: SDL2 and its DLL (platform/gamepads.py).
+pysdl2>=0.9.16; sys_platform == "win32"
+pysdl2-dll>=2.30.0; sys_platform == "win32"
+# Wi-Fi, radios and Bluetooth through WinRT (platform/wifi.py, radios.py,
+# bluetooth.py): language-independent, where netsh output is translated.
+winrt-runtime>=3.0.0; sys_platform == "win32"
+winrt-Windows.Foundation>=3.0.0; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=3.0.0; sys_platform == "win32"
+winrt-Windows.Devices.WiFi>=3.0.0; sys_platform == "win32"
+winrt-Windows.Devices.Radios>=3.0.0; sys_platform == "win32"
+winrt-Windows.Devices.Bluetooth>=3.0.0; sys_platform == "win32"
+winrt-Windows.Devices.Enumeration>=3.0.0; sys_platform == "win32"
+winrt-Windows.Networking.Connectivity>=3.0.0; sys_platform == "win32"
+winrt-Windows.Security.Credentials>=3.0.0; sys_platform == "win32"
 argon2-cffi>=23.1.0
 # Ed25519 verification for the catalogue OTA channel. Verify-only on a box:
 # no private key ever reaches one. Without it the channel refuses every bundle

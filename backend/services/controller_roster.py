@@ -26,7 +26,7 @@ _SDL_CONTROLS = {
     "leftx": "ls", "rightx": "rs",
 }
 
-# Linux input bus types, as evdev reports them.
+# Bus types, as an SDL GUID encodes them (`platform/gamepads.py` `bus_of`).
 _BUS = {0x03: "USB", 0x05: "Bluetooth"}
 
 
