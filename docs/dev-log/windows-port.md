@@ -15,8 +15,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 3. Process / session management (launch, suspend, resume, kill) | merged | #4 |
 | 4. Electron shell + frontend fullscreen, 5 themes, boot animation and sounds; the bezel overlay leaves | merged | #5 |
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | merged | #6 |
-| 6. Rest mode (sleep, wake by pad, splash after wake) | in review | #7 |
-| 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | — | — |
+| 6. Rest mode (sleep, wake by pad, splash after wake) | merged | #7 |
+| 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | in review | #8 |
 | 8. OTA update + rollback, release workflow | — | — |
 | 9. Addons repo (`p4v1c/gamecore-addons-windows`) | — | — |
 | 10. Data import script, README and website | — | — |
@@ -61,6 +61,16 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D34 | Rest mode sleeps by the PC's model (`platform/sleep.py`): **S3** = `SetSuspendState`; **Modern Standby** = every game closed and the screen off, the PC left running, and the next pad press (any, at once) is the wake | measured on this Modern Standby PC: `SetSuspendState` hibernated it (S4, about 30 s to wake, and a pad cannot wake S4), and no call enters Modern Standby itself |
 | D35 | Every sleep's sweep runs inside Windows' suspend event: its power thread is held up to 1.8 s while the jobs are terminated (0.8 s, then 0.3 s) | Windows sleeps about 2 s after the event, answered or not; there is no delay lock like logind's. Terminating a job is immediate, so the sweep fits |
 | D36 | Wake permission: the Bluetooth radios, the Bluetooth pads on the roster and the wired pads are allowed to wake the PC (WMI `MSPower_DeviceWakeEnable`, elevated); nothing is disarmed | on Windows a Bluetooth mouse wakes through the same radio as the pads, so it cannot be told apart at that level; disarming USB keyboards and mice would take away wake sources the owner may rely on |
+| D38 | Python comes from CPython's **NuGet package** (3.12.10, SHA-512 pinned) into `<code>\python`, with a venv in `<code>\.venv` (refines D3) | the embeddable zip has no `venv` and no `pip`; the shell and the session expect a venv. 3.12.10 is the last 3.12 with a binary package |
+| D39 | One supervisor, `install/bin/gamecore-session` (stdlib Python, `pythonw.exe`), run by the `\GameCore\Session` logon task: backend, then the shell at once (it waits for `/api/ready` itself); restart 5 s after a crash, 60 s after five in two minutes; a clean shell exit is Desktop mode and is not undone; the `GameCore` shortcut runs it again unelevated and it only signals the running copy | the Linux units' `Restart=on-failure`, without a failed state nobody can reset on a console. The signal crosses integrity levels: the mutex and the event carry a descriptor for the interactive user (medium label), or the shortcut would start a second backend |
+| D40 | The backend gets a console that is never shown (`CREATE_NO_WINDOW` from the session) instead of a flag on every subprocess call | its console children (powercfg, wevtutil, tasklist, the SDL probes) inherit the hidden console; measured: a child of a hidden process has a console and no window |
+| D41 | Desktop mode tells the backend (`POST /api/standby/desktop`): Windows' idle timers go back to Windows and the standby watcher stands down until the shell starts again | the watcher re-claimed the timers every minute, so a desktop left alone never turned its screen off |
+| D42 | Explorer stays the console user's shell; GameCore's kiosk covers it | replacing Winlogon `Shell` boots without Explorer, but an `explorer.exe` started later may then open a folder window, not the desktop Desktop mode needs. Untested without a spare PC, so the conservative choice |
+| D43 | The install record is `%ProgramData%\GameCore\install-manifest.json` (first values only); `session.env` beside it, Administrators and SYSTEM only (scraper keys); Caddy's CA in `%ProgramData%\GameCore\caddy`, kept by uninstall; OpenSSH removed only if GameCore installed it | uninstall puts back the PC's own settings, not GameCore's previous run; phones that trust the CA keep working after a reinstall |
+| D44 | Automatic sign-in: the password is typed at the console when the step runs and stored as the LSA secret `DefaultPassword`; an unattended install skips it and says which command to run | never in the registry in clear, never in `install.conf`, never typed by an agent |
+| D45 | Power, in every plan (GameCore switches to Power saver, D30): power button = sleep, wake timers off (AC and DC), no password on wake, USB selective suspend off; Fast Startup off. Read through WMI, written with `powercfg` | the step-6 hand-offs; WMI because `powercfg`'s text is translated |
+| D46 | The data root gets `config`, `emu\covers`, `logs` and the bundled themes (a theme folder that exists and is not empty is the player's); no `systems.json`/`apps.json` | the generated tiles are the Linux packs' (Flatpak launchers); the backend reads a missing file as "no system installed yet" |
+| D47 | Tests of the Linux packs carry `linux_until_port(11)`: not a port step, "rewritten for Windows after the port" | they were filed under step 7 (installer), but the packs are not rewritten by it (owner, 19/10) |
 | D37 | Pads stay on into a sleep (Linux disconnected them first) | no public Windows call drops one device's link (D28); an Xbox pad paging back after the sleep, which woke the Linux box, is untested here |
 
 ## Baseline on Windows (19/10/2026, before any port change)
@@ -209,6 +219,27 @@ passed in the last one; it failed on `origin/main` too at the same moment
 0.5 s while the frontend suites ran alongside, and passed alone and in the
 next full run.
 
+## After step 7 (24/10/2026)
+
+Measured on the Windows 11 PC, Python 3.13, `PYTHONUTF8=1`, Node 22.23.3:
+
+| | Before (main at `77c14fc`) | After |
+|---|---|---|
+| pytest passed | 2 388 | 2 455 |
+| pytest skipped | 237 | 112 |
+| vitest | 755 | 755 |
+| Electron bench | 42 | 44 |
+| `linux_until_port` items ([list](windows-port-linux-tests.md)) | 338 in 42 files | 178 in 31 files (step 7's installer and session items gone with their code; the packs' 142 under 11) |
+
+New: `test_install_common.py`, `test_install_system_steps.py`,
+`test_install_session_steps.py`, `test_install_entry.py` (the PowerShell
+installer through `powershell_harness.py`), `test_install_media_index.py` and
+`test_gamecore_session.py` (rewritten), `test_standby_desktop.py`. Deleted with
+their code: the session, desktop-trip, session-install, session-migrate,
+GPU, manifest, secrets, read-only-root and sudoers tests of `arch.sh` and the
+X/SDDM scripts. `test_platform_window_control` (known, environmental) failed in
+one full run and passed in the next.
+
 ## Done
 
 - Both originals cloned read-only; the clone's `upstream` remote has its push
@@ -278,10 +309,33 @@ next full run.
   Linux root pieces (sudoers rule, `gamecore-wake-setup`, its unit and udev
   rule, the logind drop-in) left with their tests.
 
+- Step 7: `install/install.ps1` (self-elevating, `-DryRun`, `-Only`,
+  `-Unattended` with `install.conf`), `install/uninstall.ps1`, 13 steps in
+  `install/steps/*.ps1` ([11](../architecture/11-install-script-seams.md)):
+  code root, Python, data root, `session.env`, web password, Caddy service,
+  firewall, OpenSSH, power, Wi-Fi location (24H2), automatic sign-in, the
+  logon task and the `GameCore` shortcut, the offline metadata index.
+  `install/bin/gamecore-session` supervises the backend and the shell. Desktop
+  mode hands Windows its idle timers back. `arch.sh`, `uninstall.sh`, the
+  X/SDDM session scripts and `electron/start-ui.sh` left with their tests.
+  CI lints `install/` with PSScriptAnalyzer.
+
 ## Next
 
-Step 7: services, Caddy, SSH, firewall, installer + uninstaller, autologon
-session. Carry over from step 6: the installer sets the power button to
+Step 8: OTA update + rollback, release workflow. Carry over from step 7: the
+updater stops the session's two processes (the shell with `taskkill /F`, see
+step 4; the backend by its executable path in the code root, as
+`Stop-GcSessionProcess` does) and starts `gamecore-session` again, or lets
+it restart them; `update/linux.sh`, `update/check-session-prerequisites.sh`,
+`install/steps/setup-update-permissions.sh`, `install/bin/gamecore-restart`
+and its unit are the Linux OTA's and still name the session helpers removed at
+step 7. The first real install (owner action below) should come before the
+first OTA.
+
+Previously carried, now done at step 7: power button = sleep, wake timers off,
+no password on wake, the backend elevated, the shell with `GAMECORE_MANAGED=1`,
+hidden consoles for subprocesses, Desktop mode's idle timers, Wi-Fi location
+access on 24H2, `electron/start-ui.sh` removed. Carry over from step 6: the installer sets the power button to
 "sleep" (Rest mode's sweep runs on any sleep), turns Windows' wake timers off
 on AC (Windows Update maintenance would wake the box at night), asks no
 password on wake for the console user (`powercfg /SETACVALUEINDEX … CONSOLELOCK 0`),
@@ -297,6 +351,24 @@ logon task starts the interface with `GAMECORE_MANAGED=1`; the updater (step
 leaves with step 7.
 
 ## Open questions for the owner
+
+- Step 7, conservative choices made: D42 (Explorer stays the shell: should the
+  console account boot without it?), D44 (automatic sign-in asks the password
+  at the PC; with a Microsoft account, `USER_NAME` may have to be the account's
+  e-mail, untested), D46 (no tiles seeded until there are Windows packs).
+- Step 7, not done (say if wanted, and when): Windows Update active hours /
+  restart deferral, the Xbox Game Bar on the Guide button, notifications and
+  Focus Assist while GameCore is in front, the lock-screen policy (Home ignores
+  it), the graphical installer (the Linux `install/installer-gui` is still in
+  the tree, `gen-catalog.py` writes its catalogue), the CLIs `gamecore-theme`
+  (and `gamecore-emu` with the packs, `gamecore-addon` at step 9), and the
+  Linux `scripts/check-install.sh` / `boot-timeline.sh`. The README's user
+  manual still describes the Linux box (step 10).
+- Step 7, owner action: the installer has only run as a dry run. A real run on
+  a PC that never had GameCore (or this one, knowing it changes its power plan,
+  sign-in, firewall and tasks), from an elevated or normal PowerShell in the
+  checkout: `.\install\install.ps1 -DryRun`, then `.\install\install.ps1`, a
+  restart, then `.\install\uninstall.ps1` to check the way back.
 
 - Step 6, conservative choices made: D34 (a Modern Standby box "sleeps" with
   the screen off and the PC running, since `SetSuspendState` hibernates it;
@@ -335,6 +407,9 @@ leaves with step 7.
 
 | What | When | Result |
 |---|---|---|
+| Step 7: `install.ps1 -DryRun` on this PC, not elevated: every step planned (38 changes: code root, Python, data root, session.env, Caddy, firewall, OpenSSH, power values read through WMI for both plans, Fast Startup, automatic sign-in, the logon task), nothing written (`%ProgramData%\GameCore` still absent); `uninstall.ps1 -DryRun` without a record refuses | 24/10/2026 | green |
+| Step 7: a child started with `CREATE_NO_WINDOW` has a console and no window (`test_gamecore_session.py`); two `SingleInstance` copies find each other and the event wakes the first | 24/10/2026 | green |
+| Step 7, not tested: a real install, uninstall, the logon task at a real sign-in, Caddy as a service, OpenSSH, automatic sign-in, the shortcut from an unelevated desktop to an elevated session, 24H2 location access (this PC is 23H2) | — | not run (owner action) |
 | Step 6: this PC's sleep model read (`modern_standby`: no S3, `AoAc`, hibernation file present); a power-event registration started, reported the console display state at once, stopped | 24/10/2026 | green |
 | Step 6: Rest mode's Modern Standby sleep (`sleep.suspend()` = screen off) and `power.screen_on()` 4 s later: `display_on` received, `classify` read the sequence as a sleep then a wake. The screen was already off by Windows' timer when the check began, so the `display_off` came from the registration | 24/10/2026 | green |
 | Step 6: `SetSuspendState` on this Modern Standby PC with a 45 s wake timer (on AC): `display_off`, `SUSPEND` at 0.5 s, `RESUME` at 81.7 s; the System log says S4 (hibernation), woken by `python.exe` (the timer), type 6; `last_wake()` read it | 24/10/2026 | green, and why D34 avoids it |
