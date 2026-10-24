@@ -175,8 +175,22 @@ def test_launches_reopen_if_no_wake_is_ever_reported(box, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_the_suspend_command_is_the_one_sudoers_grants():
-    assert rest_mode.SUSPEND_CMD == ("sudo", "-n", "systemctl", "suspend")
+def test_the_sleep_goes_through_the_platform_layer_off_the_event_loop(monkeypatch):
+    """An S3 sleep returns only after the wake: the loop must stay free meanwhile."""
+    import threading
+    seen = {}
+
+    def suspend():
+        seen["thread"] = threading.current_thread() is not threading.main_thread()
+        return False, "refused by policy"
+
+    monkeypatch.setattr(rest_mode.sleep, "suspend", suspend)
+    assert asyncio.run(rest_mode._suspend()) == (False, "refused by policy")
+    assert seen == {"thread": True}
+
+
+def test_the_refusal_says_what_the_player_can_do():
+    assert "Turn it off" in rest_mode.REFUSED and "Update GameCore" not in rest_mode.REFUSED
 
 
 def test_the_router_rests_and_reports_wakes(monkeypatch):

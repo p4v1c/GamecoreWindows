@@ -16,6 +16,7 @@ import time
 from . import launch
 from .errors import ServiceError
 from .game_session import Session
+from .platform import sleep
 from .process_manager import process_manager
 
 log = logging.getLogger(__name__)
@@ -28,19 +29,13 @@ EXIT_WAIT_SECS = 8.0
 #: The grace after the forced kill, before sleeping anyway.
 FORCE_WAIT_SECS = 2.0
 POLL_SECS = 0.1
-#: Granted by /etc/sudoers.d/gamecore-rest (install/steps/setup-rest-mode.sh).
-SUSPEND_CMD = ("sudo", "-n", "systemctl", "suspend")
-#: systemctl waits for the suspend job, which ends after the wake; the loop's
-#: clock stops while asleep, so this only bounds the awake part.
-SUSPEND_TIMEOUT_SECS = 60.0
-#: Reopens launches if no wake is ever reported (suspend accepted but skipped).
-#: The event loop clock stops while the box sleeps, so this runs after a wake.
+#: Reopens launches if no wake is ever reported (sleep accepted but skipped,
+#: or a Modern Standby PC that kept running with its screen off).
 REOPEN_AFTER_SECS = 60.0
 
 GATE_REASON = "The box is going to sleep."
-#: Shown in the menu row. The usual cause is a box whose sudoers rule has not
-#: been installed yet (an update that could not run its migration).
-REFUSED = "Couldn’t sleep. Update GameCore, then try again."
+#: Shown in the menu row: Windows refused (no sleep state, sleep disabled by policy).
+REFUSED = "This PC can’t sleep right now. Turn it off instead."
 
 _resting = False
 _reopen_task: asyncio.Task | None = None
@@ -116,14 +111,9 @@ async def close_everything(exit_wait: float | None = None,
 
 
 async def _suspend() -> tuple[bool, str]:
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *SUSPEND_CMD, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT)
-        out, _ = await asyncio.wait_for(proc.communicate(), SUSPEND_TIMEOUT_SECS)
-    except (OSError, asyncio.TimeoutError) as e:
-        return False, str(e) or type(e).__name__
-    return proc.returncode == 0, (out or b"").decode(errors="replace").strip()
+    # In a thread: an S3 sleep returns only after the wake, and the loop must
+    # stay free for the suspend event (services/resume.py).
+    return await asyncio.to_thread(sleep.suspend)
 
 
 def woke() -> None:

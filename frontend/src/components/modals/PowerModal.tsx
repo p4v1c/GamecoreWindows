@@ -120,9 +120,9 @@ export default function PowerModal({ onClose, view }: Props) {
     }
     if (id === 'rest') {
       // The backend owns the whole sequence: close, verify, suspend. A refusal
-      // (no sudoers rule yet) gives the menu back instead of waiting it out.
+      // (Windows refused to sleep) gives the menu back instead of waiting it out.
       setRestError(null)
-      // Black now, not when logind announces the sleep: the games close behind
+      // Black now, not when Windows announces the sleep: the games close behind
       // it, and the TV never sees the menu again before the wake.
       useStore.getState().setAsleep(true)
       api.power.rest().catch((e: Error) => {

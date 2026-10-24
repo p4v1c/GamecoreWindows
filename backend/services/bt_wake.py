@@ -1,164 +1,119 @@
-"""Bluetooth and sleep: pads wake the box, are turned off before it sleeps,
-and nothing else wakes it.
+"""Pads wake the box: the devices a pad wakes it through are allowed to.
 
-BlueZ only arms a device for wake when its `WakeAllowed` property is true, and
-on the reference box it was false for the pad until set by hand. Any user may
-set it over the system bus (the same policy that lets `bluetoothctl trust`
-work unprivileged), so this lives in the backend, next to the pad monitor that
-sees new pads arrive. The adapter's own USB wakeup is root's job:
-`install/bin/gamecore-wake-setup`.
+Windows decides per device whether it may wake the PC (Device Manager's
+"Allow this device to wake the computer", `platform/device_wake.py`). On the
+reference box it was off for the Bluetooth radio, and a radio that may not
+wake the PC makes every Bluetooth pad's home button do nothing. Writing it
+needs an elevated process, which the backend is (dev-log D8), so this lives
+in the backend next to the pad monitor that sees new pads arrive.
 
-Which devices: paired ones BlueZ draws as a gamepad (`Icon` input-gaming), or
-whose address is a pad on GameCore's own roster. Keyboards and mice get
-`WakeAllowed` false: BlueZ allows it by default for HID, and a moved mouse
-woke the box.
+Armed, when Windows lists them as able to wake:
+- every Bluetooth radio (PnP class `Bluetooth`, on USB or PCI): pads page
+  through it;
+- a Bluetooth pad's own device, by the address the roster keys it by (D33);
+- a wired pad's USB device, by the vendor:product SDL reports.
 
-Before a sleep, connected pads are disconnected over Device1.Disconnect, which
-ends the link with "remote user terminated" (0x13): the pad turns itself off.
-Left to the kernel, the link ends with "power off" (0x15) as the box suspends,
-and an Xbox pad answers that by paging straight back, which wakes the box.
+Nothing is disarmed: keyboards and mice keep what Windows gave them (dev-log
+D36). Turning pads off before a sleep has no Windows counterpart (D28: no
+public call drops one device's link), so `turn_off_pads()` turns off nothing.
+A Modern Standby PC wakes on pad input by itself; these settings matter for S3.
 """
 import asyncio
-import json
 import logging
+import re
 
 from . import gamepad_monitor
 from .controller_registry import normalize_mac
+from .platform import device_wake
 
 log = logging.getLogger(__name__)
 
-BUSCTL_SECS = 5.0
-GAMEPAD_ICON = "input-gaming"
-#: Never armed, even if some roster entry claimed the address.
-NOT_PADS = frozenset({"input-keyboard", "input-mouse", "input-tablet"})
 #: How often the roster is checked for a pad not seen before.
 ROSTER_POLL_SECS = 5.0
-#: How soon a pass that could not reach BlueZ (not started yet) is retried.
+#: How soon a pass that could not read the wake settings is retried.
 RETRY_SECS = 30.0
+BUS_USB = 0x03
 
-_DEVICE_IFACE = "org.bluez.Device1"
+_RADIO_BUSES = ("USB\\", "PCI\\")
+_BT_ENUMERATORS = ("BTHENUM\\", "BTHLE\\")
+# The device address ends a Bluetooth instance id: "...&0&401B5FB9EA8D_C00000000".
+_BT_ADDRESS = re.compile(r"&([0-9A-F]{12})(?:_[0-9A-F]+)?$", re.IGNORECASE)
+# A whole USB device, not one of its interfaces (&MI_xx).
+_USB_DEVICE = re.compile(r"^USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})\\", re.IGNORECASE)
 
-
-def _value(props: dict, name: str):
-    entry = props.get(name)
-    return entry.get("data") if isinstance(entry, dict) else None
-
-
-def _paired(objects: dict):
-    """(path, Device1 properties) of every paired device."""
-    for path, ifaces in objects.items():
-        props = ifaces.get(_DEVICE_IFACE) if isinstance(ifaces, dict) else None
-        if isinstance(props, dict) and _value(props, "Paired") is True:
-            yield path, props
+_told_no_turn_off = False
 
 
-def _is_pad(props: dict, roster_macs: set[str]) -> bool:
-    icon = _value(props, "Icon") or ""
-    mac = normalize_mac(_value(props, "Address") or "")
-    return icon not in NOT_PADS and (icon == GAMEPAD_ICON or mac in roster_macs)
+def _bt_address(instance: str) -> str:
+    match = _BT_ADDRESS.search(instance)
+    if not match:
+        return ""
+    raw = match[1].lower()
+    return normalize_mac(":".join(raw[i:i + 2] for i in range(0, 12, 2)))
 
 
-def pads_to_arm(objects: dict, roster_macs: set[str]) -> list[str]:
-    """Object paths of paired pads whose WakeAllowed is false.
+def _is_target(device: dict, pad_macs: set[str], wired_ids: set[str]) -> bool:
+    instance = device["instance"].upper()
+    if device["pnp_class"] == "Bluetooth" and instance.startswith(_RADIO_BUSES):
+        return True
+    if instance.startswith(_BT_ENUMERATORS):
+        return _bt_address(instance) in pad_macs
+    usb = _USB_DEVICE.match(instance)
+    return bool(usb) and f"{usb[1].lower()}:{usb[2].lower()}" in wired_ids
 
-    `objects` is the `data[0]` of busctl's JSON GetManagedObjects reply. A pad
-    without the property cannot wake anything and is left alone.
+
+def devices_to_arm(devices: list[dict], pad_macs: set[str], wired_ids: set[str]) -> list[str]:
+    """WMI names of the radios and pads still refused wake. Pure.
+
+    `devices` comes from `device_wake.wake_devices()`; `pad_macs` are the
+    Bluetooth pads' addresses, `wired_ids` the USB pads' `vid:pid`.
     """
-    return sorted(p for p, props in _paired(objects)
-                  if _is_pad(props, roster_macs) and _value(props, "WakeAllowed") is False)
-
-
-def others_to_disarm(objects: dict) -> list[str]:
-    """Paired keyboards and mice (NOT_PADS) still allowed to wake the box."""
-    return sorted(p for p, props in _paired(objects)
-                  if (_value(props, "Icon") or "") in NOT_PADS
-                  and _value(props, "WakeAllowed") is True)
-
-
-def pads_to_turn_off(objects: dict, roster_macs: set[str]) -> list[str]:
-    """Paired pads connected right now. Audio and input devices that are not pads stay."""
-    return sorted(p for p, props in _paired(objects)
-                  if _is_pad(props, roster_macs) and _value(props, "Connected") is True)
+    return sorted(d["wmi_name"] for d in devices
+                  if not d["enabled"] and _is_target(d, pad_macs, wired_ids))
 
 
 def roster_macs() -> set[str]:
-    """MACs of the pads the monitor sees; other keys are device paths."""
+    """Addresses of the pads the monitor sees; other keys are SDL instances."""
     return {m for m in (normalize_mac(k) for k in gamepad_monitor.roster()) if m}
 
 
-async def _busctl(*args: str) -> tuple[int, str]:
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "busctl", "--system", *args, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT)
-        out, _ = await asyncio.wait_for(proc.communicate(), BUSCTL_SECS)
-    except (OSError, asyncio.TimeoutError) as e:
-        return 1, str(e) or type(e).__name__
-    return proc.returncode, (out or b"").decode(errors="replace")
-
-
-async def _devices() -> dict | None:
-    """BlueZ's managed objects, or None when it could not be asked."""
-    code, out = await _busctl("--json=short", "call", "org.bluez", "/",
-                              "org.freedesktop.DBus.ObjectManager", "GetManagedObjects")
-    if code != 0:
-        log.debug("bt_wake: BlueZ did not answer: %s", out.strip()[:200])
-        return None
-    try:
-        return json.loads(out)["data"][0]
-    except (ValueError, KeyError, IndexError, TypeError):
-        log.warning("bt_wake: unreadable GetManagedObjects reply")
-        return None
-
-
-async def _set_wake(path: str, allowed: bool) -> None:
-    value = "true" if allowed else "false"
-    code, detail = await _busctl("set-property", "org.bluez", path,
-                                 _DEVICE_IFACE, "WakeAllowed", "b", value)
-    name = path.rsplit("/", 1)[-1]
-    if code == 0:
-        log.info("bt_wake: %s %s wake the box", name, "may now" if allowed else "can no longer")
-    else:
-        log.warning("bt_wake: could not set WakeAllowed=%s on %s: %s", value, path, detail.strip())
+def roster_usb_ids() -> set[str]:
+    """`vid:pid` of the wired pads the monitor sees."""
+    return {f"{vendor}:{product}".lower()
+            for vendor, product, _name, bus in gamepad_monitor.roster().values()
+            if bus == BUS_USB}
 
 
 async def set_wake_permissions() -> bool | None:
-    """One pass: arm pads, disarm keyboards and mice.
+    """One pass: allow the radios and the pads to wake the box.
 
-    True when BlueZ answered, None when it could not be asked.
+    True when Windows answered, None when the settings could not be read
+    (not elevated: WMI then lists nothing, which reads as an empty list).
     """
-    objects = await _devices()
-    if objects is None:
+    try:
+        devices = await asyncio.to_thread(device_wake.wake_devices)
+    except OSError as e:
+        log.debug("bt_wake: wake settings unreadable: %s", e)
         return None
-    for path in pads_to_arm(objects, roster_macs()):
-        await _set_wake(path, True)
-    for path in others_to_disarm(objects):
-        await _set_wake(path, False)
+    if not devices:
+        log.debug("bt_wake: Windows lists no device able to wake the box (not elevated?)")
+        return None
+    for name in devices_to_arm(devices, roster_macs(), roster_usb_ids()):
+        try:
+            await asyncio.to_thread(device_wake.set_wake, name, True)
+            log.info("bt_wake: %s may now wake the box", name)
+        except OSError as e:
+            log.warning("bt_wake: could not allow %s to wake the box: %s", name, e)
     return True
 
 
-async def _disconnect(path: str) -> None:
-    # BlueZ answers once the link is down, so awaiting this is awaiting the pad off.
-    code, detail = await _busctl("call", "org.bluez", path, _DEVICE_IFACE, "Disconnect")
-    name = path.rsplit("/", 1)[-1]
-    if code == 0:
-        log.info("bt_wake: %s turned off for the sleep", name)
-    else:
-        log.warning("bt_wake: could not disconnect %s: %s", name, detail.strip()[:200])
-
-
 async def turn_off_pads() -> int:
-    """Disconnect every connected pad, all at once. Returns how many were asked.
-
-    Each call is bounded by BUSCTL_SECS; WakeAllowed is left as it is, so the
-    pad's home button still wakes the box.
-    """
-    objects = await _devices()
-    if objects is None:
-        return 0
-    paths = pads_to_turn_off(objects, roster_macs())
-    await asyncio.gather(*(_disconnect(p) for p in paths))
-    return len(paths)
+    """Turn the connected pads off before a sleep: nothing on Windows (D28). Returns 0."""
+    global _told_no_turn_off
+    if not _told_no_turn_off:
+        _told_no_turn_off = True
+        log.info("bt_wake: Windows cannot drop one device's link; pads stay on into the sleep")
+    return 0
 
 
 async def run() -> None:
@@ -167,10 +122,10 @@ async def run() -> None:
     retry_at = 0.0
     loop = asyncio.get_running_loop()
     while True:
-        macs = roster_macs()
-        new_pad = seen is None or not macs <= seen
+        pads = roster_macs() | roster_usb_ids()
+        new_pad = seen is None or not pads <= seen
         if new_pad or (retry_at and loop.time() >= retry_at):
             answered = await set_wake_permissions()
             retry_at = 0.0 if answered else loop.time() + RETRY_SECS
-            seen = (seen or set()) | macs
+            seen = (seen or set()) | pads
         await asyncio.sleep(ROSTER_POLL_SECS)
