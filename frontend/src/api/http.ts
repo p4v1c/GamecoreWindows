@@ -31,8 +31,8 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
  * A POST whose FastAPI `detail` survives into the thrown Error.
  *
  * `post()` above throws "409 Conflict", which is exactly the generic failure
- * the storage screen must not show: udisks answers "target is busy" — a game
- * is still reading the disk — and that sentence is the only actionable part of
+ * the storage screen must not show: Windows refuses an eject while a game is
+ * still reading the disk, and that sentence is the only actionable part of
  * the response. Losing it turns a fixable state into a dead end.
  */
 export async function postDetailed<T>(path: string, body?: unknown): Promise<T> {

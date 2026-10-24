@@ -1,78 +1,49 @@
 """External disks: what is plugged in, where it lands, and when it goes away.
 
-"I plug my ROM disk in" is one of the first three things anyone expects from a
-console in a living room, and before this there was no trace of it anywhere in
-the repository — no udisks, no mount, nothing. A disk plugged into the box did
-exactly nothing.
-
 Two roots, and the difference between them is the whole design:
 
-  the MOUNT POINT      where udisks decided to put the filesystem. Not ours,
+  the DRIVE LETTER     where Windows put the disk today (`E:\`). Not ours,
                        not stable, and not something to record anywhere.
-  the STABLE LINK      `<DATA>/volumes/<slug>` — a symlink WE own, named after
+  the STABLE LINK      `<DATA>/volumes/<slug>`: a junction WE own, named after
                        the disk's label, pointing at wherever it landed today.
 
-That split exists because udisks mounts at `/run/media/<user>/<label>` and the
-name it picks is not reproducible: plug the same disk in twice without a clean
-unmount in between and the second mount is `LABEL 1`. A `romsPath` recorded
-against a real mount point is therefore a library that works until the day
-someone pulls the cable, and then silently scans nothing. Recorded against the
-stable link it survives, because the link is re-pointed on every arrival.
+Windows hands out the first free letter, so the same disk is `E:` one day and
+`F:` the next (a phone or a card reader plugged first). A `romsPath` recorded
+against a letter is a library that silently scans nothing the day another
+device takes it. Recorded against the stable link it survives, because the
+link is re-pointed on every arrival.
 
 `<DATA>/volumes/my-disk/roms` is a relative path like any other in
 systems.json, so `paths.resolve_data_path` already resolves it and no consumer
-needed changing — that is the P3 split paying for itself.
+needed changing.
 
-**Nothing here mounts anything by itself.** Every operation that touches a real
-device goes through `runner`, a callable that runs an argv and is replaced
-wholesale in the tests. No test in this repository has ever run `mount`,
-`udisksctl` or `mkfs`, and the injectable runner is what keeps that true while
-still exercising the argv that would have been run.
+Windows mounts a disk itself: plugged in and mounted are one state here, and
+`mount()` only says so. Every call that touches a device goes through
+`platform/volumes.py`, which the tests replace: no test ejects a real disk.
 
 **Removal is expected, not exceptional.** A living-room box has its disk pulled
 mid-game sooner or later. Every reader here treats a vanished path as a normal
-state — `iter_rom_files` already returns nothing for a directory that is not
-there — so the failure mode is an empty system, never a traceback that takes
+state, so the failure mode is an empty system, never a traceback that takes
 the grid down.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import paths
+from .platform import filesystem
+from .platform import volumes as platform_volumes
 
 log = logging.getLogger(__name__)
 
-LSBLK_TIMEOUT = 10
-UDISKS_TIMEOUT = 30
-
-# What lsblk is asked for. Named once: the parser below indexes these keys, and
-# a column added to one and not the other is a KeyError on a box with a disk in
-# it and nowhere else.
-LSBLK_COLUMNS = "NAME,PATH,LABEL,UUID,FSTYPE,MOUNTPOINT,RM,HOTPLUG,SIZE,TYPE"
-
-# Filesystems that carry no POSIX ownership or permission bits.
-#
-# This is not a detail. An emulator's saves on exFAT get whatever uid/gid and
-# mode the mount options impose on EVERY file, so a Flatpak sandbox writing
-# there does not behave as it does on ext4: permissions cannot be preserved, a
-# lock file cannot be trusted, and an interrupted write has no atomic rename to
-# fall back on. ROMs are read-only data and are perfectly happy there. Saves are
-# not, and `refuses_saves()` below is what says so out loud rather than letting
-# someone discover it when a save is gone.
-NO_POSIX_PERMISSIONS = frozenset({"exfat", "ntfs", "ntfs3", "vfat", "msdos", "fuseblk"})
-
-# Filesystems worth offering at all. A disk full of swap or LVM metadata is not
-# a ROM disk, and listing it invites someone to try to mount it.
-MOUNTABLE = frozenset({
-    "ext2", "ext3", "ext4", "btrfs", "xfs", "f2fs",
-    "exfat", "ntfs", "ntfs3", "vfat", "msdos", "fuseblk", "iso9660", "udf",
-})
+# Filesystems with no journal: an interrupted write (a cable pulled, a power
+# cut) can leave a save half written, with no way back. ROMs are only ever read
+# and are perfectly happy there; saves belong on NTFS. `describe()` is what
+# says so out loud rather than letting someone find out when a save is gone.
+NO_JOURNAL = frozenset({"exfat", "fat32", "fat", "vfat", "msdos"})
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 
@@ -80,12 +51,12 @@ _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 @dataclass(frozen=True)
 class Volume:
     """One filesystem that could hold a library."""
-    name: str                 # sdb1
-    path: str                 # /dev/sdb1
+    name: str                 # E:
+    path: str                 # E: (the handle the API uses)
     label: str
     uuid: str
     fstype: str
-    mountpoint: str           # "" when not mounted
+    mountpoint: str           # E:\ ("" when Windows gave it no letter)
     removable: bool
     size: str
 
@@ -99,7 +70,8 @@ class Volume:
 
     @property
     def keeps_permissions(self) -> bool:
-        return self.fstype not in NO_POSIX_PERMISSIONS
+        """Safe for saves: a journaled filesystem (the API's historical name)."""
+        return self.fstype not in NO_JOURNAL
 
 
 def slug_for(label: str, uuid: str = "") -> str:
@@ -129,78 +101,10 @@ def slug_for(label: str, uuid: str = "") -> str:
 
 # ── reading what is plugged in ───────────────────────────────────────────────
 
-def _default_runner(argv: list[str], timeout: int) -> tuple[int, str, str]:
+def list_volumes() -> list[Volume]:
+    """Every external disk the PC can see. Never raises."""
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout, r.stderr
-    except (OSError, subprocess.SubprocessError) as e:
-        log.debug("storage: %s — %s", " ".join(argv), e)
-        return 1, "", str(e)
-
-
-Runner = "callable(argv, timeout) -> (rc, stdout, stderr)"
-
-
-def parse_lsblk(payload: str) -> list[Volume]:
-    """Flatten `lsblk -J` into the filesystems that could hold a library.
-
-    Pure, and separated from the call on purpose: this is where every real
-    quirk lives — a partition nested under a disk, a whole-disk filesystem with
-    no partition table at all (common on pre-formatted USB sticks), a `null`
-    where a string was expected. Testing it needs a JSON string, not a disk.
-
-    Only removable/hotplug devices are returned. The internal NVMe holding the
-    system also has a `label` and a `mountpoint`, and offering it in a screen
-    that has an Unmount button would be handing someone a way to unmount their
-    own root filesystem from a sofa.
-    """
-    try:
-        blob = json.loads(payload)
-    except (ValueError, TypeError):
-        log.warning("storage: lsblk output was not JSON")
-        return []
-
-    out: list[Volume] = []
-
-    def walk(node: dict, inherited_removable: bool) -> None:
-        # Removability is a property of the DISK; a partition on a USB stick
-        # reports rm=false itself. Reading it off the partition is why an
-        # external disk's partitions used to look internal.
-        removable = (bool(node.get("rm")) or bool(node.get("hotplug"))
-                     or inherited_removable)
-        fstype = node.get("fstype") or ""
-        if fstype in MOUNTABLE:
-            out.append(Volume(
-                name=node.get("name") or "",
-                path=node.get("path") or f"/dev/{node.get('name') or ''}",
-                label=node.get("label") or "",
-                uuid=node.get("uuid") or "",
-                fstype=fstype,
-                mountpoint=node.get("mountpoint") or "",
-                removable=removable,
-                size=node.get("size") or "",
-            ))
-        for child in node.get("children") or []:
-            walk(child, removable)
-
-    for node in blob.get("blockdevices") or []:
-        walk(node, False)
-    return [v for v in out if v.removable]
-
-
-def list_volumes(runner=None) -> list[Volume]:
-    """Every external filesystem the box can see. Never raises.
-
-    `lsblk` and not /proc/mounts, because the question includes disks that are
-    plugged in and NOT mounted — which is the entire state this module exists
-    to move out of.
-    """
-    run = runner or _default_runner
-    try:
-        rc, stdout, _stderr = run(["lsblk", "-J", "-o", LSBLK_COLUMNS], LSBLK_TIMEOUT)
-        if rc != 0:
-            return []
-        return parse_lsblk(stdout)
+        return [Volume(**row) for row in platform_volumes.list_volumes()]
     except Exception:
         log.exception("storage: could not list volumes")
         return []
@@ -217,13 +121,9 @@ def link_path(volume: Volume) -> Path | None:
 def link_volume(volume: Volume) -> Path | None:
     """Point `<DATA>/volumes/<slug>` at wherever this disk landed today.
 
-    A symlink, and re-pointed on every arrival, because the mount point is not
-    stable and a `romsPath` is. Plug the same disk in twice without a clean
-    unmount and udisks calls the second mount `LABEL 1`; a library recorded
-    against the real path scans nothing from then on, without a word.
-
-    Writable-side only: `<DATA>` belongs to the player and this needs no root,
-    which is what lets it happen on a hotplug event rather than at install.
+    A junction, re-pointed on every arrival, because the drive letter is not
+    stable and a `romsPath` is. A real folder the owner put at that path is
+    left alone: replacing it would hide their files behind the disk.
     """
     if not volume.is_mounted:
         return None
@@ -234,13 +134,15 @@ def link_volume(volume: Volume) -> Path | None:
         return None
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Replaced, never merged into. `symlink_to` on an existing name raises,
-        # and an is_dir() check would follow the old link and answer about the
-        # PREVIOUS disk — which is how the link would end up pointing at a
-        # mount point that has been reused by something else.
-        if target.is_symlink() or target.exists():
+        # Replaced, never merged into. An is_dir() check would follow the old
+        # link and answer about the PREVIOUS disk.
+        if filesystem.is_link(target):
             target.unlink()
-        target.symlink_to(volume.mountpoint)
+        elif target.exists():
+            log.warning("storage: %s is a real folder, not ours; not linking %s",
+                        target, volume.mountpoint)
+            return None
+        filesystem.link_dir(target, Path(volume.mountpoint))
     except OSError:
         log.exception("storage: could not link %s → %s", target, volume.mountpoint)
         return None
@@ -251,14 +153,14 @@ def link_volume(volume: Volume) -> Path | None:
 def unlink_volume(volume: Volume) -> bool:
     """Drop the stable link for a disk that has gone.
 
-    Deliberately leaves a link that is not ours alone: `missing_ok` and a
-    symlink check, never a recursive delete. `<DATA>/volumes/<slug>` is a path
+    Deliberately leaves a folder that is not ours alone: a link check, never a
+    recursive delete. `<DATA>/volumes/<slug>` is a path
     an owner may legitimately have replaced with a real directory, and this
     module removing a directory tree it did not create is the one bug in here
     that would cost someone their ROMs.
     """
     target = link_path(volume)
-    if target is None or not target.is_symlink():
+    if target is None or not filesystem.is_link(target):
         return False
     try:
         target.unlink()
@@ -271,11 +173,10 @@ def unlink_volume(volume: Volume) -> bool:
 def stale_links(live: list[Volume]) -> list[Path]:
     """Links under `<DATA>/volumes` that point nowhere reachable.
 
-    A box is powered off with a disk attached and comes up without it: nothing
+    A PC is powered off with a disk attached and comes up without it: nothing
     generated an arrival or a departure, so the link from the last session is
-    still there pointing at an empty `/run/media/...`. It resolves, it is a
-    directory, and it scans zero games — which reads exactly like a library
-    that lost its contents.
+    still there, pointing at a drive letter that is gone or now belongs to
+    another device.
     """
     keep = {link_path(v) for v in live if v.is_mounted}
     try:
@@ -283,52 +184,31 @@ def stale_links(live: list[Volume]) -> list[Path]:
     except OSError:
         return []
     return [p for p in entries
-            if p.is_symlink() and p not in keep and not p.resolve().is_dir()]
+            if filesystem.is_link(p) and p not in keep and not p.is_dir()]
 
 
 # ── acting on a device ───────────────────────────────────────────────────────
-#
-# Both of these shell out to udisksctl, which does the privileged part over
-# D-Bus as the logged-in user — no sudoers rule, no root in the backend. They
-# are the only two functions in this module that change anything on a device,
-# and neither is ever called by a test: `runner` is replaced, and what is
-# asserted is the argv.
 
-def mount(volume: Volume, runner=None) -> tuple[bool, str]:
-    """Mount a disk that is plugged in but not mounted. (ok, message)."""
+def mount(volume: Volume) -> tuple[bool, str]:
+    """Windows mounts a disk itself: (True, its drive) or why it has none."""
     if volume.is_mounted:
         return True, volume.mountpoint
-    run = runner or _default_runner
-    rc, stdout, stderr = run(
-        ["udisksctl", "mount", "--no-user-interaction", "-b", volume.path],
-        UDISKS_TIMEOUT)
-    if rc != 0:
-        detail = (stderr or stdout or "").strip().splitlines()
-        return False, (detail[-1][:200] if detail else f"udisksctl mount failed ({rc})")
-    return True, stdout.strip()
+    return False, "Windows gave this disk no drive letter. Assign one in Disk Management."
 
 
-def unmount(volume: Volume, runner=None) -> tuple[bool, str]:
-    """Flush and detach, so the cable can be pulled. (ok, message).
+def unmount(volume: Volume) -> tuple[bool, str]:
+    """Safely remove, so the cable can be pulled. (ok, message).
 
     The whole point is the flush. Pulling a disk that has unwritten data is how
     a save is lost, and "it looked finished" is not something a player can
-    check — which is why there is a button for this at all rather than a line
-    of documentation asking them to be careful.
+    check.
     """
     if not volume.is_mounted:
         return True, "not mounted"
-    run = runner or _default_runner
-    rc, stdout, stderr = run(
-        ["udisksctl", "unmount", "--no-user-interaction", "-b", volume.path],
-        UDISKS_TIMEOUT)
-    if rc != 0:
-        detail = (stderr or stdout or "").strip().splitlines()
-        # "target is busy" is the common one and it is actionable: something is
-        # reading the disk, usually a game that is still running.
-        return False, (detail[-1][:200] if detail else f"udisksctl unmount failed ({rc})")
-    unlink_volume(volume)
-    return True, stdout.strip()
+    ok, detail = platform_volumes.eject(volume.path)
+    if ok:
+        unlink_volume(volume)
+    return ok, detail
 
 
 # ── what the UI is told ──────────────────────────────────────────────────────
@@ -354,32 +234,30 @@ def describe(volume: Volume) -> dict:
 
 
 SAVES_WARNING = (
-    "This disk has no POSIX permissions (exFAT/NTFS). ROMs are fine here — "
-    "they are only ever read. Emulator saves are not: every file takes the "
-    "mount's own uid and mode, so a Flatpak emulator cannot preserve "
-    "permissions, cannot rely on a lock file, and has no atomic rename to fall "
-    "back on if a write is interrupted. Keep saves on the internal disk."
+    "This disk is FAT32 or exFAT, which keeps no journal. ROMs are fine here: "
+    "they are only ever read. A save being written when the cable is pulled or "
+    "the power goes can be lost. Keep saves on an NTFS disk."
 )
 
 
-def report(runner=None) -> list[dict]:
-    """Every external disk, mounted or not. Never raises."""
+def report() -> list[dict]:
+    """Every external disk. Never raises."""
     try:
-        return [describe(v) for v in list_volumes(runner)]
+        return [describe(v) for v in list_volumes()]
     except Exception:
         log.exception("storage: report failed")
         return []
 
 
-def find(device: str, runner=None) -> Volume | None:
-    """The volume for a `/dev/...` path, or None.
+def find(device: str) -> Volume | None:
+    """The volume for a device (`E:`), or None; case does not matter.
 
     By device path and not by index: a list position is not a handle, and an
     Unmount button that acted on "the third row" would unmount the wrong disk
     the moment one arrived while the screen was open.
     """
-    for volume in list_volumes(runner):
-        if volume.path == device:
+    for volume in list_volumes():
+        if volume.path.upper() == device.upper():
             return volume
     return None
 

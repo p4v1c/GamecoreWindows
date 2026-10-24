@@ -18,6 +18,7 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `bluetooth.py`  | paired devices, scan, pair, unpair        | `bluetoothctl`                |
 | `display.py`    | display modes, monitor active             | `xrandr`, `kscreen-doctor`    |
 | `power.py`      | screen power, idle timers, power plan     | `xset`, PowerDevil, `cpupower`|
+| `volumes.py`    | external disks, safe removal              | `lsblk`, `udisksctl`          |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """

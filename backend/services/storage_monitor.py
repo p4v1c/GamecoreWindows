@@ -1,7 +1,7 @@
 """Reacting to a disk being plugged in, and to one being pulled out.
 
 `storage.py` answers "what is attached and where did it land". This decides
-what to DO about a change: mount an arrival, re-point its stable link, and tell
+what to DO about a change: re-point an arrival's stable link, and tell
 the frontend — so a disk full of ROMs appears on the grid without anyone
 restarting anything.
 
@@ -12,14 +12,10 @@ the next scan already reads the new disk. There is no cached library to clear,
 and adding a hook for one that does not exist would be a line nobody could ever
 prove still works.
 
-Polled, at STORAGE_POLL seconds. udev would be event-driven and is the obvious
-alternative; it is not used here for one reason worth writing down: reaching
-udev events from the backend means either a netlink socket the process must
-hold open with the right group membership, or a rule in `/etc/udev/rules.d`
-that runs something as root on every device change. Both are a privilege the
-box does not currently need, to save a few seconds on an event that happens
-when a human walks across a room. `lsblk` costs one short-lived subprocess and
-needs nothing.
+Polled, at STORAGE_POLL seconds. `WM_DEVICECHANGE` would be event-driven, but
+it is delivered to a window, and the backend has none: a hidden window and a
+message pump to save a few seconds on an event that happens when a human walks
+across a room. Listing the drive letters costs microseconds.
 
 **Departure is the normal case, not the error case.** A living-room box gets
 its disk pulled mid-game sooner or later, and pulled without warning is the
@@ -37,16 +33,13 @@ from . import storage
 
 log = logging.getLogger(__name__)
 
-# A human plugging a disk in will wait a couple of seconds without noticing.
-# Shorter buys nothing and spends a subprocess; longer reads as "it did not
-# work" and gets the cable pulled and re-inserted, which is the one thing that
-# actually confuses udisks.
+# A human plugging a disk in will wait a couple of seconds without noticing;
+# longer reads as "it did not work" and gets the cable pulled and re-inserted.
 STORAGE_POLL = 3.0
 
 
 def _index(volumes: list[storage.Volume]) -> dict[str, storage.Volume]:
-    """Device path → volume. Keyed on `/dev/...` because that is what survives
-    a mount point changing, which is exactly what this loop is watching for."""
+    """Device (`E:`) → volume."""
     return {v.path: v for v in volumes}
 
 
@@ -59,24 +52,19 @@ async def _announce(ws, event: str, payload: dict) -> None:
         log.exception("storage_monitor: could not broadcast %s", event)
 
 
-async def _on_arrival(volume: storage.Volume, ws, runner=None) -> storage.Volume:
-    """Mount it if it is not mounted, then give it its stable path."""
-    if not volume.is_mounted:
-        ok, detail = await asyncio.to_thread(storage.mount, volume, runner)
-        if not ok:
-            log.warning("storage_monitor: could not mount %s (%s) — %s",
-                        volume.path, volume.label or "no label", detail)
-            await _announce(ws, "storage:failed",
-                            {"device": volume.path, "label": volume.label,
-                             "detail": detail})
-            return volume
-        # Re-read rather than assume: the mount point is udisks's choice, and
-        # guessing it is precisely the mistake the stable link exists to undo.
-        for fresh in await asyncio.to_thread(storage.list_volumes, runner):
-            if fresh.path == volume.path:
-                volume = fresh
-                break
+async def _on_arrival(volume: storage.Volume, ws) -> storage.Volume:
+    """Give an arrived disk its stable path and say so.
 
+    A disk Windows gave no drive letter cannot be linked: it is announced as
+    `storage:failed` with the reason, so the screen can say what to do.
+    """
+    if not volume.is_mounted:
+        _ok, detail = storage.mount(volume)
+        log.warning("storage_monitor: %s (%s) has no drive letter", volume.path,
+                    volume.label or "no label")
+        await _announce(ws, "storage:failed",
+                        {"device": volume.path, "label": volume.label, "detail": detail})
+        return volume
     link = await asyncio.to_thread(storage.link_volume, volume)
     log.info("storage_monitor: %s (%s) mounted at %s",
              volume.path, volume.label or "no label", volume.mountpoint)
@@ -91,7 +79,7 @@ async def _on_departure(volume: storage.Volume, ws) -> None:
 
     The order matters: the running game is checked BEFORE the link is dropped,
     because a player whose disk has just gone mid-session needs to be told what
-    happened more than the box needs its symlink tidy.
+    happened more than the box needs its link tidy.
     """
     for running in _resident_games():
         if not storage.path_is_under(running.get("rom_path", ""), volume.mountpoint):
@@ -159,15 +147,14 @@ def _resident_games() -> list[dict]:
     return resident
 
 
-async def poll_once(was: dict[str, storage.Volume], ws, runner=None
-                    ) -> dict[str, storage.Volume]:
+async def poll_once(was: dict[str, storage.Volume], ws) -> dict[str, storage.Volume]:
     """One comparison pass. Returns the new state.
 
     Split out of `run()` so the whole behaviour is reachable from a test
-    without a sleep loop, a real disk or a real subprocess — `runner` is a
-    double, and what is asserted is the argv and the broadcasts.
+    without a sleep loop or a real disk: `platform/volumes.py` is a double,
+    and what is asserted is the links and the broadcasts.
     """
-    live = _index(await asyncio.to_thread(storage.list_volumes, runner))
+    live = _index(await asyncio.to_thread(storage.list_volumes))
 
     # list() because _on_arrival re-reads the volume after mounting it and the
     # result is written back into `live` — rebinding a value mid-iteration is
@@ -178,7 +165,7 @@ async def poll_once(was: dict[str, storage.Volume], ws, runner=None
         # been mounted. Treating only the first as an arrival is why a disk
         # mounted by hand from a file manager never got its stable link.
         if previous is None or (volume.is_mounted and not previous.is_mounted):
-            live[path] = await _on_arrival(volume, ws, runner)
+            live[path] = await _on_arrival(volume, ws)
 
     for path, volume in was.items():
         gone = path not in live

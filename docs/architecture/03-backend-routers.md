@@ -406,4 +406,7 @@ Every write broadcasts `profiles:changed` `{active}`; a change of active profile
 
 ### `storage.py` — external disks
 
-`GET /storage/volumes`, `POST /storage/mount`, `POST /storage/unmount`.
+`GET /storage/volumes`, `POST /storage/mount`, `POST /storage/unmount`. A device
+is a drive (`E:`, any case). Mount only reports the drive Windows gave the disk;
+unmount is Windows' "Safely remove" and answers 409 with Windows' reason when a
+program still holds a file on the disk.

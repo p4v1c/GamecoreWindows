@@ -286,25 +286,24 @@ whole design:
 
 | | what it is |
 |---|---|
-| the **mount point** | where udisks decided to put the filesystem. Not ours, **not stable**, and not something to record anywhere |
-| the **stable link** | `<DATA>/volumes/<slug>` — a symlink GameCore owns, named after the disk's label, re-pointed at wherever it landed today |
+| the **drive letter** | where Windows put the disk today (`E:\`). Not ours, **not stable**, and not something to record anywhere |
+| the **stable link** | `<DATA>/volumes/<slug>`: a junction GameCore owns, named after the disk's label (its serial when it has none), re-pointed at wherever it landed today |
 
-The split exists because udisks mounts at `/run/media/<user>/<label>` and the
-name it picks is not reproducible: plug the same disk in twice without a clean
-unmount in between and the second mount is `LABEL 1`. A `romsPath` recorded
-against a real mount point is a library that works until someone pulls the
-cable, and then silently scans nothing.
+The split exists because Windows hands out the first free letter: the same disk
+is `E:` one day and `F:` the next, after a phone or a card reader was plugged
+first. A `romsPath` recorded against a letter is a library that silently scans
+nothing the day another device takes it.
 
 `<DATA>/volumes/my-disk/nintendo` is a relative path like any other in
 `systems.json`, so `resolve_data_path` already resolves it and **no consumer
-needed changing** — that is the P3 split paying for itself.
+needed changing**.
 
-`storage_monitor` polls every 3 s: it mounts an arrival, re-points its link, and
-broadcasts `storage:mounted` / `storage:removed` / `storage:failed`. Polled and
-not udev-driven on purpose — reaching udev events means either a netlink socket
-held open with the right group membership or a rule running something as root on
-every device change, and that is a privilege the box does not otherwise need to
-save a few seconds on an event that happens when a human walks across a room.
+`storage_monitor` polls every 3 s: it links an arrival, re-points its link, and
+broadcasts `storage:mounted` / `storage:removed` / `storage:failed` (a disk
+Windows gave no drive letter). Polled rather than driven by `WM_DEVICECHANGE`,
+which is delivered to a window the backend does not have; listing the drive
+letters costs microseconds. A real folder at `<DATA>/volumes/<slug>` is the
+owner's and is never replaced or removed.
 
 Nothing is cache-invalidated on the way, and that is not an omission: games are
 scanned per request from `romsPath`, so the moment the link is re-pointed the
@@ -312,33 +311,27 @@ next scan already reads the new disk.
 
 ### A disk pulled out mid-game
 
-Expected, not exceptional — a living-room box meets it sooner or later, and
+Expected, not exceptional: a living-room box meets it sooner or later, and
 pulled without warning is the default. `storage:lost` names the game and says
 what was lost. It cannot be repaired from here: the emulator holds an open
-descriptor on a device that is gone, so it fails on its next read and its next
-save does not land. Saying so beats a freeze with no explanation, which is what
-this looked like before.
+handle on a device that is gone, so it fails on its next read and its next save
+does not land. Saying so beats a freeze with no explanation.
 
-Every reader treats a vanished path as a normal state — `iter_rom_files`
-already returns nothing for a directory that is not there — so hot removal
-costs an empty system, never a traceback that takes the grid down.
+Every reader treats a vanished path as a normal state (`iter_rom_files`
+returns nothing for a directory that is not there), so hot removal costs an
+empty system, never a traceback that takes the grid down.
 
-### ⚠ exFAT and NTFS carry no POSIX permissions
+### FAT32 and exFAT keep no journal
 
-**ROMs are fine on them. Emulator saves are not.**
+**ROMs are fine on them. Emulator saves are not.** A save being written when
+the cable is pulled or the power goes can be lost: there is no journal to
+replay. `storage.NO_JOURNAL` lists them and `describe()` attaches
+`saves_warning` (and `keeps_permissions: false`, the field's historical name),
+which the storage screen shows in amber, never red. A disk formatted the way
+every disk in a shop is formatted must not read as broken; it must read as "put
+your ROMs here, keep your saves on an NTFS disk".
 
-Every file on exFAT takes the uid, gid and mode the mount options impose, for
-the whole filesystem. A Flatpak emulator writing a save there does not behave as
-it does on ext4: permissions cannot be preserved, a lock file cannot be trusted,
-and an interrupted write has no atomic rename to fall back on.
-
-`storage.NO_POSIX_PERMISSIONS` lists them and `describe()` attaches
-`saves_warning`, which the storage screen shows in amber — never red. A disk
-formatted the way every disk in a shop is formatted must not read as broken;
-it must read as "put your ROMs here, keep your saves on the internal disk".
-
-GameCore does **not** currently relocate saves onto an external disk, and this
-is why. See also the open decision on Flatpak saves below.
+GameCore does **not** currently relocate saves onto an external disk.
 
 ## What lives in `config/`
 

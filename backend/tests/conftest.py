@@ -100,6 +100,7 @@ import pytest as _pytest  # noqa: E402
 from backend.tests.posix_boundary import posix_boundary  # noqa: E402,F401  (fixture)
 from backend.tests.fake_jobs import spawner  # noqa: E402,F401  (fixture)
 from backend.tests.fake_display import fake_screen  # noqa: E402,F401  (fixture)
+from backend.tests.fake_volumes import disks  # noqa: E402,F401  (fixture)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -153,15 +154,18 @@ def _no_real_commands_from_the_suite():
 # ── This PC is not a test bench: no platform call that changes it ────────────
 #
 # The Windows calls that change the machine (display mode, screen power, power
-# plan and idle timers) are replaced for the whole session; a test that needs
-# one fakes it on top (`fake_display.fake_screen`). Reads stay real, except the
-# idle timers: a claim would otherwise read the real plan and try to write it.
+# plan and idle timers, disk eject) are replaced for the whole session; a test
+# that needs one fakes it on top (`fake_display.fake_screen`,
+# `fake_volumes.disks`). Reads stay real, except the idle timers (a claim would
+# read the real plan, then write it) and the disks (the lifespan's storage
+# monitor would link the developer's USB drives into the test root).
 
 
 @_pytest.fixture(autouse=True, scope="session")
 def _no_machine_changes_from_the_suite():
     from backend.services.platform import display as platform_display
     from backend.services.platform import power as platform_power
+    from backend.services.platform import volumes as platform_volumes
 
     def no_screen(*args, **kwargs):
         return False, "no screen under test"
@@ -178,4 +182,6 @@ def _no_machine_changes_from_the_suite():
             mp.setattr(platform_power, name, nothing)
         for name in ("idle_timeouts", "set_idle_timeouts", "active_scheme", "set_active_scheme"):
             mp.setattr(platform_power, name, no_plan)
+        mp.setattr(platform_volumes, "list_volumes", lambda: [])
+        mp.setattr(platform_volumes, "eject", lambda letter: (False, "no disk under test"))
         yield

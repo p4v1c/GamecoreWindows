@@ -451,8 +451,8 @@ export const api = {
    *
    * `unmount` is the one that matters: pulling a disk with unwritten data is
    * how a save is lost, and nobody can tell by looking whether a write has
-   * finished. It flushes and detaches, and it reports udisks's own words when
-   * it cannot — "target is busy" means a game is still reading the disk.
+   * finished. It is Windows' "Safely remove", and it reports Windows' reason
+   * when it cannot: "busy" means a game is still reading the disk.
    */
   storage: {
     list: () => get<{ ok: boolean; volumes: StorageVolume[] }>('/storage/volumes'),

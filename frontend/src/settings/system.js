@@ -173,8 +173,8 @@ export const createSystemPage = (sdk, Rows) => {
       setBusy(device); setMsg('')
       sdk.api.storage.unmount(device)
         .then(() => { setMsg(`Safe to remove ${v.label || v.name}.`); loadVolumes() })
-        // udisks says "target is busy" when a game is still reading the disk,
-        // and that sentence is the only actionable part of the response.
+        // Windows says the disk is busy when a game is still reading it, and
+        // that sentence is the only actionable part of the response.
         .catch((e) => setMsg(String((e && e.message) || 'Could not unmount that disk.')))
         .finally(() => setBusy(''))
     }

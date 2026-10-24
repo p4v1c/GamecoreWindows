@@ -883,10 +883,12 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `power.py` | `screen_off()`, `screen_on()`, `signal_activity()` | `SC_MONITORPOWER` posted to every top-level window; on adds a zero-length `SendInput` mouse move (what lights a panel Windows turned off) and `signal_activity()`; `SetThreadExecutionState` once, without `ES_CONTINUOUS` | `xset dpms`, `kscreen-doctor --dpms`, `SimulateUserActivity` |
 | | `idle_timeouts()`, `set_idle_timeouts(values)` | the active plan's display and sleep timeouts on AC and battery, in seconds, 0 = never (PowrProf `PowerRead/WriteAC/DCValueIndex`, then the plan re-applied) | PowerDevil's `TurnOffDisplayIdleTimeoutSec`, `xset s` / `xset dpms` |
 | | `active_scheme()`, `set_active_scheme(guid)`, `POWER_SAVER` | the power plan | `cpupower frequency-set -g` |
+| `volumes.py` | `list_volumes()`, `is_external(drive_type, bus)`, `bus_type(letter)`, `human_size(n)` | every drive letter that is removable (`GetDriveTypeW`) or a fixed disk on a USB, SD, MMC or FireWire bus (`IOCTL_STORAGE_QUERY_PROPERTY`), never the system drive; label, serial, filesystem, size | `lsblk` |
+| | `eject(letter)` | "Safely remove": the disk's PnP instance (SetupAPI, matched by `IOCTL_STORAGE_GET_DEVICE_NUMBER`), `CM_Request_Device_EjectW` on its parent; a veto (a program holding a file) answers why | `udisksctl unmount` |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`), `routers/settings/bluetooth.py` (`bluetooth.py`), `display.py` and `display_ready.py` (`display.py`), `standby.py` and `desktop_power.py` (`power.py`), `storage.py` (`volumes.py`, `filesystem.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
@@ -1050,12 +1052,14 @@ pack, because saves are not controller config.
 ### `storage.py` — external disks
 
 "I plug my ROM disk in" is one of the first three things anyone expects from a
-console in a living room, and before this there was no udisks, no mount, nothing
-anywhere in the repository — a disk plugged into the box did exactly nothing.
+console in a living room. `list_volumes()`, `link_volume()` / `unlink_volume()`
+(a junction under `<DATA>/volumes/`), `stale_links()`, `mount()` (Windows mounts
+by itself: it only reports), `unmount()` (`platform/volumes.py` `eject()`),
+`describe()`, `find(device)`. See [7](07-config-and-data.md#external-disks--servicesstoragepy-servicesstorage_monitorpy).
 
 ### `storage_monitor.py` — reacting to a disk arriving or leaving
 
-Mounts an arrival, re-points its stable link, tells the frontend. **Nothing is
+Links an arrival, re-points its stable link, tells the frontend. **Nothing is
 invalidated on the way, and that is not an omission**: a system's games are
 scanned per request from its `romsPath`, and `romsPath` points at the stable link
 rather than at a mount point — so the next scan already reads the new disk. There
