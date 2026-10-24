@@ -45,6 +45,17 @@ async def set_config(cfg: StandbyConfig):
     return {"ok": True, **saved}
 
 
+class DesktopMode(BaseModel):
+    active: bool
+
+
+@router.post("/standby/desktop")
+async def desktop_mode(body: DesktopMode):
+    """The shell left for the Windows desktop, or came back from it."""
+    await standby.set_desktop(body.active)
+    return {"ok": True}
+
+
 @router.post("/standby/exit")
 async def wake():
     await standby.exit_standby()

@@ -227,6 +227,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `_enter(stage)` | stage transition + WS broadcast; `sleep` waits for `ui_dark()` (3 s cap) before the screen goes off |
 | `ui_dark()` | the UI's fade to black is over (`POST /api/standby/dark`) |
 | `exit_standby()` | wake — **unconditional** |
+| `set_desktop(active)` | the shell left for the Windows desktop (`release()`, the watcher stops) or came back (`claim()` when standby is on) |
 | `resume_after_restart()` | called from the lifespan; forces the screen on at startup |
 | `on_input()` | called from `gamepad_monitor`'s read loop on any controller input |
 | `_ensure_timers_owned(enabled)` | re-asserts `desktop_power.claim()` while standby is on, at most once a minute |

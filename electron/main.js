@@ -205,6 +205,8 @@ async function restartBoot() {
   mainWindow.loadFile(path.join(__dirname, 'boot', 'boot.html'))
   const up = await waitForBackend(generation)
   if (!up || generation !== bootGeneration) return
+  // A start is a return from the desktop as often as a boot.
+  announceDesktop(false)
   presentApp()
 }
 
@@ -274,6 +276,17 @@ function backendReady() {
  * The task that starts the interface sets GAMECORE_MANAGED=1. Unset, this is
  * a checkout run by hand, which may start its own backend.
  */
+/**
+ * Tell the backend the player is on the Windows desktop (true) or back (false):
+ * Windows' idle timers decide there, GameCore's standby takes them back on return.
+ */
+function announceDesktop(active) {
+  return fetch(BACKEND_URL + '/api/standby/desktop', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active }), signal: AbortSignal.timeout(1500),
+  }).catch((err) => console.warn('[desktop] the backend was not told:', err.message))
+}
+
 function backendIsManaged() {
   return process.env.GAMECORE_MANAGED === '1'
 }
@@ -389,7 +402,7 @@ require('./power.js').register({ app, ipcMain, exec, powerMonitor,
 // from an accidental close.
 ipcMain.on('system:quit', () => {
   quitting = true
-  leaveToDesktop({ execFile, spawn, quit: () => app.quit() })
+  leaveToDesktop({ execFile, spawn, quit: () => app.quit(), announce: () => announceDesktop(true) })
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -424,6 +437,8 @@ app.whenReady().then(async () => {
   await startBackend()
   const up = await waitForBackend(generation)
   if (!up || generation !== bootGeneration) return
+  // A start is a return from the desktop as often as a boot.
+  announceDesktop(false)
   presentApp()
 })
 

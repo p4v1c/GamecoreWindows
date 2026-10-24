@@ -230,7 +230,9 @@ battery). The TopBar and the controller screen both read it.
 `get_standby()` (state + config), `set_config(cfg)` (`StandbyConfig` model,
 persisted to `config/standby.json`), `wake()` → `standby.exit_standby()`,
 `ui_dark()` (`POST /standby/dark`) → `standby.ui_dark()`: the UI has faded to
-black, the sleep stage may switch the screen off.
+black, the sleep stage may switch the screen off. `desktop_mode(body)`
+(`POST /standby/desktop`, `{active}`) → `standby.set_desktop()`: the shell left
+for the Windows desktop, or came back.
 
 `GET /standby/videos` → `standby_videos.playlist()`: what the CRT standby
 plays. `{videos: [...], stills: [...]}`, each entry

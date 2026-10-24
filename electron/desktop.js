@@ -21,12 +21,19 @@ function explorerRunning(execFile) {
   })
 }
 
-/** Start Explorer if needed, then call `quit` exactly once. */
-function leaveToDesktop({ execFile, spawn, quit, timers = { setTimeout }, log = console.warn }) {
+/**
+ * Tell the backend (`announce`), start Explorer if needed, then call `quit`
+ * exactly once. The deadline covers all of it.
+ */
+function leaveToDesktop({ execFile, spawn, quit, announce = () => {},
+  timers = { setTimeout }, log = console.warn }) {
   let left = false
   const leave = () => { if (!left) { left = true; quit() } }
   timers.setTimeout(leave, LEAVE_DEADLINE_MS)
-  return explorerRunning(execFile)
+  return Promise.resolve()
+    .then(announce)
+    .catch((err) => log('[desktop] could not tell the backend:', err.message))
+    .then(() => explorerRunning(execFile))
     .then((running) => {
       if (running) return
       spawn('explorer.exe', [], { detached: true, stdio: 'ignore' }).unref()

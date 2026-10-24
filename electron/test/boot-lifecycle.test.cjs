@@ -34,6 +34,7 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
   const switches = []       // every Chromium flag the shell asked for
   const ipc = new Map()
   const asked = []
+  const posts = []          // every POST the shell made, with its JSON body
   const execs = []          // every shell command the shell asked for, in order
   const quits = []
   const appHandlers = new Map()
@@ -113,7 +114,11 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     process: { env, on: (sig, fn) => signals.set(sig, fn) },
     console: { log: () => {}, warn: () => {}, error: () => {} },
     setTimeout, clearTimeout, URLSearchParams, AbortSignal, AbortController,
-    fetch: (url) => {
+    fetch: (url, init) => {
+      if (init && init.method === 'POST') {
+        posts.push({ url: String(url), body: JSON.parse(init.body) })
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) })
+      }
       asked.push(String(url))
       const ok = queue.length > 1 ? queue.shift() : queue[0]
       return Promise.resolve({ ok, status: ok ? 200 : 503, json: async () => ({ ready: !!ok, state: ok ? 'ready' : 'starting' }) })
@@ -121,7 +126,7 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
   })
   vm.runInContext(fs.readFileSync(MAIN, 'utf8'), context, { filename: MAIN })
   return {
-    context, windows, ipc, asked, execs, quits, switches,
+    context, windows, ipc, asked, posts, execs, quits, switches,
     /** What systemd sends on `systemctl stop`. */
     signal: (sig = 'SIGTERM') => signals.get(sig)?.(),
     hasSignal: (sig) => signals.has(sig),
@@ -370,6 +375,23 @@ test('leaving with Explorer already running starts no second one', async () => {
   await settle(20)
   assert.deepEqual(r.spawned(), [])
   assert.equal(r.quits.length, 1)
+})
+
+test('leaving tells the backend first, so Windows gets its idle timers back', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: '"explorer.exe","4242","Console","1","120 000 K"' })
+  r.quit()
+  await settle(20)
+  assert.deepEqual(r.posts, [{ url: 'http://127.0.0.1:8765/api/standby/desktop', body: { active: true } }])
+  assert.equal(r.quits.length, 1)
+})
+
+test('a start tells the backend the player is back from the desktop', async () => {
+  const r = rig({ answers: [true], env: { GAMECORE_MANAGED: '1' } })
+  r.start()
+  await settle(200)
+  r.stop()
+  assert.deepEqual(r.posts.map(p => [p.url.replace(/^.*\/api/, '/api'), p.body.active]),
+    [['/api/standby/desktop', false]])
 })
 
 test('a tasklist that fails does not keep the player in GameCore', async () => {
