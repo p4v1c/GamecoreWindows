@@ -17,6 +17,15 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, devices: the backend reads pads through SDL2 (`SDL2.dll`
+  ships in the venv with `pysdl2-dll`), Wi-Fi and Bluetooth through WinRT,
+  sound through Core Audio. While standby is on, GameCore sets Windows' own
+  "turn off the display" and "sleep after" timers to never and gives them back
+  when standby is switched off; the sleep stage uses the Power saver plan when
+  the PC has one. On Windows 11 24H2 and later the Wi-Fi scan needs location
+  access for desktop apps (port step 7 grants it). Bluetooth Connect cannot
+  force a link on Windows: switch the device on instead.
+
 - Windows edition: the bezel overlay is gone (owner's decision), window,
   backend and per-game choice alike. `config/overlays.json`, `assets/overlays/`
   and the `bezel-*.json` caches of an imported Linux box are no longer read;
