@@ -11,13 +11,12 @@ Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
 (`backend/tests/posix_boundary.py`) until step 7. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 20/10/2026 (step 4): 371 test items in 51 files, by step:
+Measured on 24/10/2026 (step 5): 345 test items in 44 files, by step:
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
-| 5 | pads (SDL), battery, storage, Bluetooth | 22 | sysfs trees whose names hold `:`; `lsblk`/`udisksctl` and `/run/media` links; an interactive `bluetoothctl` |
-| 6 | Rest mode: sleep, wake by pad | 12 | bash helper over sysfs; sudoers and systemd units |
-| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 299 | 144 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
+| 6 | Rest mode: sleep, wake by pad | 7 | bash helper over sysfs; sudoers and systemd units |
+| 7 | installer, logon task, CLIs; the Linux packs until they are rewritten for Windows | 300 | 145 are the Linux packs (Flatpak, uinput, `fcntl`, `/proc`); the rest run `arch.sh`, the session scripts and the CLIs in bash against systemd, SDDM, sudoers |
 | 8 | OTA updater and release workflow | 26 | `update/linux.sh` in bash, rsync, `systemctl` |
 | 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
@@ -28,7 +27,7 @@ rest of the file runs on Windows.
 
 | Step | File | Marked tests | Linux mechanism |
 |---|---|---|---|
-| 5 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink |
+| 7 | `backend/tests/test_configgen_sdl2_probe.py` | `test_two_installed_branches_resolve_to_the_one_flatpak_run_starts` | Flatpak `current` symlink: the Linux packs' emulator lookup, kept until the packs are rewritten |
 | 6 | `backend/tests/test_rest_mode_install.py` | `test_the_step_installs_every_piece_and_enables_the_unit`, `test_the_sudoers_rule_grants_suspend_and_nothing_else`, `test_a_second_run_changes_nothing`, `test_the_ota_migration_path_installs_them_too` | sudoers, systemd units |
 | 6 | `backend/tests/test_wake_setup_helper.py` | `test_the_adapter_and_the_pads_are_armed_and_nothing_else`, `test_a_second_run_writes_nothing`, `test_udev_mode_arms_one_device` | bash `gamecore-wake-setup`, sysfs |
 | 7 | `backend/tests/test_boot_review_fixes.py` | `test_graphical_start_applies_only_the_confirmed_mode` | bash `gamecore-xsetup` (7) and `update/linux.sh` (8) |

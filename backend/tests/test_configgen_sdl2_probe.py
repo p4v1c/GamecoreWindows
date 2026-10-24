@@ -217,7 +217,7 @@ def test_a_successful_flatpak_lookup_is_cached(monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.linux_until_port(5)
+@pytest.mark.linux_until_port(7)
 def test_two_installed_branches_resolve_to_the_one_flatpak_run_starts(monkeypatch, tmp_path):
     """A local Eden build (branch master) next to Flathub's (stable) made
     `flatpak info dev.eden_emu.eden` fail with "multiple branches". The runtime
