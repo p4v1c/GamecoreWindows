@@ -390,7 +390,7 @@ export const api = {
     details: () => get<{ ssid: string; security: string; channel: number; band: string; rate: string }[]>('/settings/wifi/details'),
     connect: (ssid: string, password = '') => post<{ ok: boolean; wrong_password: boolean; error?: string }>('/settings/wifi/connect', { ssid, password }),
     disconnect: () => fetch(BASE + '/settings/wifi/connect', { method: 'DELETE' }).then(r => r.json()) as Promise<{ ok: boolean; error?: string }>,
-    /** Rejects with nmcli's own sentence ("Not authorized…", hardware block). */
+    /** Rejects with the backend's sentence (Windows refused, hardware block). */
     setRadio: (enabled: boolean) => postDetailed<{ enabled: boolean | null }>('/settings/wifi/radio', { enabled }),
   },
   audio: {

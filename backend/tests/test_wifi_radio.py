@@ -1,122 +1,126 @@
 """/api/settings/wifi/radio and the `radio` field of /status.
 
-`nmcli` is stubbed in every test: `nmcli radio wifi off` run for real takes the
-machine running the suite off the network, the developer's session included.
+`platform/radios.py` is replaced in every test: a real "off" takes the machine
+running the suite off the network.
 """
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
+from backend.routers.settings import wifi
+from backend.services import wifi_radio
+from backend.services.errors import ServiceError
+from backend.services.platform import network as platform_network
+from backend.services.platform import radios
+from backend.services.platform import wifi as platform_wifi
 
-from backend.main import app                          # noqa: E402
-from backend.services.wifi_radio import parse_radio   # noqa: E402
+
+class FakeRadios:
+    def __init__(self):
+        self.state: bool | None = True
+        self.blocked = False
+        self.follow = True
+        self.refuse = ""
+        self.hang = False
+        self.calls: list[tuple[int, bool]] = []
+
+    async def enabled(self, kind):
+        if self.hang:
+            await asyncio.Event().wait()
+        return self.state
+
+    async def set_enabled(self, kind, on):
+        self.calls.append((kind, on))
+        if self.hang:
+            await asyncio.Event().wait()
+        if self.blocked:
+            raise radios.RadioBlocked("blocked")
+        if self.refuse:
+            raise OSError(self.refuse)
+        if self.follow:
+            self.state = on
+        return self.state
+
+
+@pytest.fixture
+def fake(monkeypatch):
+    state = FakeRadios()
+    monkeypatch.setattr(radios, "enabled", state.enabled)
+    monkeypatch.setattr(radios, "set_enabled", state.set_enabled)
+
+    async def nothing(*a, **k):
+        return ""
+    monkeypatch.setattr(platform_wifi, "connected_ssid", nothing)
+    monkeypatch.setattr(platform_wifi, "adapter_guid", nothing)
+    monkeypatch.setattr(platform_network, "adapters", lambda: [])
+    return state
 
 
 @pytest.fixture
 def client():
+    app = FastAPI()
+    app.include_router(wifi.router, prefix="/api")
+
+    @app.exception_handler(ServiceError)
+    async def _service_error(request, exc):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
     return TestClient(app)
 
 
-@pytest.fixture
-def nmcli(monkeypatch):
-    """A fake NetworkManager: `radio` holds the state, `calls` every argv."""
-    state = {"calls": [], "hw": "enabled", "wifi": "enabled",
-             "set_code": 0, "set_out": "", "follow": True, "hang": False}
-
-    class _Proc:
-        returncode = 0
-
-        def __init__(self, argv):
-            self.argv = argv
-
-        async def communicate(self, data=None):
-            argv = self.argv
-            if state["hang"]:
-                await asyncio.Event().wait()
-            if argv[1:3] == ["radio", "wifi"] and len(argv) == 4:
-                self.returncode = state["set_code"]
-                if self.returncode == 0 and state["follow"]:
-                    state["wifi"] = "enabled" if argv[3] == "on" else "disabled"
-                return b"", state["set_out"].encode()
-            if "radio" in argv:
-                return f"{state['hw']}:{state['wifi']}\n".encode(), b""
-            return b"", b""
-
-        async def wait(self):
-            return 0
-
-        def kill(self):
-            state["killed"] = True
-
-    async def fake_exec(*argv, **kw):
-        state["calls"].append(list(argv))
-        return _Proc(list(argv))
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    return state
+@pytest.mark.parametrize("state, expected", [(1, True), (2, False), (3, False), (0, None)])
+def test_a_radio_state_reads_as_on_off_or_unknown(state, expected):
+    assert radios.read_state(state) is expected
 
 
-@pytest.mark.parametrize("text, expected", [
-    ("enabled:enabled\n", True),
-    ("enabled:disabled", False),
-    ("disabled:enabled", False),   # rfkill hard block: software "on" changes nothing
-    ("missing:disabled", None),    # no Wi-Fi hardware: no switch to draw
-    ("", None),
-    ("garbage", None),
-])
-def test_parse_radio_reads_hardware_and_software_state(text, expected):
-    assert parse_radio(text) is expected
+def test_status_reports_the_radio(client, fake):
+    fake.state = False
+    assert client.get("/api/settings/wifi/status").json()["radio"] is False
 
 
-def test_status_reports_the_radio(client, nmcli):
-    nmcli["wifi"] = "disabled"
-    body = client.get("/api/settings/wifi/status").json()
-    assert body["radio"] is False
-    assert body["connected"] is False
+def test_no_wifi_radio_is_null_so_no_switch_is_drawn(client, fake):
+    fake.state = None
+    assert client.get("/api/settings/wifi/status").json()["radio"] is None
 
 
-@pytest.mark.parametrize("enabled, word", [(False, "off"), (True, "on")])
-def test_set_radio_runs_nmcli_and_returns_the_state_read_back(client, nmcli, enabled, word):
-    nmcli["wifi"] = "disabled" if enabled else "enabled"
-    r = client.post("/api/settings/wifi/radio", json={"enabled": enabled})
-    assert r.status_code == 200
-    assert r.json() == {"enabled": enabled}
-    assert ["nmcli", "radio", "wifi", word] in nmcli["calls"]
+@pytest.mark.parametrize("enabled", [True, False])
+def test_set_radio_switches_the_wifi_radio_and_reads_it_back(client, fake, enabled):
+    fake.state = not enabled
+    assert client.post("/api/settings/wifi/radio", json={"enabled": enabled}).json() == \
+        {"enabled": enabled}
+    assert fake.calls == [(radios.WIFI, enabled)]
 
 
-def test_set_radio_refusal_is_reported_with_nmcli_sentence(client, nmcli):
-    nmcli["set_code"] = 1
-    nmcli["set_out"] = "Error: failed to disable WiFi: Not authorized to control networking."
+def test_a_refusal_is_reported_with_windows_sentence(client, fake):
+    fake.refuse = "Windows refused to switch the radio."
     r = client.post("/api/settings/wifi/radio", json={"enabled": False})
-    assert r.status_code == 502
-    assert "Not authorized" in r.json()["detail"]
+    assert r.status_code == 502 and "refused" in r.json()["detail"]
 
 
-def test_turning_on_under_a_hardware_block_is_an_error_not_a_silent_success(client, nmcli):
-    nmcli["hw"] = "disabled"
-    nmcli["wifi"] = "disabled"
-    r = client.post("/api/settings/wifi/radio", json={"enabled": True})
-    assert r.status_code == 409
-    assert "hardware switch" in r.json()["detail"]
+def test_a_radio_blocked_below_windows_is_a_409(client, fake):
+    fake.blocked = True
+    assert client.post("/api/settings/wifi/radio", json={"enabled": True}).status_code == 409
 
 
-def test_a_hung_nmcli_is_killed_and_answered(client, nmcli, monkeypatch):
-    from backend.services import wifi_radio
-    monkeypatch.setattr(wifi_radio, "NMCLI_SECS", 0.01)
-    nmcli["hang"] = True
-    r = client.post("/api/settings/wifi/radio", json={"enabled": False})
-    assert r.status_code == 504
-    assert nmcli.get("killed") is True
+def test_turning_on_that_does_not_take_is_an_error_not_a_silent_success(client, fake):
+    fake.state, fake.follow = False, False
+    assert client.post("/api/settings/wifi/radio", json={"enabled": True}).status_code == 409
 
 
-def test_radio_request_needs_a_boolean(client, nmcli):
-    r = client.post("/api/settings/wifi/radio", json={"enabled": "maybe"})
-    assert r.status_code == 422
-    assert not any(c[1:3] == ["radio", "wifi"] for c in nmcli["calls"])
+def test_a_radio_that_never_answers_is_bounded(client, fake, monkeypatch):
+    monkeypatch.setattr(wifi_radio, "RADIO_SECS", 0.05)
+    fake.hang = True
+    assert client.post("/api/settings/wifi/radio", json={"enabled": True}).status_code == 504
+    assert asyncio.run(wifi_radio.radio_enabled()) is None
+
+
+def test_radio_request_needs_a_boolean(client, fake):
+    assert client.post("/api/settings/wifi/radio", json={"enabled": "maybe"}).status_code == 422
+
+
+def test_the_real_radios_read_without_changing_anything():
+    assert asyncio.run(radios.enabled(radios.WIFI)) in (True, False, None)

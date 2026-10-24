@@ -307,24 +307,22 @@ becomes the HTTP error.
 | `POST /settings/display/revert` | goes back now |
 | `GET/POST /settings/display/scale` | one of `SCALES`; applied by the front end as a zoom |
 
-### `settings/wifi.py` — `nmcli`
+### `settings/wifi.py` — WinRT and WMI
 
 | Function | Route |
 |---|---|
-| `_wifi_iface()` | — active WiFi interface name |
-| `scan_networks()` (+ `_rescan()`) | `GET /wifi/networks` |
-| `_iface_ip(iface)`, `_ethernet_status()` | — |
-| `wifi_status()` | `GET /wifi/status` — SSID, IP **and wired status**, so the UI can skip the WiFi flow entirely on ethernet; `radio` true/false (null: no Wi-Fi hardware) |
+| `scan_networks()` | `GET /wifi/networks` — rescans; one entry per SSID (`best_per_ssid`: connected first, then strongest) |
+| `wifi_details()` | `GET /wifi/details` — security, channel, band per SSID (`details_per_ssid`, strongest access point); `rate` is always `""` (WinRT reports none) |
+| `wifi_status()` | `GET /wifi/status` — SSID, IP **and wired status** (`ethernet_status`: first connected physical wired adapter), so the UI can skip the Wi-Fi flow on ethernet; `radio` true/false (null: no Wi-Fi hardware); gateway, DNS, MAC of the Wi-Fi adapter, same keys when disconnected |
 | `set_radio(req)` | `POST /wifi/radio` `{enabled}` → `{enabled}` read back; logic in [`wifi_radio.py`](04-backend-services.md#wifi_radiopy--the-wi-fi-radio-switch) |
-| `connect_wifi(req)` | `POST /wifi/connect` — returns `wrong_password` distinctly |
+| `connect_wifi(req)` | `POST /wifi/connect` — returns `wrong_password` distinctly (`INVALID_CREDENTIAL`); bounded by `CONNECT_TIMEOUT` |
 | `disconnect_wifi()` | `DELETE /wifi/connect` |
-| `_spawn_bg(coro, label)` | — background task helper with error logging |
 
-The PSK goes to `nmcli` on **stdin**, via `nmcli --ask`. In argv it was visible
-in `/proc/<pid>/cmdline` to every local user for the length of the connect. An
-SSID beginning with `-` is refused rather than escaped: the SSID is positional
-with nothing marking the end of the options, such a network is vanishingly rare,
-and guessing at `nmcli`'s option parsing is not worth being clever about.
+The calls are in [`platform/wifi.py` and `platform/network.py`](04-backend-services.md#platform--every-call-into-windows).
+A connect with a password deletes the saved profile named after the SSID
+first and again after a failure (`_forget`): a profile holding an old or
+refused key would be retried instead of the one just typed. The SSID and the
+password travel to WinRT as values; no command line is built from them.
 
 ### `settings/audio.py` — Core Audio
 

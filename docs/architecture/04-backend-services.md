@@ -889,10 +889,15 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `bring_to_front(hwnd)` | `SetForegroundWindow`; when refused, again with `AttachThreadInput` to the foreground thread, never to a frozen one (`SendMessageTimeoutW` probe) | `_NET_ACTIVE_WINDOW` |
 | | `make_borderless_fullscreen(hwnd)`, `covers_its_monitor(hwnd)` | frame styles off (`SetWindowLongPtrW`), `SetWindowPos` over the monitor (`SWP_ASYNCWINDOWPOS`), in per-monitor DPI | `_NET_WM_STATE_FULLSCREEN` |
 | `audio.py` | `list_outputs()`, `get_volume()`, `set_volume(percent)`, `set_default_output(id)` | active render endpoints and the default one (pycaw over Core Audio); the default is set for every role through `IPolicyConfig`. COM is initialised once per worker thread and never released: comtypes frees its pointers at garbage collection, after which `CoUninitialize` crashed the process | `wpctl` (PipeWire) |
+| `com.py` | `ensure_com()`, `wmi_query(namespace, wql, fields)` | COM initialised once per worker thread and never released; WQL rows as dicts, `OSError` when WMI refuses | — |
+| `network.py` | `adapters()`, `join_adapters(adapters, configs)` | every adapter: name, GUID, `kind` (wifi / ethernet / other from the NDIS medium), connected, `virtual` (Hyper-V, WSL, VMware, VirtualBox, VPN), IPv4, gateway, DNS, MAC; `MSFT_NetAdapter` joined to `Win32_NetworkAdapterConfiguration` | `nmcli dev show`, `nmcli con show --active` |
+| `wifi.py` | `scan(rescan)`, `connect(ssid, password)`, `disconnect()`, `connected_ssid()`, `adapter_guid()`, `access()` | WinRT `WiFiAdapter`: one row per access point (signal 0-100 from dBm, security label, channel from the frequency), joins with a `PasswordCredential`, `(ok, wrong_password, error)` | `nmcli dev wifi` |
+| | `forget(ssid, interface_guid)` | Native Wifi `WlanDeleteProfile` on the profile named after the SSID (netsh exits 0 whether or not it found it) | `nmcli con delete` |
+| `radios.py` | `enabled(kind)`, `set_enabled(kind, on)`, `read_state(state)` | WinRT `Radio` for `WIFI` and `BLUETOOTH`: the quick-settings switches; `RadioBlocked` when disabled below Windows | `nmcli radio wifi`, rfkill |
 | `media_types.py` | `pin_media_types()` | the content type of everything served (`SERVED`: bundle, fonts, pictures, sounds, clips) registered over the Windows registry's; called once by `main.py` at import | `/etc/mime.types`, which Linux keeps consistent; a bare Windows has no `.webp` and some PCs map `.js` to `text/plain` |
 
 Callers: `process_identity.py` (`boot_id`, `start_time`), `process_manager.py` (`jobs.py`, `kill_tree`, `physical_memory`), `session.py` (`console_session.py`), `window_focus.py` and `fullscreen_enforcer.py` (`window_control.py`), `profile_save_paths.py`
-(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`). `shutil.rmtree` and
+(the junction a profile's save folder becomes), `main.py` (`pin_media_types`), `routers/settings/audio.py` (`audio.py`), `routers/settings/wifi.py` (`wifi.py`, `network.py`), `wifi_radio.py` (`radios.py`). `shutil.rmtree` and
 `Path.unlink()` remove a junction without entering it; the test suite's own
 `catalog/` link depends on that (`test_platform_filesystem.py`).
 
@@ -1072,12 +1077,5 @@ be a line nobody could ever prove still works.
 
 | Function | Does |
 |---|---|
-| `parse_radio(text)` | `WIFI-HW:WIFI` from `nmcli -t -f WIFI-HW,WIFI radio` → `True`/`False`, `None` with no Wi-Fi hardware |
-| `radio_enabled()` | the state, `None` when nmcli fails or hangs |
-| `set_radio(enabled)` | `nmcli radio wifi on` or `off`, then reads the state back; `ServiceError` 502 (nmcli refused, its sentence as detail), 504 (hung, killed after `NMCLI_SECS`), 409 (turned on under an rfkill hard block) |
-
-The backend is a system unit with no logind session. polkit still grants it
-`org.freedesktop.NetworkManager.enable-disable-wifi` ("implicit active: yes")
-because its user owns the active seat session (autologin): polkit falls back to
-the user's display session. Check on a box with
-`pkcheck --action-id org.freedesktop.NetworkManager.enable-disable-wifi --process <backend pid>`.
+| `radio_enabled()` | Windows' Wi-Fi radio (`platform/radios.py`): `True`/`False`, `None` with no Wi-Fi hardware, or when it fails or hangs |
+| `set_radio(enabled)` | switches it and reads the state back; `ServiceError` 502 (Windows refused, its sentence as detail), 504 (no answer in `RADIO_SECS`), 409 (blocked below Windows: hardware switch, firmware, or an "on" that did not take) |

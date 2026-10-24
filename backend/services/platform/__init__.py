@@ -11,6 +11,10 @@ this package checks `os.name`, imports `ctypes.windll`, `winreg` or `win32*`
 | `processes.py`  | boot identity, process start time         | `/proc` reads                 |
 | `media_types.py`| content types of what is served           | `/etc/mime.types`             |
 | `audio.py`      | audio outputs, volume                     | `wpctl`                       |
+| `com.py`        | COM on worker threads, WMI queries        | —                             |
+| `network.py`    | adapters, addresses, wired or Wi-Fi       | `nmcli dev show`              |
+| `wifi.py`       | Wi-Fi scan, join, leave, saved profiles   | `nmcli dev wifi`              |
+| `radios.py`     | Wi-Fi and Bluetooth radio switches        | `nmcli radio`, rfkill         |
 
 Later port steps add a module per concern (`docs/dev-log/windows-port.md`).
 """
