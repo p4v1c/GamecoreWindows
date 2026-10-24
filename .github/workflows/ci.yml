@@ -44,14 +44,15 @@ jobs:
       - name: Validate the catalogue
         run: python scripts/check-catalog.py
 
-      # The shell scripts are the Linux installer, still in the tree until the
-      # port replaces them; shellcheck keeps them honest until they go.
+      # The shell scripts left are Linux tools the port has not replaced yet;
+      # shellcheck keeps them honest until they go. install/bin also holds
+      # Python CLIs now, hence the shebang filter.
       - name: Lint — Python (ruff) and shell (shellcheck)
         shell: bash
         run: |
           pip install 'ruff==0.16.1' 'shellcheck-py==0.11.0.1'
           ruff check .
-          shellcheck -S warning $(git ls-files '*.sh') install/bin/*
+          shellcheck -S warning $(git ls-files '*.sh') $(grep -l '^#!/usr/bin/env bash' install/bin/*)
 
       - name: Catalogue is in sync with install/generated/*.dist
         run: python scripts/gen-catalog.py --check
