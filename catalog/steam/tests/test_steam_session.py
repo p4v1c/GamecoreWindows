@@ -1,11 +1,14 @@
-"""The Steam session helper: finding steam.exe, closing a Steam started outside
-the session, and lasting as long as Steam does (catalog/steam/files/steam_session.py)."""
+"""The Steam session helper: finding steam.exe, taking a running Steam into the
+session (or closing it), and lasting as long as Steam does
+(catalog/steam/files/steam_session.py)."""
 from __future__ import annotations
 
 import importlib.util
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 PACK = Path(__file__).resolve().parents[1]
 HELPER = PACK / "files" / "steam_session.py"
@@ -129,8 +132,67 @@ def test_the_helper_starts_steam_with_the_pack_arguments_and_waits_for_it(monkey
             return 0
 
     monkeypatch.setattr(steam, "find_steam", lambda: Path("C:/Steam/steam.exe"))
+    monkeypatch.setattr(steam, "steam_pids", lambda: set())
     monkeypatch.setattr(steam, "close_running_steam", lambda exe: True)
     monkeypatch.setattr(steam, "wait_for_steam_to_end", lambda: started.append("waited"))
     monkeypatch.setattr(steam.subprocess, "Popen", FakePopen)
     assert steam.main(["-gamepadui"]) == 0
     assert started == [[str(Path("C:/Steam/steam.exe")), "-gamepadui"], "waited"]
+
+
+class Recorder:
+    """subprocess.Popen double: records argv, waits for nothing."""
+
+    def __init__(self):
+        self.started = []
+
+    def __call__(self, argv):
+        self.started.append(argv)
+        return self
+
+    def wait(self):
+        return 0
+
+
+def test_a_running_steam_taken_into_the_session_is_asked_for_big_picture(monkeypatch):
+    popen = Recorder()
+    monkeypatch.setenv(steam.JOB_ENV, "job-abc")
+    monkeypatch.setattr(steam, "steam_pids", lambda: {7})
+    monkeypatch.setattr(steam, "take_running_steam", lambda job: job == "job-abc")
+    monkeypatch.setattr(steam, "close_running_steam", lambda exe: pytest.fail("restarted Steam"))
+    monkeypatch.setattr(steam.subprocess, "Popen", popen)
+    assert steam.start_steam(Path("C:/Steam/steam.exe"), ["-gamepadui"]) == 0
+    assert popen.started == [[str(Path("C:/Steam/steam.exe")), steam.BIG_PICTURE_URL]]
+
+
+def test_a_running_steam_that_cannot_join_is_closed_and_started_fresh(monkeypatch):
+    popen = Recorder()
+    closed = []
+    monkeypatch.setattr(steam, "steam_pids", lambda: {7})
+    monkeypatch.setattr(steam, "take_running_steam", lambda job: False)
+    monkeypatch.setattr(steam, "close_running_steam", lambda exe: closed.append(exe) or True)
+    monkeypatch.setattr(steam.subprocess, "Popen", popen)
+    assert steam.start_steam(Path("steam.exe"), ["-gamepadui"]) == 0
+    assert closed and popen.started == [["steam.exe", "-gamepadui"]]
+
+
+def test_the_steam_tree_is_steam_and_its_descendants_born_after_their_parent():
+    P = steam.Proc
+    procs = [P(10, 1, "steam.exe", 100), P(11, 10, "steamwebhelper.exe", 110),
+             P(12, 11, "steamwebhelper.exe", 120), P(13, 10, "game.exe", 130),
+             P(14, 10, "stranger.exe", 50),      # older than steam.exe: a reused parent id
+             P(15, 1, "explorer.exe", 10)]
+    assert steam.steam_tree(procs) == [10, 11, 13, 12]
+
+
+def test_taking_steam_in_needs_the_job_name_and_every_steam_exe(monkeypatch):
+    P = steam.Proc
+    procs = [P(10, 1, "steam.exe", 100), P(11, 10, "steamwebhelper.exe", 110)]
+    assert steam.take_running_steam("", lambda: procs, lambda pids, job: pids) is False
+    assert steam.take_running_steam("job", lambda: procs, lambda pids, job: [11]) is False
+    assert steam.take_running_steam("job", lambda: procs, lambda pids, job: pids) is True
+
+
+def test_the_real_process_list_reads():
+    procs = steam._processes()
+    assert any(p.pid and p.image for p in procs)
