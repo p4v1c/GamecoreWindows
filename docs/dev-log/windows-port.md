@@ -79,6 +79,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D53 | The updater refuses a code root that is a git checkout, and downloads nothing when the box is up to date (`--force` reinstalls) | swapping a developer's checkout for an archive loses their work; a restart for nothing is a minute without the TV |
 | D54 | `scripts/migrate-userdata.py` (the Linux `/opt` to `/userdata` move) leaves with `test_migration.py`; `scripts/split-systems.py` stays, path-safe | a Windows install is split from the start (D9) and `scripts/import-linux-data.py` brings a Linux tree over; the Linux-test list had filed both tests under "replaced by" since step 2. The brief's 2.7 said "keep": restore it from git if wanted |
 | D55 | The import **copies** (never moves, never overwrites); Linux-only state goes to `<DEST>\linux-import\`, not live, and not dropped | the owner's library is the one irreplaceable thing in the port; a copy costs disk space and nothing else. A move or in-place adoption of the NTFS partition would save the space and is left as an open question |
+| D56 | On a Modern Standby PC GameCore never switches the display off: `power.screen_off()` leaves it on (the interface is black) and holds display- and system-required power requests (`platform/awake.py`) until `screen_on()`; on S3 the screen goes off with the system request held. Rest mode announces its own sleep and wake there (`rest_mode.is_dark()`, `resume.dark_rest_began()` / `dark_rest_ended()`, the first press) | owner's rule (25/10): Windows behaves as close as possible to the Linux box, where Rest and standby cut the screen and the box keeps running. Measured on this PC: `SC_MONITORPOWER` off entered Modern Standby (Kernel-Power 506) and paused the backend 140 s and 277 s, with a system-required, then also an execution-required request held; so the request alone does not keep it running and the display must stay on. Not measured on the PC with the final code (owner stopped the real sleep tests); the TV shows black instead of going to its own standby |
+| D57 | No Windows install provider (winget, zip) in `catalog/_schema/pack.schema.json` yet | owner's choice, conservative: the first Windows pack sets the shape, as the catalogue skill says |
 | D37 | Pads stay on into a sleep (Linux disconnected them first) | no public Windows call drops one device's link (D28); an Xbox pad paging back after the sleep, which woke the Linux box, is untested here |
 
 ## Baseline on Windows (19/10/2026, before any port change)
@@ -271,13 +273,13 @@ Re-verification of steps 1-9 on `main` at `462c498` (addons `7415fae`), then thi
 
 | | main `462c498` | This branch |
 |---|---|---|
-| pytest | 2 522 passed, 71 skipped, 0 failed | 2 532 passed, 67 skipped, 0 failed |
+| pytest | 2 522 passed, 71 skipped, 0 failed | 2 542 passed, 67 skipped, 0 failed |
 | vitest | 755 | 755 |
 | Electron bench | 44 | 44 |
 | addons repo | 40 + 13 addon test files, 0 failed | unchanged |
 | `linux_until_port` items ([list](windows-port-linux-tests.md)) | 145 in 22 files | 142 in 20 files, all under 11 |
 
-New: `test_import_linux_data.py` (18). Deleted with its code: `test_migration.py`. Ported:
+New: `test_import_linux_data.py` (18), `test_platform_awake.py` (6), `test_rest_dark.py` (4). Deleted with its code: `test_migration.py`. Ported:
 `test_system_split.py::test_the_command_dry_runs_by_default`.
 
 ## Done
@@ -396,11 +398,14 @@ New: `test_import_linux_data.py` (18). Deleted with its code: `test_migration.py
 The ten steps of the brief are done. What remains is the owner's (open
 questions below): a real install on a PC, the GO on this PR, Pages, and the
 Windows packs ("step 11", outside the port), which also need a Windows
-install provider in `catalog/_schema/pack.schema.json` (brief, scope: not done yet).
+install provider in `catalog/_schema/pack.schema.json` (D57, deferred to the first Windows pack).
 
 ## Open questions for the owner
 
-- Step 10, measured while re-verifying step 6: on this Modern Standby PC,
+- ANSWERED 25/10 (owner): D54 yes, D55 yes (copy), D56 (keep the PC running
+  in Rest, see the decision), D57 (provider deferred). Rule for every choice:
+  **Windows behaves as close as possible to the Linux version.**
+- Step 10, measured while re-verifying step 6 (now D56): on this Modern Standby PC,
   switching the screen off (`SC_MONITORPOWER`, what Rest mode and standby do)
   makes Windows enter **real Modern Standby** (Kernel-Power 506, reason
   SC_MONITORPOWER; processes paused until a keyboard press woke it, 507). D34's
@@ -409,9 +414,8 @@ install provider in `catalog/_schema/pack.schema.json` (brief, scope: not done y
   the pad as a wake source. Untested with a real pad. `sleep.last_wake()`
   reads the Power-Troubleshooter event, which a Modern Standby exit does not
   write (source empty); Kernel-Power 507 has the reason. README now says it;
-  code unchanged. Say if standby should keep the screen on (dim) instead.
-- Step 10, conservative choices made: D54 (`migrate-userdata.py` removed,
-  the brief said keep), D55 (copy, not move: a 286 GB library needs the space
+  Fixed by D56.
+- Step 10, answered: D54 (`migrate-userdata.py` removed), D55 (copy, not move: a 286 GB library needs the space
   twice on the same partition; a `--move` or adopting the partition in place
   is possible if wanted). Profiles' controller links are copied as they are;
   a pad whose key differs on Windows is added to its profile again.
@@ -503,6 +507,7 @@ install provider in `catalog/_schema/pack.schema.json` (brief, scope: not done y
 | Step 10, re-verification on `main` `462c498`: all suites (counts in "After step 10"); a fake game in a real Job Object frozen, thawed, adopted by name from a second process, killed with its child; 17 read-only device calls (audio, Wi-Fi scan, radios, Bluetooth list, display modes, power timers, drives, USB, sleep model); Rest mode screen off/on; `install.ps1 -DryRun` (44 changes, nothing written); the backend (read-only dev server) answering its API from a temp data root; the real Electron kiosk on the five themes, stopped cleanly. Evidence in `%USERPROFILE%\Downloads\gamecore-port-step10\evidence` | 25/10/2026 | green |
 | Step 10: the **published** v0.1.0 and v0.1.1 assets downloaded from GitHub, SHA-256 equal to the `.sha256` asset and GitHub's digest; v0.1.0 unpacked as an installed code root in a temp folder, stage 1 run against the real GitHub API (download, check, unpack, 20 s), stage 2 detached: swap, `python\ .venv\` carried, five themes, `installed` in 7 s; `-Rollback`: v0.1.0 back, v0.1.1 in `.failed`, `rolled-back` recorded. The session was a stub answering `/api/ready`, so the real lifespan never ran | 25/10/2026 | green |
 | Step 10: `gamecore-addon install bios-manager` in a temp data root against the real addons archive: repo fetched, Python copied, the real `install.ps1` refused (not elevated, as designed), no registry entry; the hook's venv, shared files and `addon.env` built by the hook's own functions, the server started as its task would (`addon-run.py`): 200 on `127.0.0.1:8773/bios/`, loopback only, stopped; `list`, `remove` | 25/10/2026 | green. Not run: the task itself, elevation |
+| Step 10, D56: the owner saw his PC go to sleep during the power-request experiments and confirms on it the behaviour they showed ("validé par l'owner, constaté sur son PC"); the final code (display left on, black, held on) is covered by `test_platform_awake.py` and `test_rest_dark.py` only: real sleep and screen tests were stopped at the owner's request | 25/10/2026 | owner-confirmed; final code not run on the PC |
 | Step 10: `import-linux-data.py` plan and `--apply` on a built Linux-style tree (report in the evidence folder) | 25/10/2026 | green. Not run: the box's real data partition |
 | Step 8: the real release pipeline, locally: `npm run build`, `npm run pack` (with `-c.win.signAndEditExecutable=false`: this account may not create the symbolic links electron-builder's signing tools unpack), `package-release.py` → `gamecore-ota.zip`, 112 MB, 1 787 files | 24/10/2026 | green |
 | Step 8: end-to-end update in a temp folder (no GameCore service, task or `%ProgramData%\GameCore` on this PC, checked first): stage 1 against a local HTTP server (SHA-256 and digest), stage 2 started detached for real: swap, `python\ .venv\ caddy\` carried, real pip into the venv (31 s), Shelf 0.0.1 replaced and kept in `.prev`, a 503 from `/api/ready` accepted, `installed` in 46 s; then `-Rollback` run from inside the code root (copied itself out): v0.1.0 back, v0.2.0 in `.failed`, venv back. 12/12 checks | 24/10/2026 | green; it found the stderr bug (fixed) |
