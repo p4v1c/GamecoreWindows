@@ -20,8 +20,10 @@ code looked for data anywhere other than where the rsync left it, every box
 would boot with an empty library and no settings, and the rollback would hand
 the *old* code a tree the *new* code had moved. So the pointer moves and the
 bytes do not: after the update every path resolves to the byte-identical
-location it did before. Moving the bytes is a separate, human-typed operation
-(`scripts/migrate-userdata.py`), deliberately unreachable from the updater.
+location it did before. Moving the bytes was a separate, human-typed operation
+(`scripts/migrate-userdata.py` on the Linux box), deliberately unreachable from
+the updater. The Windows installer sets both roots from the start (dev log D9);
+a Linux tree comes over with `scripts/import-linux-data.py`.
 
 `paths._LAYOUT` is the table of writable locations, and it deliberately keeps
 today's names (`emu/`, `config/`, `assets/logos/`) rather than the eventual
@@ -142,8 +144,8 @@ installer writes them into one systemd drop-in,
 
 ### Moving the data out — who has to be told
 
-`scripts/migrate-userdata.py` copies the bytes and stops; the epilogue it prints
-is the procedure, and it is longer than "set one variable" because the data
+On the Linux box `scripts/migrate-userdata.py` (removed at port step 10) copied
+the bytes and printed the procedure, longer than "set one variable" because the data
 root is read by more than one process, and they do not all learn it the same
 way. Each of these was found by reading the code that resolves the root, and
 each was wrong on the day the two trees first differed:
@@ -158,13 +160,12 @@ each was wrong on the day the two trees first differed:
 | every Flatpak emulator's sandbox | `flatpak override --filesystem=…` — a list of literal paths the installer wrote (`installer/providers.py`, `catalog-query.py sandbox`) with the install root in it | **found the hard way, on the reference box, the evening it moved**: every launch handed RPCS3 a path under `/userdata`, RPCS3 said the game did not exist, the file was right there. The installer now grants both roots when they differ; an existing box adds `--filesystem=<data>` per emulator — no root needed — and the migration script prints the loop |
 | the emulators' own settings | their config files: PCSX2's game-list folders, RPCS3's last-explored path, mGBA's recent files, **Ryujinx's DLC and update paths** | keep working only while the old tree still exists. Not rewritten by anything — they are the emulator's — so the script says to grep for them before the old side is ever deleted |
 
-The migration script prints all of it in order, plus a check to run before
-playing anything and the way back. `backend/tests/test_migration.py` asserts
-the epilogue names every row above; `test_ota_merge_roots.py` runs the OTA's
+On Windows the installer writes both roots into `session.env` for every row at
+once. `test_ota_merge_roots.py` runs the OTA's
 merge with two roots that genuinely differ; `test_addon_contract.py` runs the
-CLI against a fake `systemctl`; `test_paths.py` reads `electron/*.js`.
+CLI with real PowerShell hooks; `test_paths.py` reads `electron/*.js`.
 
-Two operational notes the script also prints: symlinks are **not** copied and
+Two operational notes the Linux script also printed (the import keeps the first): symlinks are **not** copied and
 are listed with their targets (`rglob` neither follows nor descends into them),
 and a live SQLite file should not be copied under a running backend. On btrfs
 `shutil.copy2` (Python ≥ 3.14, `copy_file_range`) is a reflink — measured on the

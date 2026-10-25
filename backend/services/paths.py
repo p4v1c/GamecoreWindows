@@ -37,8 +37,9 @@ no procedure to recombine them.
 So the pointer moves first and the bytes do not move at all. After the update
 the box resolves every path to the byte-identical location it used before; the
 only thing that changed is that there is now one variable to set. Moving the
-bytes is a separate, human-typed operation — see `scripts/migrate-userdata.py`,
-which is dry-run by default and is deliberately not reachable from the updater.
+bytes was a separate, human-typed operation, deliberately not reachable from the
+updater. On Windows the installer sets both roots, and `scripts/import-linux-data.py`
+brings a Linux box's data root over, by hand as well.
 
 The layout below keeps today's directory names
 ----------------------------------------------
