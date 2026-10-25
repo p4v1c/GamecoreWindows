@@ -180,7 +180,9 @@ The backend's console is created with `CREATE_NO_WINDOW`: every console program
 it runs (powercfg, wevtutil, tasklist, the SDL probes) inherits that hidden
 console instead of flashing a window over the TV.
 
-Logs: `<data>\logs\session\session.log` (the session itself),
+Logs: `<data>\logs\session\session.log` (the session itself, with the startup
+timeline: `session started (boot +N s, sign-in +N s)`, then `backend ready N s
+after the session started`),
 `backend-console.log` and `interface-console.log` (what the two print), each
 kept with one previous copy (`.1`). Updates log to `<data>\logs\update\update.log`.
 

@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -312,12 +313,54 @@ def back_from_desktop() -> None:
         _in_background(kiosk_desktop.Shell(registry).close_desktop)
 
 
+class _WtsInfo(ctypes.Structure):
+    _fields_ = [("State", ctypes.c_int), ("SessionId", ctypes.c_ulong), ("Counters", ctypes.c_ulong * 6),
+                ("WinStationName", ctypes.c_wchar * 32), ("Domain", ctypes.c_wchar * 17),
+                ("UserName", ctypes.c_wchar * 21), ("ConnectTime", ctypes.c_longlong),
+                ("DisconnectTime", ctypes.c_longlong), ("LastInputTime", ctypes.c_longlong),
+                ("LogonTime", ctypes.c_longlong), ("CurrentTime", ctypes.c_longlong)]
+
+
+def startup_timeline() -> str:
+    """Seconds since boot and since sign-in, for the startup log line; "" when Windows will not say."""
+    try:
+        uptime = ctypes.WinDLL("kernel32").GetTickCount64
+        uptime.restype = ctypes.c_ulonglong
+        parts = [f"boot +{uptime() / 1000:.1f} s"]
+        wts = ctypes.WinDLL("wtsapi32")
+        buffer, size = ctypes.c_void_p(), ctypes.c_ulong()
+        if wts.WTSQuerySessionInformationW(None, -1, 24, ctypes.byref(buffer), ctypes.byref(size)):
+            info = _WtsInfo.from_address(buffer.value)
+            if info.LogonTime:
+                parts.append(f"sign-in +{(info.CurrentTime - info.LogonTime) / 1e7:.1f} s")
+            wts.WTSFreeMemory(buffer)
+        return ", ".join(parts)
+    except (OSError, AttributeError):
+        return ""
+
+
+def log_when_backend_ready(port: str, timeout_s: float = 180.0) -> None:
+    """One line in session.log when /api/ready first answers: where the startup time goes."""
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ready", timeout=1) as reply:
+                if reply.status == 200:
+                    log.info("backend ready %.1f s after the session started (%s)",
+                             time.monotonic() - started, startup_timeline())
+                    return
+        except OSError:
+            pass
+        time.sleep(0.25)
+
+
 def run(settings: Settings) -> int:
     instance = SingleInstance()
     if not instance.acquire():
         shown = instance.ask_first_copy_to_show()
         log.info("already running; asked it to show the interface (%s)", shown)
         return 0 if shown else 1
+    log.info("session started (%s)", startup_timeline())
     try:
         kiosk_shell.rearm(kiosk_shell.CurrentUserRegistry())
     except OSError as e:
@@ -325,6 +368,7 @@ def run(settings: Settings) -> int:
     supervisor = Supervisor(settings, spawn_process, on_desktop=leave_to_desktop,
                             on_return=back_from_desktop)
     supervisor.start()
+    threading.Thread(target=log_when_backend_ready, args=(settings.port,), daemon=True).start()
     while True:
         if instance.show_requested(int(POLL_S * 1000)):
             supervisor.show_interface()

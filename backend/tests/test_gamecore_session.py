@@ -263,6 +263,11 @@ def test_with_explorer_as_the_real_shell_coming_back_leaves_it_running(no_shell_
     assert no_shell_listening == ["close"]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="GetTickCount64 and WTS are Windows calls")
+def test_the_startup_timeline_names_boot_and_sign_in():
+    assert gs.startup_timeline().startswith("boot +")
+
+
 def test_asking_to_show_a_running_interface_starts_nothing(started):
     sup, spawned, _ = started
     sup.show_interface()
