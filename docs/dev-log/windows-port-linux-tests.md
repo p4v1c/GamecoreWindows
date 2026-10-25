@@ -11,16 +11,17 @@ Not here: tests of Linux code that only reads `os.getuid`/`os.geteuid`
 (`backend/tests/posix_boundary.py`) until the packs are rewritten. Step 3 removed its process half (`os.killpg`, the signals): the
 process tests now run on Job Objects.
 
-Measured on 24/10/2026 (step 8): 154 test items in 23 files, by step. Step 7
+Measured on 25/10/2026 (step 9): 145 test items in 22 files, by step. Step 7
 removed its installer and console-session items with their code (`arch.sh`,
 `uninstall.sh`, the X/SDDM session scripts) or replaced them
 (`test_gamecore_session.py`, `test_install_media_index.py`); the Linux packs'
 items moved to 11. Step 8 removed its 24 items with `update/linux.sh` and the
-sudoers step, or ported them (`test_update.py`, `test_ota_merge_roots.py`):
+sudoers step, or ported them (`test_update.py`, `test_ota_merge_roots.py`).
+Step 9 ported its 9 items with the CLI (`test_addon_contract.py`, now run
+against the Python CLI and real PowerShell hooks):
 
 | Step | What replaces the Linux code | Items | What they need |
 |---|---|---|---|
-| 9 | addon CLI (`gamecore-addons-windows`) | 9 | the bash `gamecore-addon` CLI |
 | 10 | Linux data migration scripts, replaced by `scripts/import-linux-data.py` | 3 | file symlinks, POSIX modes, `geteuid` in a child |
 | 11 | not a port step: the Linux packs and their install pipeline, rewritten for Windows after the port (owner, 19/10) | 142 | Flatpak, uinput, `fcntl`, `/proc`, systemd user units, the bash `gamecore-emu` CLI |
 
@@ -50,6 +51,5 @@ rest of the file runs on Windows.
 | 11 | `catalog/melonds/tests/test_profile_saves.py` | `test_another_profile_points_player_one_saves_and_states_at_its_folder`, `test_switching_profiles_never_keeps_the_previous_folder`, `test_a_later_player_folder_creates_its_instance_section` | Linux pack: melonDS ini paths |
 | 11 | `catalog/rpcs3/tests/test_smart_launch.py` | all (40) | Linux pack: `fcntl` |
 | 11 | `catalog/switch/tests/test_eden_saves.py` | `test_a_profile_reads_its_own_eden_folder`, `test_eden_stopped_mid_profile_gives_the_primarys_parked_folder`, `test_a_profile_import_lands_in_the_profiles_folders` | Linux pack: symlinks in the Ryujinx tree |
-| 9 | `backend/tests/test_addon_contract.py` | all (9) | bash `gamecore-addon` CLI, systemd units |
 | 10 | `backend/tests/test_migration.py` | `test_a_symlink_is_named_and_not_copied`, `test_a_destination_this_user_cannot_create_is_planned_but_not_written` | `migrate-userdata.py` (`/opt` to `/userdata`), POSIX modes |
 | 10 | `backend/tests/test_system_split.py` | `test_the_command_dry_runs_by_default` | `split-systems.py` refuses root with `geteuid` |

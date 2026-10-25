@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import re
-import shutil
+import sys
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -25,9 +25,9 @@ _CLI_TIMEOUT = 600.0
 _busy_lock = asyncio.Lock()  # one CLI action at a time
 
 
-def _cli() -> str:
-    path = shutil.which("gamecore-addon") or str(install_bin_dir() / "gamecore-addon")
-    return path
+def _cli() -> list[str]:
+    """The CLI is a Python script: run it on the backend's own interpreter, from the installation."""
+    return [sys.executable, str(install_bin_dir() / "gamecore-addon")]
 
 
 def _registry() -> dict:
@@ -48,7 +48,7 @@ async def list_available():
     """Available + installed state, from `gamecore-addon list --json` (may clone the repo)."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            _cli(), "list", "--json",
+            *_cli(), "list", "--json",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -79,7 +79,7 @@ async def notify(body: NotifyBody):
 async def _run_cli(action: str, name: str) -> None:
     async with _busy_lock:
         proc = await asyncio.create_subprocess_exec(
-            _cli(), action, name,
+            *_cli(), action, name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

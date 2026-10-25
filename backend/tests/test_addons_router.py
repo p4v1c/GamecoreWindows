@@ -14,7 +14,6 @@ through. None of the three is visible from CI without this file.
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 from pathlib import Path
 
@@ -118,25 +117,14 @@ def test_a_notify_event_that_is_not_one_is_refused(client):
 
 # ── the argv, exactly ──────────────────────────────────────────────────────
 
-def test_the_installed_cli_is_preferred_and_the_argv_is_exact(client, fake_cli,
-                                                              monkeypatch):
-    monkeypatch.setattr(shutil, "which",
-                        lambda name: "/usr/local/bin/gamecore-addon"
-                        if name == "gamecore-addon" else None)
-    assert client.post("/api/addons/rom-manager/install").status_code == 200
-    assert fake_cli == [["/usr/local/bin/gamecore-addon", "install", "rom-manager"]]
+def test_the_cli_runs_on_the_backends_interpreter_from_the_installation(client, fake_cli):
+    """The CLI is a Python script with no extension: Windows cannot run it by name.
 
-
-def test_a_box_without_the_installed_cli_falls_back_into_the_checkout(
-        client, fake_cli, monkeypatch):
-    """Development, or an install whose CLI is not on PATH.
-
-    It runs the script in the tree and lets it fail on its own terms, rather
-    than pretending there is nothing to run.
+    Handed to the backend's own interpreter, it needs no PATH entry and no
+    `.cmd` shim (that one is for a person at a prompt).
     """
-    monkeypatch.setattr(shutil, "which", lambda name: None)
     assert client.post("/api/addons/rom-manager/install").status_code == 200
-    assert fake_cli == [[str(GAMECORE_ROOT / "install" / "bin" / "gamecore-addon"),
+    assert fake_cli == [[sys.executable, str(GAMECORE_ROOT / "install" / "bin" / "gamecore-addon"),
                          "install", "rom-manager"]]
 
 
@@ -148,7 +136,7 @@ def test_a_box_without_the_installed_cli_falls_back_into_the_checkout(
 def test_every_lifecycle_verb_reaches_the_cli_under_its_own_name(
         client, fake_cli, method, url, action):
     assert getattr(client, method)(url).status_code == 200
-    assert fake_cli[0][1:] == [action, "rom-manager"]
+    assert fake_cli[0][2:] == [action, "rom-manager"]
 
 
 def test_the_addon_cli_is_not_run_through_sudo(client, fake_cli):
