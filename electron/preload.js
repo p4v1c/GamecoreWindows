@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('gamecore', {
 
   // The machine woke from sleep (electron/power.js)
   onResume: (cb) => ipcRenderer.on('power:resume', () => cb()),
+  // The backend announced a wake: fullscreen, front, repaint (Modern Standby sends no resume)
+  wakeWindow: () => ipcRenderer.send('shell:wake-window'),
 })
 
 // The pointer hides until the mouse moves, and again after CURSOR_IDLE_MS

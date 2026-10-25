@@ -568,19 +568,20 @@ How it sleeps depends on the PC:
 - **S3 sleep** (most desktops): GameCore sleeps the PC and allows the
   Bluetooth adapter and your pads to wake it, at every start and whenever a
   new pad connects. Press the PS / Guide button on a paired pad to wake it.
-- **Modern Standby** (most recent mini PCs and laptops): GameCore closes every
-  game, turns the screen black and keeps the PC running, as the Linux box
-  does; any button on a connected pad wakes it. Windows is kept from sleeping
-  meanwhile (switching the display off would put this kind of PC to sleep),
-  so the TV shows black rather than going to its own standby.
+- **Modern Standby** (most recent mini PCs and laptops): GameCore switches
+  the screen off and Windows puts the PC into its low-power sleep, as the
+  Linux box suspends. Wake it with the power button or a key on the keyboard;
+  a pad's PS / Guide button wakes it only if the PC supports waking from
+  Bluetooth or USB pads (many do not).
 
 After a wake the screen stays black until the TV has the signal back, then
 the theme's boot animation plays with its sound and you land on Home. TVs
 differ: if yours still shows "no signal" at the start of the animation, raise
 Settings → System → **Wait for the TV after waking**. Games are closed before
 *any* sleep, whatever started it: the power button, the Start menu or
-Windows' own sleep timer. Pads stay on while the PC sleeps: switch them off
-by holding the PS / Guide button.
+Windows' own sleep timer. Bluetooth pads are disconnected just before the
+PC sleeps, so they switch themselves off; mice and keyboards keep their right
+to wake it.
 
 ---
 

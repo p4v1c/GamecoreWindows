@@ -47,6 +47,19 @@ describe('the wake count', () => {
     expect(useStore.getState().wakeCount).toBe(1)
   })
 
+  it('a wake asks the shell to put its window back in front, once per wake', async () => {
+    const wakeWindow = vi.fn()
+    window.gamecore = { wakeWindow } as unknown as typeof window.gamecore
+    onResumed(1)
+    onResumed(1)
+    answer(1)
+    await syncWake()
+    answer(2)
+    await syncWake()                    // a wake missed with the socket down
+    expect(wakeWindow).toHaveBeenCalledTimes(2)
+    window.gamecore = undefined
+  })
+
   it('a restarted backend counting from zero is not a wake', async () => {
     answer(5)
     await syncWake()

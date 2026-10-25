@@ -66,7 +66,7 @@ test('register wires the commands now and the resume hook once the app is ready'
   const app = { whenReady: () => new Promise((r) => { ready = r }) }
   register({ app, ipcMain: { on: (k, fn) => ipc.set(k, fn) }, exec: () => {}, powerMonitor: monitor,
              getWindow: () => win, sessionOwnsScreen: () => false })
-  assert.ok(ipc.has('system:reboot') && ipc.has('system:shutdown'))
+  assert.ok(ipc.has('system:reboot') && ipc.has('system:shutdown') && ipc.has('shell:wake-window'))
   monitor.emit('resume')
   assert.deepEqual(win.calls, [], 'subscribed before app ready')
   ready()
@@ -76,4 +76,24 @@ test('register wires the commands now and the resume hook once the app is ready'
   monitor.emit('resume')
   console.log = quiet
   assert.deepEqual(win.calls, ['fullscreen:true', 'show', 'focus', 'send:power:resume', 'repaint'])
+})
+
+test('the renderer heard the backend wake: window back in front, no echo to the renderer', () => {
+  const { registerWakeWindowIpc } = require('../power.js')
+  const ipc = new Map()
+  const win = fakeWindow({ fullscreen: false })
+  registerWakeWindowIpc({ ipcMain: { on: (k, fn) => ipc.set(k, fn) }, getWindow: () => win,
+                          sessionOwnsScreen: () => false, log: () => {} })
+  ipc.get('shell:wake-window')()
+  assert.deepEqual(win.calls, ['fullscreen:true', 'show', 'focus', 'repaint'])
+})
+
+test('the wake-window request leaves a session that owns the screen alone', () => {
+  const { registerWakeWindowIpc } = require('../power.js')
+  const ipc = new Map()
+  const win = fakeWindow()
+  registerWakeWindowIpc({ ipcMain: { on: (k, fn) => ipc.set(k, fn) }, getWindow: () => win,
+                          sessionOwnsScreen: () => true, log: () => {} })
+  ipc.get('shell:wake-window')()
+  assert.deepEqual(win.calls, [])
 })

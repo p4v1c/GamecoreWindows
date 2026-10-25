@@ -292,21 +292,21 @@ def _spawn(coro) -> None:
 
 
 def _rest_screen_off() -> bool:
-    """Rest mode switched the screen off (a Modern Standby PC's sleep, dev-log
-    D34): the next press is the wake, however soon it comes."""
+    """Rest mode put the screen out: the next press is the wake, however soon
+    it comes, once the press that chose Rest mode is behind it."""
     from . import rest_mode, resume     # resume imports this module
-    return rest_mode.is_resting() or resume.is_sleeping()
+    return (rest_mode.is_resting() or resume.is_sleeping()) and resume.press_guard_over()
 
 
-def _dark_rest() -> bool:
-    from . import rest_mode
-    return rest_mode.is_dark()
-
-
-async def _wake_dark_rest() -> None:
-    """The press that ends a dark rest: the whole wake (screen, splash, launches)."""
+def _press_wakes_rest() -> bool:
     from . import resume
-    await resume.dark_rest_ended()
+    return resume.is_press_a_wake()
+
+
+async def _wake_rest_by_press() -> None:
+    """A press while a Modern Standby rest is on: the whole wake (screen, splash, launches)."""
+    from . import resume
+    await resume.woken_by_press()
 
 
 def on_input() -> None:
@@ -324,8 +324,8 @@ def on_input() -> None:
 
     if _state != "active":
         _spawn(exit_standby())          # already turns the screen back on
-    elif _dark_rest():
-        _spawn(_wake_dark_rest())
+    elif _press_wakes_rest():
+        _spawn(_wake_rest_by_press())
     elif silence >= _WAKE_AFTER_SILENCE or _rest_screen_off():
         # GameCore thinks it is awake and the TV may still be dark (Windows'
         # timer); restarting a timer does not light a screen that is off.

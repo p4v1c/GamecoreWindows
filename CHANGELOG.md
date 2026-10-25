@@ -17,6 +17,12 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, Rest mode: a Modern Standby PC now really sleeps (screen
+  off, Windows' low-power sleep) instead of staying on with a black screen.
+  Wake it with the power button or the keyboard; a pad wakes it only where
+  the PC supports it. Bluetooth pads are disconnected before every sleep.
+  Nothing to do: the update brings it.
+
 - Windows edition, kiosk boot: re-run the installer (or
   `install.ps1 -Only set-kiosk-shell,configure-boot-visuals`) as administrator,
   then restart. GameCore becomes the account's shell (no Windows desktop

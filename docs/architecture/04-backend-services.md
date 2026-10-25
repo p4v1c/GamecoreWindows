@@ -92,6 +92,7 @@ See [1](01-runtime-topology.md#on-windows-the-backend-runs-in-the-console-users-
 |---|---|
 | `present(system_id, job)` | waits (`PRESENT_TIMEOUT_SECS`) for the new game's first window and brings it to the front: Windows keeps the foreground for the interface, which received the last input |
 | `hide(system_id)` | brings the interface's largest window (`SHELL_EXECUTABLES`: `GameCore.exe`, dev `electron.exe`) to the front, before a freeze |
+| `raise_interface()` | the same after a wake (`resume.on_resume()`): Windows gives the foreground back to whatever had it |
 | `activate(system_id, job)` | brings every window of a resumed game to the front, topmost last; the layout of several windows is kept |
 | `game_windows(job)`, `wait_for_window(job, timeout)` | the job's app windows; shared with `fullscreen_enforcer.py` |
 
@@ -195,24 +196,25 @@ HUD instead, because the React toast is hidden under the emulator.
 
 | Function | Role |
 |---|---|
-| `rest_mode.enter()` | close the launch gate, wait for a launch in flight, `close_everything()`, `platform/sleep.py` `suspend()` in a thread; `ServiceError` 409/503 (`REFUSED`) |
+| `rest_mode.enter()` | close the launch gate, wait for a launch in flight, `close_everything()`, `resume.going_to_sleep()` (cover, sweep, pads off: before the sleep, dev-log D62), `platform/sleep.py` `suspend()` in a thread; `ServiceError` 409/503 (`REFUSED`, after `resume.sleep_called_off()`) |
 | `rest_mode.close_everything()` | `process_manager.kill()` per session, poll jobs (`EXIT_WAIT_SECS`), terminate survivors (`FORCE_WAIT_SECS`) |
-| `rest_mode.woke()` | reopen launches; also after `REOPEN_AFTER_SECS` if no wake is reported |
-| `rest_mode.is_dark()` | resting on a Modern Standby PC (`suspend()` answered `DARK_REST`, no reopen timer: the wake is never lost): `enter()` calls `resume.dark_rest_began()`, the next press (`standby.on_input()`) `resume.dark_rest_ended()` |
-| `resume.dark_rest_began()` / `dark_rest_ended()` | the sleep and the wake Windows does not announce on a dark rest, through `handle()` and the same lock as Windows' events |
+| `rest_mode.woke()` | reopen launches; also after `REOPEN_AFTER_SECS` if no wake is reported (S3 only) |
+| `rest_mode.in_modern_standby()` | resting through Modern Standby (`suspend()` answered `MODERN_STANDBY`); no reopen timer, since the clock runs while such a PC sleeps |
+| `resume.is_press_a_wake()` / `woken_by_press()` / `press_guard_over()` | a press the backend sees during a Modern Standby rest, `PRESS_WAKE_GUARD_SECS` (3 s) after the sleep began, is the wake (`standby.on_input()`): a display Windows never switched off sends no event. Through `handle()` and the same lock as Windows' events |
+| `resume.sleep_called_off()` | Windows refused the announced sleep: no longer sleeping |
 | `launch.close_gate(reason)` / `open_gate()` / `is_launching()` | the gate `launch()` checks first |
 | `resume.run()` | reads `sleep.power_model()` once, registers `sleep.watch()`; each event goes to `handle()` on the loop, one at a time; a `SUSPEND` holds Windows' power thread up to `SUSPEND_HOLD_SECS` (1.8 s) |
 | `resume.classify(event, model, resting, sleeping)` | **pure**: `SLEEP`, `WAKE` or None. `SUSPEND` sleeps unless already asleep; `RESUME` wakes after a sleep; on Modern Standby the display going off sleeps only during Rest mode and coming back on wakes after a sleep |
-| `resume.going_to_sleep()` | `power:sleeping`, then `sleep_guard.before_sleep()` |
+| `resume.going_to_sleep()` | `power:sleeping`, then `sleep_guard.before_sleep()`; Rest mode calls it itself before the sleep, Windows' `SUSPEND` any other sleep |
 | `sleep_guard.before_sleep()` | gate, `close_everything(0.8, 0.3)` and `bt_wake.turn_off_pads()` together (one failing does not cut the other short), bounded by `SLEEP_BUDGET_SECS` (1.5 s) |
 | `sleep_guard.after_wake()` | sweep again after a sleep (first step of `on_resume()` after the wake source) |
-| `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`, `wake_source.remember()`; each step isolated |
+| `resume.on_resume()` | `wake_source.report()`, `sleep_guard.after_wake()`, gate, `standby.exit_standby()`, `display_ready.wait_for_display()`, `display.restore_preferred()`, the `wake_settle_secs` delay, then the wake count and `power:resumed`, `window_focus.raise_interface()`, `gamepad_monitor.request_reprofile()`, `bt_wake.set_wake_permissions()`, `wake_source.remember()`; each step isolated |
 | `wake_source.remember()` / `report()` | the newest `Power-Troubleshooter` record number (at start and after each wake); after a wake, a newer record's source is logged as `wake_source: woken by <source>`. `describe()` and `is_new()` are pure |
 | `resume.announce_sleep()` / `is_sleeping()` | `power:sleeping`; true until `power:resumed` |
 | `display_ready.wait_for_display(settle, probe, max_wait)` | polls `platform/display.py` `display_ready()` (an active monitor on an adapter attached to the desktop) every 200 ms, `WAIT_MAX_SECS` = 10 s; `probe` is injectable for tests |
 | `bt_wake.devices_to_arm(devices, pad_macs, wired_ids)` | **pure**: WMI names of the devices still refused wake that are a Bluetooth radio (class `Bluetooth` on USB or PCI), a Bluetooth pad's device (address from the instance id, on the roster) or a wired pad's USB device (`vid:pid`, interfaces excluded); nothing is ever disarmed |
 | `bt_wake.set_wake_permissions()` | one pass through `platform/device_wake.py`; None when Windows lists nothing (unelevated) |
-| `bt_wake.turn_off_pads()` | turns off nothing (no Windows call drops one link, dev-log D28); logs it once, returns 0 |
+| `bt_wake.turn_off_pads()` | disconnects every Bluetooth pad on the roster at once (`platform/bt_link.py`, `DISCONNECT_SECS` each), as BlueZ's `Disconnect` on Linux: the pad turns itself off (dev-log D62); returns how many were asked |
 | `bt_wake.run()` | a pass at start, then whenever a new pad joins `gamepad_monitor.roster()`, retried every `RETRY_SECS` while unanswered |
 | `display.restore_preferred()` | after a wake, put the confirmed mode back if the output came up in another |
 
@@ -881,6 +883,8 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `bluetooth.py` | `paired_devices()`, `scan(seconds)`, `pair(mac)`, `unpair(mac)`, `format_address(raw)` | WinRT association endpoints of the classic and LE protocols (address, connected, paired); a scan watches both for `seconds` and drops unnamed LE advertisers (random-address phones and beacons, 20 of 28 in one measured scan); pairing answers Windows' confirm / display-PIN requests | `bluetoothctl` |
 | `display.py` | `primary_output()`, `modes(output)`, `current_mode(output)`, `apply_mode(output, w, h, rate, persist)`, `display_ready()`, `unique_modes(raw)` | Win32 `EnumDisplaySettingsW` / `ChangeDisplaySettingsExW` on the primary display; one mode per size and whole-hertz rate (Windows lists each once per scaling option); `persist` = `CDS_UPDATEREGISTRY` with `CDS_NORESET` (registry only, no second mode change) | `xrandr`, `kscreen-doctor`, `/sys/class/drm` |
 | `power.py` | `screen_off()`, `screen_on()`, `signal_activity()` | off: the PC held running (`awake.py`), then `SC_MONITORPOWER` posted to every top-level window; on a Modern Standby PC no message (the display stays on, black, held on: switching it off sleeps that PC, D56); on releases the hold, adds a zero-length `SendInput` mouse move (what lights a panel Windows turned off) and `signal_activity()`; `SetThreadExecutionState` once, without `ES_CONTINUOUS` | `xset dpms`, `kscreen-doctor --dpms`, `SimulateUserActivity` |
+| | `sleep_display()` | every hold released, then the monitor-off message: Rest mode's way into Modern Standby (D62) | `systemctl suspend` |
+| `bt_link.py` | `disconnect(mac)`, `address_value(mac)` | `IOCTL_BTH_DISCONNECT_DEVICE` on each local radio (`BluetoothFindFirstRadio`): the link ends with "remote user terminated" (0x13) | BlueZ `Device1.Disconnect` |
 | | `idle_timeouts()`, `set_idle_timeouts(values)` | the active plan's display and sleep timeouts on AC and battery, in seconds, 0 = never (PowrProf `PowerRead/WriteAC/DCValueIndex`, then the plan re-applied) | PowerDevil's `TurnOffDisplayIdleTimeoutSec`, `xset s` / `xset dpms` |
 | | `active_scheme()`, `set_active_scheme(guid)`, `POWER_SAVER` | the power plan | `cpupower frequency-set -g` |
 | `awake.py` | `hold(kinds)`, `release()`, `held()`, `DISPLAY_REQUIRED`, `SYSTEM_REQUIRED` | one process-wide `PowerCreateRequest`; `PowerSetRequest` / `PowerClearRequest` per kind, not tied to a thread, dropped by Windows if the backend dies | DPMS left the box running by itself |
@@ -889,7 +893,7 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | `gamepads.py` | `start()`, `pads()`, `subscribe(device)`, `unsubscribe()`, `unavailable()`, `sdl2_library()` | one thread owns SDL2 (pysdl2, bundled `SDL2.dll`) with background events allowed (`SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS`) and PS4/PS5 rumble off; a snapshot of every joystick (`PadInfo`: name, vendor, product, GUID, serial, bus from the GUID, slot or not, guide or not, SDL's counts, axes at rest, power level); events handed to each subscriber's loop as `PadEvent(type, code, value, layer)` in the evdev vocabulary: layer `pad` (game-controller view: `BTN_MODE`, `BTN_START`, `BTN_SELECT`, `ABS_*`, d-pad as a hat) and `raw` (SDL's indices, for the wizard) | evdev, `/dev/input` |
 | `usb.py` | `inventory()`, `parse_devices(rows)` | `vid:pid → name` from WMI `Win32_PnPEntity` (`USB\VID_…&PID_…`), interfaces folded | `/sys/bus/usb/devices` |
 | `sleep.py` | `power_model()`, `model_of(s3, aoac)` | `GetPwrCapabilities`: `S3`, `MODERN_STANDBY` (`AoAc`, S0 low-power idle) or `NO_SLEEP` | `/sys/power/mem_sleep` |
-| | `suspend()` | S3: `SetSuspendState` after enabling the shutdown privilege, blocks until the wake; Modern Standby: `power.screen_off()`, the screen dark and the PC running, answered `DARK_REST`; `(ok, detail)` | `sudo systemctl suspend` |
+| | `suspend()` | S3: `SetSuspendState` after enabling the shutdown privilege, blocks until the wake; Modern Standby: `power.sleep_display()` (nothing held, display off: Windows sleeps within a second), answered `MODERN_STANDBY`, never `SetSuspendState` (it hibernates such a PC); `(ok, detail)` | `sudo systemctl suspend` |
 | | `watch(handler)` | `PowerRegisterSuspendResumeNotification` (`SUSPEND`, `RESUME` = `PBT_APMRESUMEAUTOMATIC`) and `PowerSettingRegisterNotification` on `GUID_CONSOLE_DISPLAY_STATE` (`DISPLAY_OFF` / `DISPLAY_ON`, once at registration too), as callbacks on Windows' power thread; returns `stop()` | logind `PrepareForSleep` via `gdbus monitor`, `systemd-inhibit` |
 | | `last_wake()`, `parse_wake_event(xml)` | the newest `Power-Troubleshooter` event 1 of the System log through `wevtutil … /f:xml` (field names untranslated): record, `WakeSourceText`, `WakeSourceType` | `/sys/class/wakeup/*/event_count` |
 | `device_wake.py` | `wake_devices()`, `set_wake(wmi_name, allowed)`, `instance_id(name)` | WMI `root\wmi` `MSPower_DeviceWakeEnable` joined to `Win32_PnPEntity` classes; elevated only (unelevated it lists nothing) | sysfs `power/wakeup`, BlueZ `WakeAllowed` |
