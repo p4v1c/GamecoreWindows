@@ -240,7 +240,8 @@ def test_every_pack_carries_everything_it_declares(packs):
 def test_each_app_pack_declares_something_to_do(packs):
     """An app that declares nothing installs nothing — and the wizard would
     still offer its tick box. Every app in the catalogue, not a list of four."""
-    idle = [p.id for p in packs.values() if p.kind == "app"
+    # A Windows pack (steam: the player installs Steam) never goes through this Linux applier.
+    idle = [p.id for p in packs.values() if p.kind == "app" and not p.data.get("windows")
             and not any(p.data.get(k) for k in
                         ("install", "sources", "files", "services", "postInstall", "packages"))]
     assert not idle, f"apps that declare no install work at all: {idle}"
@@ -250,7 +251,7 @@ def test_the_app_packs_apply_end_to_end_without_touching_the_system(packs, tmp_p
     caught the deleted user.js at build time rather than at 66 % on a box."""
     ctx = AppContext(gamecore_path=tmp_path, user="", dry_run=True,
                      user_home=tmp_path, secrets={"TWITCH_CLIENT_ID": "abc"})
-    for pack in (p for p in packs.values() if p.kind == "app"):
+    for pack in (p for p in packs.values() if p.kind == "app" and not p.data.get("windows")):
         results = apply(pack, ctx)
         assert results, f"{pack.id} applied nothing at all"
         assert all(r.ok for r in results), \
