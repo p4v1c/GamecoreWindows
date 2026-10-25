@@ -66,7 +66,8 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true", help="do it; without this, only print")
     args = ap.parse_args()
 
-    if os.geteuid() == 0:
+    # Windows has no root user to refuse, and no geteuid.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         print("split-systems: run it as the box's user, not root — moved files "
               "would end up owned by root.", file=sys.stderr)
         return 2

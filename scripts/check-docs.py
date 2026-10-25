@@ -122,6 +122,11 @@ HISTORICAL = {
     # update/apply-update.ps1. Docs still cite it for the Linux box's history
     # (rsync excludes, mtimes, the security notes) and for the import.
     "update/linux.sh",
+    # The Linux /opt to /userdata migration, removed at port step 10: a Windows
+    # install is split from the start, and scripts/import-linux-data.py moves a
+    # Linux tree. The docs keep the story of the Linux box's own move.
+    "scripts/migrate-userdata.py",
+    "backend/tests/test_migration.py",
 }
 
 INLINE_CODE = re.compile(r"`([^`\n]+)`")

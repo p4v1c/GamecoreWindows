@@ -232,10 +232,10 @@ sequenceDiagram
     be->>be: launch.close_gate(), wait for a launch in flight (15 s)
     be->>pm: kill() every session, frozen ones too
     be->>be: poll each job; terminate survivors after 8 s; 2 s more
-    be->>win: sleep.suspend() in a thread: S3 = SetSuspendState, Modern Standby = screen off
-    win-->>be: SUSPEND (S3) or the display going off during Rest mode (Modern Standby): power:sleeping, sleep_guard sweep
-    Note over win: asleep; the pad wakes the PC through the Bluetooth radio
-    win-->>be: RESUME (S3) or the display back on (Modern Standby) (resume.py)
+    be->>win: sleep.suspend() in a thread: S3 = SetSuspendState, Modern Standby = screen dark, PC held running
+    win-->>be: SUSPEND (S3), or rest_mode itself (Modern Standby, dark_rest_began): power:sleeping, sleep_guard sweep
+    Note over win: S3 asleep, the pad wakes it through the Bluetooth radio; Modern Standby running, the backend reads the pad
+    win-->>be: RESUME (S3), or the first press (Modern Standby, dark_rest_ended) (resume.py)
     be->>be: sweep again, open the gate, screen on
     be->>be: wait for an active monitor (10 s max), display mode, settle delay
     be-->>ui: WS power:resumed (or GET /api/power/state after a reconnect)
@@ -252,8 +252,9 @@ sequenceDiagram
   - **Modern Standby** (S0 low-power idle; the port's PC is one): no call
     enters it, and `SetSuspendState` **hibernates** such a PC (measured on
     24/10/2026: S4, about 30 s to wake, and a pad cannot wake S4). Rest mode's
-    sleep is therefore the screen off with every game closed, the PC left
-    running (dev-log D34). `resume.classify()` treats the console display
+    sleep is therefore every game closed, the screen dark and the PC held
+    running (dev-log D34, D56: switching the display off took this PC into
+    standby, so it stays on, black, under a display-required power request). `resume.classify()` treats the console display
     going off **while Rest mode is under way** as the sleep and coming back on
     as the wake; a pad press lights it through standby (`standby.on_input()`
     after a silence). A display going off at any other time is standby's own

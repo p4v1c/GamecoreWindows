@@ -1,223 +1,218 @@
-# GameCore
+# GameCore for Windows
 
-A retro gaming frontend built for kiosk / living-room use.  
-React + Electron shell + FastAPI backend — plug in a controller and play.
+A game console front-end for a PC under the TV.
+React interface in an Electron shell, a FastAPI backend: plug in a controller and play.
 
 ![GameCore in the Orbit theme: a Nintendo 3DS picked in a row of consoles](docs/img/themes/orbit-home.webp)
 
-Website: [p4v1c.github.io/GamecoreRenew](https://p4v1c.github.io/GamecoreRenew/)
+Website: [p4v1c.github.io/GamecoreWindows](https://p4v1c.github.io/GamecoreWindows/)
+
+This is the Windows edition of [GameCore](https://github.com/p4v1c/GamecoreRenew),
+which runs on a Linux box. Same interface, themes, profiles and library; the
+parts that talk to the operating system were rewritten for Windows 10 and 11.
+Releases are numbered `v0.x` until the emulator packs are back (see
+[Not on Windows yet](#not-on-windows-yet)).
 
 ---
 
-> **Licence** — GPL-3.0-or-later, see [`LICENSE`](LICENSE).
-> **Contributing** — [`CONTRIBUTING.md`](CONTRIBUTING.md).
-> **Upgrading a box** — [`CHANGELOG.md`](CHANGELOG.md) lists what needs your hand.
+> **Licence**: GPL-3.0-or-later, see [`LICENSE`](LICENSE).
+> **Contributing**: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+> **Updating a PC**: [`CHANGELOG.md`](CHANGELOG.md) lists what needs your hand.
 
 ## Table of contents
 
 1. [What it does](#what-it-does)
-2. [Requirements](#requirements)
-3. [Installation (device)](#installation-device)
-4. [Uninstallation](#uninstallation)
-5. [Development setup](#development-setup)
-5. [First launch](#first-launch)
-6. [Adding ROMs](#adding-roms)
-7. [Controller navigation](#controller-navigation)
-8. [Settings & Wi-Fi](#settings--wi-fi)
-9. [Themes](#themes)
-10. [OTA updates](#ota-updates)
-11. [Adding an emulator or an app](#adding-an-emulator-or-an-app)
-12. [Living-room box setup](#living-room-box-setup)
-13. [Project structure](#project-structure)
+2. [Not on Windows yet](#not-on-windows-yet)
+3. [Requirements](#requirements)
+4. [Installation](#installation)
+5. [Moving from the Linux box](#moving-from-the-linux-box)
+6. [Uninstallation](#uninstallation)
+7. [Development setup](#development-setup)
+8. [First launch](#first-launch)
+9. [Adding ROMs](#adding-roms)
+10. [Controller navigation](#controller-navigation)
+11. [Settings](#settings)
+12. [Themes](#themes)
+13. [Addons](#addons)
+14. [Cover art and game media](#cover-art-and-game-media)
+15. [Standby and Rest mode](#standby)
+16. [Updates](#updates)
+17. [Adding an emulator or an app](#adding-an-emulator-or-an-app)
+18. [What runs on the PC](#what-runs-on-the-pc)
+19. [Project structure](#project-structure)
 
 ---
 
 ## What it does
 
-GameCore is a full-screen game launcher designed to run on a dedicated machine connected to a TV.  
-You navigate with a gamepad, launch emulators, and never touch a keyboard.
+GameCore turns a Windows PC connected to a TV into a console. The PC signs in
+by itself, GameCore covers the screen, and everything is done with a
+controller: browse the library, launch a game, suspend it with the Guide
+button, come back to it later, put the PC to rest.
 
-**Supported emulators (out of the box):**
+- Five themes: Default, Orbit, Shelf, Summer, Jelly
+- Profiles with their own saves, playtime, recently played and favourites
+- Covers, 3D boxes, screenshots, videos and synopses, scraped or read from the game itself
+- Standby screens (a CRT room playing your games' videos), Rest mode, wake by controller
+- Settings for Wi-Fi, Bluetooth, display, audio, controllers, BIOS, storage and logs
+- Web access from a phone or another PC, behind one password
+- Updates over the air, with an automatic way back
 
-| ID | Emulator | System |
-|----|----------|--------|
-| `gamecube` | Dolphin | Nintendo GameCube |
-| `wii` | Dolphin | Nintendo Wii |
-| `duckstation` | DuckStation | PlayStation 1 |
-| `pcsx2` | PCSX2 | PlayStation 2 |
-| `rpcs3` | RPCS3 | PlayStation 3 |
-| `ppsspp` | PPSSPP | PSP |
-| `cemu` | Cemu | Wii U |
-| `switch` | Ryujinx | Nintendo Switch |
-| `azahar` | Azahar | Nintendo 3DS |
-| `gb` | mGBA | Game Boy |
-| `gbc` | mGBA | Game Boy Color |
-| `gba` | mGBA | Game Boy Advance |
-| `melonds` | melonDS | Nintendo DS |
-| `gopher64` | Rosalie's Mupen GUI (Mupen64Plus core) | Nintendo 64 |
-| `xenia` | Xenia Canary | Xbox 360 |
-| `shadps4` | shadPS4 | PlayStation 4 |
+## Not on Windows yet
 
-> - **Nintendo 64**: the pack **id** is `gopher64` but the emulator installed is **Rosalie's Mupen GUI** (`com.github.Rosalie241.RMG`), a front end over the Mupen64Plus core — which is why its config file is `mupen64plus.cfg`. The id is a key: it names the catalogue directory, `emu/gopher64/` on every installed box, and the controller snapshots. Renaming it without a migration would move a player's N64 library under a path the scanner no longer reads, so it stays.
-> - **Nintendo Switch** runs Ryujinx (Ryubing, `io.github.ryubing.Ryujinx`). Put `prod.keys` (and `title.keys` if you have one) in `~/.var/app/io.github.ryubing.Ryujinx/config/Ryujinx/system/`, updates and DLC as `.nsp` in `emu/Switch DLC & Updates/`. A box that ran Eden gets Eden's keys, firmware and saves copied into Ryujinx when Ryujinx is installed, and each profile's at its first launch; Eden's files are only read (`CHANGELOG.md`). The Eden variant lives on the `switch-eden` branch.
-> - **PlayStation 1** uses the official DuckStation **AppImage** — the Flatpak was discontinued upstream in 2025.
-> - **Xbox 360** runs Xenia Canary **through Wine** (`lib/xenia/xenia_canary.exe`, downloaded by the full installer).
-> - **PlayStation 4** uses the shadPS4 Flatpak; games are folders (`emu/shadps4/<Game>/eboot.bin`, `scanDirs`).
-> - Everything else installs from Flathub. Full-mode installs grant each emulator `--filesystem` (ROMs) and `--device=all` (controller) overrides automatically.
-
----
+| Missing | Why, and what happens instead |
+|---|---|
+| **Emulator and app packs** | The Linux packs install Flatpaks; each is being rewritten for Windows. Until then no console tile appears and the interface says no system is installed. ROM folders, covers and playtime already work |
+| Multiplayer DS, PC games through Lutris, the Stremio, Twitch and YouTube tiles | Features of those packs; they come back with them |
+| The bezel overlay around games | Left out of the port on purpose |
+| A graphical installer | The installer is a PowerShell script for now |
 
 ## Requirements
 
 | | Minimum |
-|--|---------|
-| OS | Arch Linux / Manjaro, already installed |
-| Firmware | UEFI |
-| Display | 1920×1080 (Full HD) |
-| GPU | Any — hardware acceleration recommended |
+|---|---|
+| OS | Windows 10 version 1809 (build 17763) or Windows 11, 64-bit |
+| Account | A local or Microsoft account with administrator rights: GameCore signs it in at boot |
+| Display | 1920×1080 |
 | RAM | 4 GB |
-| Storage | 80 GB + (60 GB system + your ROM library) |
-| Controller | Any gamepad SDL2 opens (XInput, DualShock 4 / DualSense, Switch Pro, generic HID) |
+| Storage | the code takes about 1 GB; your ROM library goes where you choose |
+| Controller | Any pad SDL2 opens: Xbox (XInput), DualShock 4, DualSense, Switch Pro, generic HID |
 
-All emulators are installed via **Flatpak**. Make sure Flatpak is available on your system before running the installer.
+Nothing else to install first: the installer brings its own Python and Caddy.
 
 ---
 
-## Installation (device)
+## Installation
 
-> Run this on the machine that will act as the kiosk.  
-> The installer sets up auto-login, auto-start, and all dependencies.
+> Run this on the PC that will sit under the TV. It changes how that PC
+> starts: automatic sign-in, power settings, a logon task. Read the dry run first.
 
-**Graphical installer** — a native step-by-step wizard, like any
-desktop installer. Download `gamecore-installer` from the
-[latest release](https://github.com/p4v1c/GamecoreRenew/releases/latest), then:
+1. Download `gamecore-ota.zip` and `gamecore-ota.zip.sha256` from the
+   [latest release](https://github.com/p4v1c/GamecoreWindows/releases/latest).
+2. Check the download, then unpack it to a folder of your choice:
 
-```bash
-chmod +x gamecore-installer
-./gamecore-installer
+   ```powershell
+   (Get-FileHash .\gamecore-ota.zip -Algorithm SHA256).Hash   # same as the .sha256 file
+   Unblock-File .\gamecore-ota.zip
+   Expand-Archive .\gamecore-ota.zip -DestinationPath .\GameCore-setup
+   cd .\GameCore-setup
+   ```
+
+3. See what it would change, then install:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install\install.ps1 -DryRun
+   powershell -ExecutionPolicy Bypass -File .\install\install.ps1
+   ```
+
+   It asks for administrator rights (UAC), where your data should go, a
+   password for web access, and your Windows password for automatic sign-in.
+4. Restart the PC. It signs in and GameCore starts.
+
+What the installer does, one step per file in `install\steps\`:
+
+- copies the code to `C:\Program Files\GameCore` (`-CodeRoot` to change it)
+- installs Python 3.12 and the backend's packages there
+- prepares the data folder, `Documents\GameCore` by default (`-DataRoot D:\GameCoreData`
+  for another drive; avoid a folder OneDrive syncs)
+- writes `%ProgramData%\GameCore\session.env`, readable by administrators
+  only: both folders, the port and your scraper keys
+- installs Caddy as the `GameCoreCaddy` service for web access on port 8443,
+  and opens that port (and SSH, if chosen) on private networks only
+- installs OpenSSH Server if you want it
+- sets the power options a console needs, in every power plan: power button =
+  sleep, no wake timers, no password on wake, Fast Startup off
+- signs your account in at boot (the password is stored as an LSA secret, never in a file)
+- registers the `\GameCore\Session` logon task and a `GameCore` shortcut
+- downloads the offline game database (LaunchBox, 234 MB)
+
+Re-running it is safe: it changes only what differs. Scripted install:
+copy `install\install.conf.example` to `install.conf`, fill it in, then
+`.\install\install.ps1 -ConfigFile install.conf -Unattended` (automatic
+sign-in is then left for you: `.\install\install.ps1 -Only configure-autologon`).
+From a clone of this repository instead of a release, the installer also
+builds the interface and the shell, which needs Node.js 22 and npm.
+
+**Return to desktop** in the Power menu leaves GameCore for the Windows desktop;
+the `GameCore` shortcut brings it back.
+
+---
+
+## Moving from the Linux box
+
+The Linux edition keeps everything under `/userdata`, in the same layout this
+edition reads. Plug in (or mount) the disk that holds it, then from the
+installed GameCore:
+
+```powershell
+$py = 'C:\Program Files\GameCore\.venv\Scripts\python.exe'
+& $py 'C:\Program Files\GameCore\scripts\import-linux-data.py' E:\userdata --to D:\GameCoreData          # the plan
+& $py 'C:\Program Files\GameCore\scripts\import-linux-data.py' E:\userdata --to D:\GameCoreData --apply  # the copy
 ```
 
-Pick your emulators and addons, paste your API keys (optional), hit Install —
-it asks for the administrator password (polkit), downloads the latest GameCore
-release and does everything. Re-running it is safe.
+It copies ROMs and their saves, covers, scraped media, the offline database,
+profiles and their saves, per-game settings and playtime to the same place in
+the new folder. It never changes the source and never overwrites a file that
+is already in the destination. What only made sense on Linux (the Flatpak
+tiles, the addons' services, controller bindings, logs) goes to
+`linux-import\` in the destination instead, so nothing is lost. A file name
+Windows refuses is renamed, and a link to another disk is not followed; the
+report lists both and is saved in `logs\import\`.
 
-**Command line** (SSH / no graphical session):
-
-```bash
-git clone https://github.com/p4v1c/GamecoreRenew.git
-cd GamecoreRenew
-sudo bash install/arch.sh                      # interactive prompts
-sudo bash install/arch.sh --unattended my.conf # scripted (see install/install.conf.example)
-```
-
-What the installer does:
-- Installs Node.js, Python, Flatpak, Plasma and the drivers your GPU needs
-- Installs the emulators and apps you ticked — each one from its own
-  [catalogue pack](#adding-an-emulator-or-an-app), nothing is hardcoded
-- Creates a Python virtual environment and installs backend dependencies
-- Builds the React frontend, installs Node modules for Electron
-- Creates the Linux user you named (or reuses it if it exists)
-- Configures SDDM auto-login into that user's **KDE Plasma X11 session**, with
-  the GameCore kiosk drawn over it
-- Registers two systemd services: `gamecore-backend` and `gamecore-ui`
-- The machine boots straight into GameCore after a reboot
-
-Closing GameCore from Settings → Desktop drops you on that Plasma desktop. To
-keep the desktop across reboots — and put the kiosk back later:
-
-```bash
-sudo gamecore-session-select desktop     # kiosk off, it stops starting at boot
-sudo gamecore-session-select gamecore    # kiosk back on
-gamecore-session-select status           # which mode, and the sessions available
-```
-
-There is one session, so this changes no login configuration: it enables or
-disables `gamecore-ui.service`, nothing else.
-
-Verify an install from the outside — it changes nothing:
-
-```bash
-bash /opt/GameCore/scripts/check-install.sh
-```
-
-After installation:
-```bash
-sudo reboot
-```
+Then point GameCore at the new folder: `.\install\install.ps1 -DataRoot D:\GameCoreData`
+(or run the import before installing and give the same folder to the installer).
+A Linux box still on the old `dolphin` or `mgba` tile should run
+`scripts/split-systems.py` there first
+([how](docs/architecture/07-config-and-data.md#splitting-a-system--scriptssplit-systemspy)).
 
 ---
 
 ## Uninstallation
 
-```bash
-sudo bash /opt/GameCore/install/uninstall.sh --dry-run   # show everything it would do
-sudo bash /opt/GameCore/install/uninstall.sh             # do it
+Remove the addons first (`gamecore-addon remove <name>` for each, see
+[Addons](#addons)), then from an elevated PowerShell:
+
+```powershell
+& 'C:\Program Files\GameCore\install\uninstall.ps1' -DryRun   # what it would undo
+& 'C:\Program Files\GameCore\install\uninstall.ps1'
 ```
 
-The installer records what it changed in `/var/lib/gamecore/`, and the uninstaller
-reads that manifest — so it only undoes what **this** box's install actually did.
-A package that was already present is never removed, a user account that predated
-GameCore is never deleted, and an emulator config that existed before is *restored*
-from its `.bak-preinstall` backup rather than deleted.
-
-By default it removes the services, the auto-login, the sudoers and udev rules, the
-Caddy configuration and its root CA, the companion checkouts in `/opt`, the stored
-web password, and the application files — and **keeps your ROMs** (`emu/`) and
-`config/`.
-
-| Flag | Effect |
-|---|---|
-| `--dry-run` | Print every action, change nothing. Run this first. |
-| `--purge` | Also delete `emu/` (ROMs) and `config/`. |
-| `--remove-flatpaks` | Uninstall the Flatpak emulators **this install** added. Their save data in `~/.var/app/` is **kept** — the uninstaller never passes `--delete-data`. Remove it yourself with `flatpak uninstall --delete-data <app-id>`. |
-| `--remove-packages` | `pacman -Rns` the packages this install added and that nothing else requires. |
-| `--remove-user` | Delete the GameCore user — only if the manifest proves the installer created it. |
-| `--yes` | No confirmation prompts. |
-| `--user` / `--path` | Override the auto-detected user and install directory. |
-
-Two things it cannot undo, and says so at the end: the `pacman -Syu` the installer
-ran, and the in-place rewrite of `config/systems.json` / `config/apps.json`.
-
-`sshd`, `bluetooth` and `sddm` are left enabled — they are system services that
-almost certainly predate GameCore. The installer did enable SSH, so close it
-yourself if you want it closed: `sudo systemctl disable --now sshd`.
+The installer records what it changed in `%ProgramData%\GameCore\install-manifest.json`,
+and the uninstaller undoes exactly that, in reverse: the logon task and the
+shortcut, automatic sign-in, the power settings (put back to their values
+before GameCore), the firewall rules, OpenSSH (only if GameCore installed it),
+the Caddy service, `session.env` and the code folder. **Your data folder is
+never touched**: ROMs, saves, covers and settings stay. Caddy's certificate
+authority stays in `%ProgramData%\GameCore\caddy` so phones that trust it keep
+working after a reinstall.
 
 ---
 
 ## Development setup
 
-> For development on your own machine — no auto-start, no kiosk mode.
+> For working on the code: no automatic start, no kiosk.
 
-```bash
-git clone https://github.com/p4v1c/GamecoreRenew.git
-cd GamecoreRenew
+```powershell
+git clone https://github.com/p4v1c/GamecoreWindows.git
+cd GamecoreWindows
+py -3.12 -m venv .venv
+.venv\Scripts\pip install -r backend\requirements.txt pytest
+$env:PYTHONUTF8 = '1'      # every Python tool runs in UTF-8 mode, as the installed backend does
 
-# 1. Backend
-pip install -r backend/requirements.txt
-# Loopback only — the core has no authentication of its own, and
-# docs/SECURITY.md phase 1 is "only :8443 listens on the LAN".
-uvicorn backend.main:app --host 127.0.0.1 --port 8765 --reload
+# Interface (Vite, http://localhost:5173)
+cd frontend; npm install; npm run dev
 
-# 2. Frontend (separate terminal)
-cd frontend && npm install && npm run dev
-# → http://localhost:5173
-
-# 3. Electron (separate terminal)
-cd electron && npm install
-ELECTRON_DEV=1 npx electron .
-
-# Tests — see docs/TESTING.md
-pip install pytest
-pytest backend/tests -q -m "not network"    # what CI runs
+# Tests: see docs/TESTING.md and CONTRIBUTING.md
+.venv\Scripts\python -m pytest backend\tests catalog -m "not network"
 ```
 
-`DEBUG = True` in `backend/config.py` and `const DEBUG = true` in `electron/main.js` enable:
-- DevTools window (detached)
-- Dev URLs (localhost:5173 for frontend, localhost:8765 for backend)
-- Verbose logging
-- No kiosk / fullscreen lock
-
-Set both to `false` before deploying to a device.
+Run the real backend (`uvicorn backend.main:app --host 127.0.0.1 --port 8765`)
+only on a PC you do not mind changing: at start it takes over Windows' screen
+and sleep timers and the power plan, as on a console. For interface work use
+the read-only dev server (`.claude\skills\gamecore-legibility\scripts\devserve.py`,
+port 8766), and start the shell against it with
+`$env:GAMECORE_BACKEND_PORT = '8766'; $env:GAMECORE_MANAGED = '1'` then
+`npx electron .` in `electron\`.
 
 ---
 
@@ -225,39 +220,35 @@ Set both to `false` before deploying to a device.
 
 On first boot the splash screen appears, then the **Home** screen.
 
-- **Home** — shows your recently played games and quick-launch apps
-- **Library** — full list of all systems and their ROMs, navigate with the D-pad
+- **Home**: your recently played games and quick-launch apps
+- **Library**: every system and its games, navigate with the D-pad
 
-If no ROMs are found, the library will be empty until you add some (see below).
+If no ROMs are found, the library stays empty until you add some (see below).
 
 ---
 
 ## Adding ROMs
 
-ROMs are stored in `emu/<system_id>/` folders (e.g. `emu/melonds/`, `emu/gamecube/`).
+ROMs go in `emu\<system_id>\` inside your data folder (for example
+`Documents\GameCore\emu\melonds\`).
 
-**Option 1 — ROM Manager addon (recommended)**  
-The ROM Manager ships as an addon (installed by default by the installer —
-or run `gamecore-addon install rom-manager`). From any device on the same
-network, open a browser and go to:
+**Option 1: the ROM Manager addon.** Install it (`gamecore-addon install rom-manager`),
+then from any device on the same network open:
 ```
-https://<device-ip>:8443/roms/
+https://<pc-ip>:8443/roms/
 ```
-The addon itself listens only on `127.0.0.1:8770` — every LAN request goes
-through Caddy on `:8443`, which asks for the shared password first. `:8770` is
-not reachable from another machine.
-Select a system in the left sidebar, then drag & drop your ROM files.  
-They are uploaded directly to the correct folder on the device.
+The addon itself listens only on `127.0.0.1:8770`; every LAN request goes
+through Caddy on `:8443`, which asks for the web password first. Pick a
+system, then drag and drop your ROM files.
 
-**Option 2 — Copy directly**  
-Copy ROM files into the matching `emu/<system_id>/` folder via USB or SSH.
+**Option 2: copy them.** Into the matching `emu\<system_id>\` folder, from a
+USB drive or over the network.
 
-**Supported formats per system:**
-
-The scanner filters strictly on this list — a format that is not declared is not
-shown, with no message. `config/systems.json` is the source of truth and is
-regenerated from `install/generated/systems.json.dist` on every install;
-`backend/tests/test_systems_extensions.py` pins this table to it.
+**Supported formats per system.** The scanner filters strictly on this list:
+a format that is not declared is not shown. The list comes from the catalogue
+(`install/generated/systems.json.dist`, pinned to this table by
+`backend/tests/test_systems_extensions.py`); on Windows a system appears once
+its pack is installed (see [Not on Windows yet](#not-on-windows-yet)).
 
 | System | Folder | Extensions |
 |--------|--------|-----------|
@@ -298,33 +289,7 @@ regenerated from `install/generated/systems.json.dist` on every install;
 | PC (Lutris) | `emu/lutris/` | `.lutris` — written by GameCore, one per game installed in Lutris; nothing to copy here |
 
 > A multi-track PS1 dump is `Game.cue` plus its `Game (Track NN).bin` files.
-> Launch the **`.cue`** — it is the one that knows about the other tracks.
-> Starting `Track 01.bin` on its own boots the game without its CD audio.
-
-### PC games (Lutris)
-
-Tick **PC** in the installer (or install it from Settings → Catalog). That brings
-Lutris (Flatpak), gamemode, and within a minute of the next login the latest
-GE-Proton, set as Lutris's default with DXVK, VKD3D, esync, fsync and gamemode on.
-
-Games are installed in Lutris itself, which needs a mouse and keyboard: Settings →
-Desktop, open **Lutris** from the menu, install the game (a GOG offline installer,
-itch.io, Epic or GOG through Lutris's sources, a disc), then come back to GameCore.
-The first time Lutris opens it downloads its own runtime (umu, DXVK); let it
-finish. New games install to `emu/lutris-games/` unless you choose another folder.
-
-Every game installed in Lutris appears under **PC** the next time you open it,
-and disappears when you remove it in Lutris; games you hide in Lutris stay
-hidden. A game starts with A, without the Lutris window, and GameCore gets the
-screen back when you quit it. The files in `emu/lutris/` are written by
-GameCore; there is nothing to copy there. On the Shelf theme, the back of a PC
-game's box shows its minimum system requirements, read from the Steam store.
-
-During a PC game, each PlayStation pad (and any other pad that is not an Xbox
-one) is shown to the game as an Xbox 360 pad, so games that only accept Xbox
-pads work; the game shows Xbox buttons. A game that supports PlayStation pads
-itself can get them back: in Lutris, the game's Configure → System options →
-Environment variables, add `GAMECORE_XBOX_PAD` = `0`.
+> Launch the **`.cue`**: it knows about the other tracks.
 
 ---
 
@@ -347,31 +312,23 @@ the buttons above do the same thing on every theme.
 A pad whose Guide button never reaches the box can hold **Start + Select** for
 a second to leave a game, and reach suspended games from the Power menu.
 
-### Nintendo DS with friends
-
-Start a DS game with two to four controllers connected and each player gets
-their own DS, side by side on the TV. Every DS starts on its menu: pick the
-game on each DS for games where everyone has a cart, or **DS Download Play**
-on the others when the game shares from one cart (Mario Party DS). Each
-controller drives its own DS. The touch screen is the mouse. With one mouse,
-one cursor touches any DS; with two or more, each mouse gets its own
-arrow and touches only its player's DS (the first mouse used is player 1's).
-With one controller nothing changes.
-
 ---
 
-## Settings & Wi-Fi
+## Settings
 
 Open Settings from the top-right icon or press **Start** on the controller.
 
-- **Wi-Fi** — turn Wi-Fi on or off, scan and connect to networks. Turning it
-  off with no cable plugged in takes the box offline, so it asks for a second press
-- **Audio** — volume control
-- **Bluetooth** — pair controllers
-- **Themes** — change the look of the whole UI
-- **Update** — check for and apply OTA updates
-- **System** — reboot / shutdown
-- **Profiles** — who plays on this box: add, rename, recolour, delete, switch
+- **Wi-Fi**: turn it on or off, scan and join networks. Turning it off with no
+  cable plugged in takes the PC offline, so it asks for a second press
+- **Bluetooth**: pair controllers and headsets
+- **Display**: resolution and refresh rate, with a revert timer
+- **Audio**: output device and volume
+- **Controllers**: who is player 1 to 4, battery, button mapping
+- **Emulators & apps**, **BIOS**: what is installed and what each system still needs
+- **Themes**: change the look of the whole interface
+- **Update**: check for and install updates
+- **System**: restart, shut down, storage, logs
+- **Profiles**: who plays on this PC: add, rename, recolour, delete, switch
 
 **Profiles.** A box starts with no profiles and behaves exactly as before:
 controllers are P1 to P4. **Settings → Profiles → Set up profiles** names the
@@ -392,8 +349,7 @@ suspended: close it first. Deleting a profile keeps its saves on disk, but no
 profile opens them again.
 
 **Logs.** Each game launch keeps the emulator's output, and the backend keeps
-its own log, under `logs/` in the data folder (`/userdata/logs` on a box set up
-that way): `logs/launch/<system>/` holds the last 10 launches per system,
+its own log, under `logs\` in the data folder: `logs/launch/<system>/` holds the last 10 launches per system,
 `logs/controllers/`, `logs/media/`, `logs/session/`, `logs/network/`, `logs/ota/`,
 `logs/addons/` and `logs/ui/` (interface errors) one area each, `logs/packs/` what
 a pack script writes, and `logs/backend/backend.log` every warning and error. Read them when a game will not start or
@@ -534,7 +490,18 @@ Nothing is downloaded before it is asked for. A scrape fetches the cover and
 records the rest; the first request for a 3D box is one HTTP call and costs no
 ScreenScraper quota.
 
-### Enable ScreenScraper (best identification)
+### Scraper keys
+
+The installer asks for them; to add or change them later, edit
+`%ProgramData%\GameCore\session.env` from an elevated Notepad and restart the PC:
+
+```
+THEGAMESDB_API_KEY=your_key
+SCREENSCRAPER_DEV_ID=your_dev_pseudonym
+SCREENSCRAPER_DEV_PASSWORD=your_dev_password
+SCREENSCRAPER_USER=your_member_login
+SCREENSCRAPER_PASSWORD=your_member_password
+```
 
 ScreenScraper needs **two accounts**, and they are not the same thing:
 
@@ -543,63 +510,17 @@ ScreenScraper needs **two accounts**, and they are not the same thing:
 | **developer** | asked for on the [ScreenScraper forum](https://www.screenscraper.fr), granted per piece of software. The dev id is the **pseudonym**, not the number in the `devinfos.php` URL. Without it: `403` |
 | **member** | your own account on screenscraper.fr. It carries the daily quota and the number of threads you may use |
 
-The installer asks for both. To add them afterwards:
-
-```bash
-sudo systemctl edit gamecore-backend.service
-```
-
-```
-[Service]
-Environment="SCREENSCRAPER_DEV_ID=your_dev_pseudonym"
-Environment="SCREENSCRAPER_DEV_PASSWORD=your_dev_password"
-Environment="SCREENSCRAPER_USER=your_member_login"
-Environment="SCREENSCRAPER_PASSWORD=your_member_password"
-```
-
-```bash
-sudo systemctl restart gamecore-backend.service
-```
-
-> The developer credential is **shared by every box running GameCore**. That is
+> The developer credential is **shared by every PC running GameCore**. That is
 > why requests are spaced 1.2 s apart and never committed to the repo: exceeding
-> the rate gets the id blacklisted for everyone, not just you.
+> the rate gets the id blacklisted for everyone.
 
 **Or no account at all**: LaunchBox publishes its metadata dump, 185 000 games
-with 172 000 synopses, and it works offline once indexed.
+with 172 000 synopses, and it works offline once indexed. The installer builds
+it; to build it again: `.\install\install.ps1 -Only build-media-index`.
 
-```bash
-cd /opt/GameCore && .venv/bin/python backend/services/gamemedia/gamescrape.py --refresh
-```
-
-That downloads 106 MB, indexes for about 25 s and leaves a 234 MB SQLite file in
-`emu/gamescrape/`. The backend never builds it on its own — 106 MB of download
-from inside an HTTP handler would block the request for minutes.
-
-### Enable TheGamesDB (recommended)
-
-1. Register for a free API key at **https://thegamesdb.net**
-2. Add the key to the backend service:
-
-```bash
-sudo systemctl edit gamecore-backend.service
-```
-
-In the editor, add:
-
-```
-[Service]
-Environment=THEGAMESDB_API_KEY=your_key_here
-```
-
-Then restart:
-
-```bash
-sudo systemctl restart gamecore-backend.service
-```
-
-TheGamesDB covers PS3, Switch, Nintendo 64, DS, GBA, PSP, PS1, PS2, GameCube, Wii U, and 3DS.
-If no key is set, the scraper silently falls back to libretro only.
+TheGamesDB (free key at https://thegamesdb.net) covers PS3, Switch, Nintendo 64,
+DS, GBA, PSP, PS1, PS2, GameCube, Wii U and 3DS. Without a key the scraper
+falls back to libretro only.
 
 ---
 
@@ -611,211 +532,150 @@ of the games you play most; Jelly: your covers floating in jellies on the cyan
 floor, one of them growing now and then to play its game's video; other
 themes: a cover-art slideshow), then turns
 the screen off and switches to Windows' Power saver plan when the PC has one.
-The PC itself stays up: backend, SSH and OTA updates keep working. **Any
-controller button wakes it** (read by the backend, so it works even with the UI
-asleep); mouse/keyboard input works too. A running game always blocks standby.
+**Any controller button wakes it** (read by the backend, so it works even
+with the interface asleep); mouse and keyboard work too. A running game
+always blocks standby. The PC keeps running meanwhile, as the Linux box does:
+on a Modern Standby PC, where a display switched off puts the whole PC to
+sleep, the screen is left on and black instead.
 While standby is on, GameCore sets Windows' own "turn off the display" and
 "sleep after" timers to never and gives them back when standby is switched off.
 
 The standby videos come from ScreenScraper, so they need its account (the same
 one that brings the 3D boxes). The backend downloads them in the background,
 the most played games first, never while a game is running, and keeps at most
-5 GB; `GAMECORE_STANDBY_VIDEO_CAP_GB=2` in the backend's environment lowers
+5 GB; `GAMECORE_STANDBY_VIDEO_CAP_GB=2` in `session.env` lowers
 that, `0` turns the videos off and deletes them.
 
 ### Rest mode
 
 The Power menu opens on **Rest mode**: it closes every game and app (the
-suspended ones too), then puts the box to sleep. Press the PS / Guide button on
-a paired Bluetooth pad, or a button on a USB pad, to wake it: the theme's boot
-animation plays with its sound and you land on Home. **Turn off**, **Restart**
-and **Return to desktop** are unchanged.
+suspended ones too), then puts the PC to sleep. **Turn off**, **Restart** and
+**Return to desktop** are next to it.
 
-While the box sleeps and wakes the screen stays black, so the TV never shows
-the old picture; the animation starts once the TV has the signal back. TVs
+How it sleeps depends on the PC:
+
+- **S3 sleep** (most desktops): GameCore sleeps the PC and allows the
+  Bluetooth adapter and your pads to wake it, at every start and whenever a
+  new pad connects. Press the PS / Guide button on a paired pad to wake it.
+- **Modern Standby** (most recent mini PCs and laptops): GameCore closes every
+  game, turns the screen black and keeps the PC running, as the Linux box
+  does; any button on a connected pad wakes it. Windows is kept from sleeping
+  meanwhile (switching the display off would put this kind of PC to sleep),
+  so the TV shows black rather than going to its own standby.
+
+After a wake the screen stays black until the TV has the signal back, then
+the theme's boot animation plays with its sound and you land on Home. TVs
 differ: if yours still shows "no signal" at the start of the animation, raise
-Settings → System → **Wait for the TV after waking**.
-
-Games are closed before *any* sleep, whatever started it: the power button,
-the Start menu or Windows' own sleep timer.
-
-Whether a pad can wake the box depends on the hardware (the Bluetooth adapter
-and the board's wake support) and on the kind of sleep the PC has. On a PC
-with S3 sleep, GameCore allows the Bluetooth adapter and your pads to wake it
-by itself, at every start and whenever a new pad connects. On a PC with
-Modern Standby (most recent mini PCs and laptops), Rest mode closes every
-game and switches the screen off, and any button on a connected pad brings
-it back. Pads stay on while
-the box sleeps: switch them off by holding the PS / Guide button.
+Settings → System → **Wait for the TV after waking**. Games are closed before
+*any* sleep, whatever started it: the power button, the Start menu or
+Windows' own sleep timer. Pads stay on while the PC sleeps: switch them off
+by holding the PS / Guide button.
 
 ---
 
-## OTA updates
+## Updates
 
-Via the UI: **Settings → Update → Check for update → Install**
+From the interface: **Settings → Update → Check for update → Install**.
 
-Or manually on the device:
-```bash
-bash update/linux.sh
+GameCore downloads the newest release of this repository (`gamecore-ota.zip`),
+checks its SHA-256, then restarts to swap its program folder for the new one.
+Your data folder is not touched. If the new version does not start within
+three minutes, the previous one is put back by itself. To go back by hand,
+from an elevated PowerShell:
+
+```powershell
+& 'C:\Program Files\GameCore\update\apply-update.ps1' -Rollback
 ```
 
-The update pulls the latest release from GitHub, replaces app files in place (preserving ROMs, `config/`, and emulators), rebuilds the frontend, then restarts the services through a detached `gamecore-restart.service` unit. That last step needs a one-time root setup:
-
-```bash
-sudo install/steps/setup-update-permissions.sh
-```
-
-This installs the restart unit and a sudoers rule allowing the GameCore user to start **only** that unit — the update itself runs unprivileged, from the UI, with progress streamed to the settings screen.
+The outcome of the last update is in `%ProgramData%\GameCore\update\last-update.json`,
+the details in `logs\update\update.log` in your data folder. Every change
+merged into `main` here is a release; the full story is in
+[docs/architecture/13-release-and-ota.md](docs/architecture/13-release-and-ota.md).
 
 ---
 
 ## Adding an emulator or an app
 
-**One directory is one system or one application.** Everything it needs lives in
-`catalog/<id>/`, and nothing about it is written anywhere else — not in
-`install/arch.sh`, not in the installer wizard, not in the tile catalogues.
-Adding one is dropping a directory; removing one is `rm -rf`.
+**One directory is one system or one application.** Everything it needs lives
+in `catalog/<id>/`, and nothing about it is written anywhere else: not in the
+installer, not in the tile catalogues. Adding one is dropping a directory.
 
 ```
 catalog/myemu/
-├── pack.json        the declaration — the only required file
+├── pack.json        the declaration, the only required file
 ├── logo.png         the tile
-├── seed/            curated config, deployed to the emulator's config dir
+├── seed/            curated config, deployed to the emulator's config folder
 ├── generator.py     controller bindings (optional)
 └── tests/           this pack's own tests, run by CI with the rest
 ```
 
-A minimal emulator:
-
-```json
-{
-  "id": "myemu",
-  "kind": "emulator",
-  "label": "Some Console",
-  "emulatorName": "MyEmu",
-  "platform": "SOMECONSOLE",
-  "family": "Sega",
-  "color": "#1e90ff",
-  "order": 13,
-  "install": { "provider": "flatpak", "appIds": ["org.example.MyEmu"] },
-  "launch": { "path": "flatpak", "args": "run @APPID@ --fullscreen" },
-  "roms": { "dir": "emu/myemu", "extensions": ["*.bin", "*.zip"] }
-}
-```
-
 Then, from the repository root:
 
-```bash
-python3 scripts/check-catalog.py    # validate against the schema
-python3 scripts/gen-catalog.py      # regenerate the three derived files
-git add catalog/myemu install/
+```powershell
+.venv\Scripts\python scripts\check-catalog.py    # validate against the schema
+.venv\Scripts\python scripts\gen-catalog.py      # regenerate the derived files
 ```
 
-**`gen-catalog.py` is not optional.** Three committed files are generated from
-the packs: `install/generated/systems.json.dist` and `install/generated/apps.json.dist` (the tile
-catalogues the installer copies into `config/`) and
-`install/installer-gui/catalog_data.py` (the wizard's tick-box list — the wizard
-is a standalone binary that runs *before* the repository is on the machine, so
-its list is baked in at build time). Skip it and your pack validates, appears in
-no tick box, is never selected, and never installs. CI runs
-`gen-catalog.py --check` and fails the build if the committed copies are stale.
-
-An **app** is the same file with `"kind": "app"`, plus whatever it needs beside
-it — `sources` for git checkouts, `files` for configs (with `@HOME@` and secret
-tokens), `services` for a systemd user unit, `postInstall` for the steps that do
-not reduce to data. `catalog/twitch/` is the worked example: it installs EmberTV
-end to end, including generating a TLS certificate and trusting it in a Firefox
-profile.
-
-Emulators that are not on Flathub are just a different `install` provider —
-`github-asset` for an AppImage (DuckStation), `github-archive` for a zip
-(Xenia). Both carry checksum, magic-byte and retry protections for free.
-
-Full reference: [`docs/architecture/10-catalog-and-install.md`](docs/architecture/10-catalog-and-install.md).
+**`gen-catalog.py` is not optional**: `install/generated/systems.json.dist`
+and `apps.json.dist` are generated from the packs, and CI fails when they are
+stale. The packs in the tree today are the Linux ones, kept as the model for
+the Windows rewrite; their install providers (`flatpak`, `github-asset`,
+`github-archive`) are Linux ones, and a Windows provider is still to be added
+to the schema. Full reference:
+[`docs/architecture/10-catalog-and-install.md`](docs/architecture/10-catalog-and-install.md).
 
 ---
 
-## Living-room box setup
+## What runs on the PC
 
-How the reference box is wired together. GameCore runs from `/opt/GameCore` with two **system** units:
+| What | Started by | Listens |
+|---|---|---|
+| `install\bin\gamecore-session`, the supervisor | the `\GameCore\Session` logon task, elevated, in your session | none |
+| the backend (FastAPI) | the supervisor, restarted if it crashes | `127.0.0.1:8765` |
+| the shell (`shell\GameCore.exe`, Electron) | the supervisor | none |
+| a game | the backend, inside a Job Object (the whole process tree) | none |
+| each addon | its `\GameCore\Addons\<name>` logon task | `127.0.0.1:8770`-`8799` |
+| Caddy | the `GameCoreCaddy` service | `:8443`, the only port open to the LAN |
+| OpenSSH (optional) | the `sshd` service | `:22`, private networks only |
 
-| Unit | Role |
-|---|---|
-| `gamecore-backend.service` | FastAPI backend (uvicorn, port **8765**). `Environment=GAMECORE_PATH=/opt/GameCore`. Scraper credentials — the TheGamesDB key and the four ScreenScraper values — live in a local drop-in (`systemctl edit gamecore-backend`, mode 600), never in the repo. |
-| `gamecore-ui.service` | Electron shell (`electron/start-ui.sh`), started after the display manager. |
-
-Two companion projects handle TV input and Twitch. **A `--full` install sets both up
-automatically** — it clones them, installs their user services, and prompts for the
-Twitch Client ID/Secret, the TheGamesDB API key and the ScreenScraper credentials
-(secrets are written to local files/systemd drop-ins only, never to git; leave empty
-for demo mode and name-based covers). It also creates
-the Firefox kiosk profiles for the YouTube/Twitch tiles and installs Stremio. The only
-manual step left after a full install is copying BIOS/firmwares (PS1/PS2/PS3, DS/3DS,
-Switch keys) — those can't be distributed.
-
-For reference, what the installer wires up:
-
-- **[gamepad-tv-bridge](https://github.com/p4v1c/gamepad-tv-bridge)** — daemon translating gamepad input to keyboard events for apps that don't speak gamepad (Firefox kiosk, EmberTV…). Cloned in `/opt/gamepad-tv-bridge`, installed editable in `~/.venv` (`pip install -e .`), runs as the **user** unit `gamepad-tv-bridge.service` (`WantedBy=default.target`, so linger starts it at boot rather than at graphical login). Per-app YAML profiles in `profiles/` (window-title matching). It is wired by `arch.sh`, not by a pack: it serves both the YouTube and the Twitch kiosk, so it belongs to neither.
-- **[Twitch-TV / EmberTV](https://github.com/p4v1c/Twitch-TV)** — controller-first Twitch client, installed entirely from `catalog/twitch/`: the checkout in `/opt/Twitch-TV` (`sources`), `config.json` rendered from a template with your Client ID/Secret — or a demo config when you leave them empty (`files`), the **user** unit `embertv.service` on HTTPS **8097** (`services`), then the TLS certificate generated and trusted in the Firefox kiosk profile's NSS database (`postInstall`). GameCore's Twitch tile opens `https://localhost:8097`.
-
-`"gamepadTrigger": true` in `config/apps.json` re-triggered udev for Flatpak apps on Linux; the Windows edition ignores it.
-
-The Stremio tile runs the **official Flatpak desktop client**, unmodified. All it lacked for couch use was an on-screen keyboard, so a small local proxy serves Stremio's own web interface with a keyboard script injected — no fork, no browser kiosk, no host-side node or `ffmpeg` transcoding. See [`docs/STREMIO.md`](docs/STREMIO.md).
+Everything but Caddy and SSH binds to loopback: the TV is the trust boundary,
+the LAN only sees Caddy, which asks for the web password. Details:
+[`docs/architecture/01-runtime-topology.md`](docs/architecture/01-runtime-topology.md)
+and [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ---
 
 ## Project structure
 
 ```
-backend/          FastAPI — systems, games, playtime, covers, settings, OTA
-  routers/        API endpoints (systems, games, covers, media, addons, sysinfo…)
-  services/       Process manager, gamepad monitor, scrapers
-    gamemedia/    ScreenScraper + LaunchBox — hash matching, 54 media types
-                  (two vendored stdlib-only files + the adapter; see
-                  VENDORED.md there before editing them)
+backend/          FastAPI: systems, games, playtime, covers, settings, updates
+  routers/        API endpoints
+  services/       process manager, pads, standby, scrapers
+    platform/     every Windows call: jobs, windows, audio, Wi-Fi, Bluetooth,
+                  display, power, sleep, pads (SDL2), drives
+    gamemedia/    ScreenScraper + LaunchBox (see VENDORED.md there before editing)
   data/           gamecontrollerdb.txt (vendored SDL mappings)
 frontend/         React + Vite + Framer Motion + Zustand
-  src/
-    components/   UI components (HomeScreen, LibraryScreen, modals…)
-    hooks/        useWebSocket, useGamepad, useTheme
-    lib/          themeLoader, themeSdk, sounds, formatting helpers
-    store/        Zustand store (screen, selection, modal depth, session)
-electron/         Electron kiosk shell + HUD toast window
-config/           never touched by OTA. Two kinds of file live here:
-                  · versioned catalogues, regenerated from install/generated/*.dist on
-                    every install — systems.json, apps.json
-                  · per-box state, never in git — auth.json, auth_secret,
-                    addons.json, standby.json, theme.json, session.json,
-                    playtime.db
-  themes/         installed themes — an update adds ones you do not have,
-                  and never touches ones you do
-assets/           logos/
-emu/              ROMs per system (emu/gamecube/, emu/melonds/…), covers/ cache,
-                  gamemedia/ manifests + artwork, gamescrape/ LaunchBox index
-catalog/          THE source of truth — one directory per emulator or app:
-                  pack.json (declaration), logo.png, seed/ (curated config),
-                  generator.py (controller bindings), files/ + steps/ (what the
-                  install writes and runs), tests/. See docs/architecture/10.
-  _schema/        pack.schema.json — what check-catalog.py validates against
-install/          arch.sh (the engine, + --unattended) and uninstall.sh at the
-                  root; everything else grouped by what it IS:
-  bin/            installed into /usr/local/bin — gamecore-addon, -emu,
-                  -launcher, -session-select, -xsetup
-  system/         installed into /etc — Caddyfile, gamecore-restart.service
-  steps/          called by arch.sh, never installed on the box
-  generated/      apps.json.dist, systems.json.dist — written by
-                  scripts/gen-catalog.py, never hand-edited
-  installer-gui/  the Qt wizard + its PyInstaller .spec
-scripts/          catalog-query.py, gamecore-provider.py, gen-catalog.py,
-                  check-catalog.py, check-install.sh
-update/           OTA update script (linux.sh)
-docs/             architecture/ (10-part deep dive), themes/ (contract + prompts),
-                  SECURITY.md, TESTING.md, CONTROLLER_MODELS.md, STREMIO.md,
-                  STREAMING.md (assessed, not shipped — why a Moonlight host is
-                  not an addon)
+electron/         the shell: kiosk window, HUD toasts, Return to desktop
+config/themes/    the bundled themes, copied into the data folder at install
+catalog/          one directory per emulator or app (the Linux packs, for now)
+  _schema/        pack.schema.json, what check-catalog.py validates against
+install/          install.ps1, uninstall.ps1, lib\, one step per file in steps\
+  bin/            gamecore-session (the supervisor), gamecore-addon (+ .cmd)
+  generated/      systems.json.dist, apps.json.dist, written by gen-catalog.py
+update/           windows.py (download and check), apply-update.ps1 (swap, rollback), finish.py
+scripts/          import-linux-data.py, split-systems.py, package-release.py,
+                  check-catalog.py, gen-catalog.py, check-docs.py
+docs/             architecture/, themes/, dev-log/, SECURITY.md, TESTING.md
 ```
 
-> **Working on the code?** Start at [`docs/architecture/`](docs/architecture/) —
+The data folder holds `config\` (settings, `playtime.db`, profiles, themes),
+`emu\` (ROMs per system, `covers\`, `gamemedia\`, `gamescrape\`,
+`profile-saves\`), `addons\` and `logs\`. Updates never touch it.
+
+> **Working on the code?** Start at [`docs/architecture/`](docs/architecture/):
 > runtime topology, sequence diagrams for every flow, a function-by-function
 > reference of the backend and frontend, the controller pipeline, and the
-> invariants that are easy to break.
+> invariants that are easy to break. The port's decisions and status are in
+> [`docs/dev-log/windows-port.md`](docs/dev-log/windows-port.md).
+

@@ -17,6 +17,12 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, moving from the Linux box: `scripts\import-linux-data.py
+  <linux data root> --to <new data root>` prints the plan; `--apply` copies
+  the library, saves, covers, media, profiles and playtime into the layout the
+  Windows edition reads, keeps Linux-only files in `linux-import\`, and saves
+  a report in `logs\import\`. Then install with `-DataRoot <new data root>`.
+
 - Windows edition, addons: `gamecore-addon` is a Python script now
   (`install\bin\gamecore-addon`, `gamecore-addon.cmd` for a prompt) and
   installs from `p4v1c/gamecore-addons-windows`. Run it from an elevated

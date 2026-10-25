@@ -22,7 +22,7 @@ Plus, out of band:
 | Caddy | `GameCoreCaddy` Windows service | `:8443` — **the only LAN-facing port** |
 | OpenSSH | `sshd` Windows service (optional feature) | `:22`, private networks only |
 
-The addon rows are the Linux units until the addons are ported (port step 9).
+The addon tasks are registered by `gamecore-addon` (port step 9).
 Ports 8770-8799 are reserved for addons. Vite (`:5173`) exists in development
 only.
 

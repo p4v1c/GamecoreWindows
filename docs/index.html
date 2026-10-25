@@ -8,7 +8,7 @@
   The reason this file exists.
 
   GitHub serves the repository page with `meta-description: Contribute to
-  p4v1c/GamecoreRenew development by creating an account on GitHub.`, which is
+  p4v1c/GamecoreWindows development by creating an account on GitHub.`, which is
   the only text the project emitted to a search engine, and it is worth nothing.
   GitHub also blocks crawlers from /tree/ and /blob/ in its robots.txt, so only
   the README of the default branch is indexable, and its <title> is not ours to
@@ -22,9 +22,9 @@
   and the screenshots live next to this file (fonts/, img/). The page cannot
   break because a CDN did, and it cannot hand a visitor to a third party.
 
-  The exception is one request to api.github.com, and only to name the version
-  and the size of the installer in the download section. The download itself
-  never depends on it: `gamecore-installer` has a stable name, so the button is
+  The exception is one request to api.github.com, and only to name the version,
+  the size and the SHA-256 of the archive in the download section. The download
+  never depends on it: `gamecore-ota.zip` has a stable name, so the button is
   a plain static link that works with JavaScript switched off.
 
   ## Screenshots
@@ -37,25 +37,25 @@
   console where the screenshots carry the colour.
 -->
 
-<title>GameCore: living-room emulation for Arch Linux (PS3, PS4, Switch, Wii U)</title>
-<meta name="description" content="A gamepad-only emulation box for the recent consoles: PS3, PS4, Switch, Wii U, Xbox 360 and 29 more systems. Flatpak emulators that stay current, controllers that configure themselves, on an Arch install that stays a real computer.">
-<link rel="canonical" href="https://p4v1c.github.io/GamecoreRenew/">
+<title>GameCore for Windows: a console front-end for the PC under your TV</title>
+<meta name="description" content="A gamepad-only console front-end for a Windows 10 or 11 PC under the TV: a library with five themes, profiles, suspend and resume, Rest mode, updates with rollback.">
+<link rel="canonical" href="https://p4v1c.github.io/GamecoreWindows/">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#09090f">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="GameCore">
-<meta property="og:title" content="GameCore, a living-room box for the recent consoles">
-<meta property="og:description" content="PS3, PS4, Switch, Wii U, Xbox 360 and 29 more systems. Always-current Flatpak emulators, controllers that configure themselves, on an Arch that stays a real machine.">
-<meta property="og:url" content="https://p4v1c.github.io/GamecoreRenew/">
-<meta property="og:image" content="https://p4v1c.github.io/GamecoreRenew/img/social.jpg">
+<meta property="og:title" content="GameCore for Windows, a console front-end for the PC under your TV">
+<meta property="og:description" content="A gamepad-only console front-end for a Windows 10 or 11 PC under the TV: a library with five themes, profiles, suspend and resume, Rest mode, updates with rollback.">
+<meta property="og:url" content="https://p4v1c.github.io/GamecoreWindows/">
+<meta property="og:image" content="https://p4v1c.github.io/GamecoreWindows/img/social.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The GameCore console screen in the Orbit theme, a Nintendo 3DS picked in a row of consoles">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="GameCore, a living-room box for the recent consoles">
-<meta name="twitter:description" content="PS3, PS4, Switch, Wii U, Xbox 360 and 29 more systems. Always-current Flatpak emulators, controllers that configure themselves, on an Arch that stays a real machine.">
-<meta name="twitter:image" content="https://p4v1c.github.io/GamecoreRenew/img/social.jpg">
+<meta name="twitter:title" content="GameCore for Windows, a console front-end for the PC under your TV">
+<meta name="twitter:description" content="A gamepad-only console front-end for a Windows 10 or 11 PC under the TV: a library with five themes, profiles, suspend and resume, Rest mode, updates with rollback.">
+<meta name="twitter:image" content="https://p4v1c.github.io/GamecoreWindows/img/social.jpg">
 
 <script type="application/ld+json">
 {
@@ -63,14 +63,14 @@
   "@type": "SoftwareApplication",
   "name": "GameCore",
   "applicationCategory": "GameApplication",
-  "operatingSystem": "Arch Linux, Manjaro",
-  "description": "Gamepad-driven living-room emulation frontend for Arch Linux, built around the recent consoles: PS3, PS4, Switch, Wii U and Xbox 360.",
-  "url": "https://p4v1c.github.io/GamecoreRenew/",
-  "codeRepository": "https://github.com/p4v1c/GamecoreRenew",
+  "operatingSystem": "Windows 10, Windows 11",
+  "description": "Gamepad-driven console front-end for a Windows PC connected to a TV.",
+  "url": "https://p4v1c.github.io/GamecoreWindows/",
+  "codeRepository": "https://github.com/p4v1c/GamecoreWindows",
   "license": "https://www.gnu.org/licenses/gpl-3.0.html",
   "isAccessibleForFree": true,
-  "downloadUrl": "https://github.com/p4v1c/GamecoreRenew/releases/latest",
-  "screenshot": "https://p4v1c.github.io/GamecoreRenew/img/themes/default-home.webp",
+  "downloadUrl": "https://github.com/p4v1c/GamecoreWindows/releases/latest",
+  "screenshot": "https://p4v1c.github.io/GamecoreWindows/img/themes/default-home.webp",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
 }
 </script>
@@ -167,6 +167,7 @@
   .panel h3 { margin-bottom: 4px; }
   .panel > p { color: var(--ink-2); }
   .meta { color: var(--ink-3); font-size: 15px; margin: 12px 0 0; }
+  .meta code { overflow-wrap: anywhere; }
   .facts { margin: 0; }
   .facts dt { font-weight: 700; margin-top: 18px; }
   .facts dt:first-child { margin-top: 0; }
@@ -229,23 +230,23 @@
 <div class="wrap top">
   <a class="brand" href="#">GameCore</a>
   <a class="hide-sm" href="#themes">Themes</a>
-  <a class="hide-sm" href="#systems">Systems</a>
-  <a href="https://github.com/p4v1c/GamecoreRenew">GitHub</a>
+  <a class="hide-sm" href="#limits">Not yet</a>
+  <a href="https://github.com/p4v1c/GamecoreWindows">GitHub</a>
 </div>
 
 <header>
   <div class="wrap">
-    <h1>A living-room box for the consoles people want to emulate.</h1>
+    <h1>A console front-end for the PC under your TV.</h1>
     <p class="lede">
-      PS3, PS4, Switch, Wii U and Xbox 360, plus 29 more systems, driven
-      entirely with a gamepad on an Arch Linux machine that stays a real
-      computer underneath.
+      GameCore signs your Windows PC in, covers the screen and gives you a
+      console you drive with a gamepad: a library, five themes, profiles,
+      suspend and resume, Rest mode. The PC stays a PC underneath.
     </p>
     <div class="actions">
       <a class="btn primary" href="#download">Download</a>
-      <a class="btn" href="https://github.com/p4v1c/GamecoreRenew">Source on GitHub</a>
+      <a class="btn" href="https://github.com/p4v1c/GamecoreWindows">Source on GitHub</a>
     </div>
-    <p class="os"><b>Linux:</b> Arch and Manjaro. Windows is not available.</p>
+    <p class="os"><b>Windows 10 and 11, 64-bit.</b> Early releases: the emulator packs are not in yet.</p>
     <div class="shot hero">
       <img src="img/themes/orbit-home.webp" width="1280" height="720"
            alt="GameCore in the Orbit theme: a Nintendo 3DS picked in a row of consoles">
@@ -258,34 +259,40 @@
   <div class="wrap">
     <h2>Download</h2>
     <p class="sub">
-      The installer adds GameCore to an Arch or Manjaro you already run. It is
-      a graphical wizard: pick your emulators, press Install, type your
-      password once. Running it again is safe.
+      One archive holds GameCore and its installer. The installer is a
+      PowerShell script: it shows what it would change first, asks for
+      administrator rights once, and running it again is safe.
     </p>
     <div class="download">
       <div class="panel">
-        <h3>Installer for Linux</h3>
-        <p>One x86-64 file, nothing else to install first.</p>
-        <a class="btn primary" href="https://github.com/p4v1c/GamecoreRenew/releases/latest/download/gamecore-installer">
-          Download the installer
+        <h3>GameCore for Windows</h3>
+        <p>Unpack it, then run the installer from the folder.</p>
+        <a class="btn primary" href="https://github.com/p4v1c/GamecoreWindows/releases/latest/download/gamecore-ota.zip">
+          Download gamecore-ota.zip
         </a>
         <div class="cmd">
-          <pre><code>chmod +x gamecore-installer
-./gamecore-installer</code></pre>
-          <button type="button" data-copy="chmod +x gamecore-installer&#10;./gamecore-installer">Copy</button>
+          <pre><code>Expand-Archive gamecore-ota.zip setup
+cd setup
+Set-ExecutionPolicy -Scope Process Bypass
+.\install\install.ps1 -DryRun
+.\install\install.ps1</code></pre>
+          <button type="button" data-copy="Expand-Archive gamecore-ota.zip setup&#10;cd setup&#10;Set-ExecutionPolicy -Scope Process Bypass&#10;.\install\install.ps1 -DryRun&#10;.\install\install.ps1">Copy</button>
         </div>
-        <p class="meta" id="installer-meta">A single x86-64 binary. No runtime to install.</p>
+        <p class="meta" id="installer-meta">Check it against <a href="https://github.com/p4v1c/GamecoreWindows/releases/latest/download/gamecore-ota.zip.sha256">its SHA-256</a> before you run it.</p>
       </div>
       <dl class="facts">
-        <dt>What the machine needs</dt>
-        <dd>Arch or Manjaro already installed, UEFI, a 1080p screen, 4&nbsp;GB of RAM
-          and about 80&nbsp;GB of storage before your games.</dd>
-        <dt>Why Linux only</dt>
-        <dd>The installer sets up systemd services, SDDM auto-login and a KDE
-          Plasma X11 session, all specific to Arch and Manjaro. No date is
-          promised for Windows.</dd>
-        <dt>A network during the install</dt>
-        <dd>The emulators come from Flathub.</dd>
+        <dt>What the PC needs</dt>
+        <dd>Windows 10 version 1809 or Windows 11, 64-bit, an administrator
+          account, a 1080p screen and 4&nbsp;GB of RAM. Python and Caddy come
+          with the installer.</dd>
+        <dt>What it changes on the PC</dt>
+        <dd>Automatic sign-in, a logon task, the power button and sleep
+          settings, a web service on port 8443 and its firewall rule. Every
+          change is recorded, and the uninstaller puts them back.</dd>
+        <dt>Coming from the Linux box</dt>
+        <dd>A script copies your ROMs, saves, covers, profiles and playtime
+          from its data partition into the Windows data folder. See the
+          <a href="https://github.com/p4v1c/GamecoreWindows#moving-from-the-linux-box">README</a>.</dd>
       </dl>
     </div>
   </div>
@@ -294,7 +301,7 @@
 <!-- ── Themes ───────────────────────────────────────────────────────────── -->
 <section id="themes">
   <div class="wrap">
-    <h2>Four looks, one console</h2>
+    <h2>Five looks, one console</h2>
     <p class="sub">
       Every theme runs the same screens with the same pad controls. Switch
       between them in Settings, and anyone can write a new one with the
@@ -329,158 +336,88 @@
         <figure class="shot"><a href="img/themes/summer-controller.webp"><img src="img/themes/summer-controller.webp" width="1280" height="720" loading="lazy"
           alt="Summer theme controller screen over the beach"></a></figure>
       </div>
+      <div class="theme">
+        <div><h3>Jelly</h3><p>A cyan playground of jelly tiles, with your games in the middle.</p></div>
+        <figure class="shot"><a href="img/themes/jelly-home.webp"><img src="img/themes/jelly-home.webp" width="1280" height="720" loading="lazy"
+          alt="Jelly theme: consoles as jelly tiles on a cyan floor"></a></figure>
+        <figure class="shot"><a href="img/themes/jelly-controller.webp"><img src="img/themes/jelly-controller.webp" width="1280" height="720" loading="lazy"
+          alt="Jelly theme controller screen"></a></figure>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ── From the installer to a working box ──────────────────────────────── -->
+<!-- ── From the download to a working console ───────────────────────────── -->
 <section>
   <div class="wrap">
-    <h2>From the installer to a working box</h2>
-    <p class="sub">About as long as the emulators take to download.</p>
+    <h2>From the download to a working console</h2>
+    <p class="sub">A few minutes, most of them spent downloading.</p>
     <ol class="steps">
       <li>
-        <h3>Run the installer on the machine</h3>
-        <p>A step-by-step wizard: the user account, where the code and your
-          files go, which emulators and apps you want. It asks for a password
-          once, through the system's own dialog.</p>
+        <h3>Run the installer on the PC</h3>
+        <p>Read the dry run, then run it for real. It asks where your games
+          go, a password for web access and your Windows password for
+          automatic sign-in, through Windows' own prompts.</p>
       </li>
       <li>
-        <h3>Let it finish, then reboot</h3>
-        <p>It installs GameCore and the emulators and sets up auto-login. The
-          next boot comes up on the console screen.</p>
+        <h3>Restart</h3>
+        <p>The PC signs in by itself and comes up on the console screen.
+          <b>Return to desktop</b> in the Power menu gives you Windows back.</p>
       </li>
       <li>
-        <h3>Plug a controller in</h3>
-        <p>That is the configuration step. GameCore writes each emulator's own
-          config for the pads connected, per player slot. A pad nothing
-          recognises goes through a mapping wizard, one button at a time, no
-          keyboard.</p>
+        <h3>Pick up a controller</h3>
+        <p>The first pad is Player 1 whatever its brand, the next is Player 2.
+          A pad nothing recognises goes through a mapping wizard, one button
+          at a time, no keyboard.</p>
       </li>
       <li>
         <h3>Add your games, and let it update itself</h3>
-        <p>Copy them into the per-system folders over the network or from a USB
-          disk. After that the box updates itself from its Settings screen.</p>
+        <p>Copy them into the per-system folders, or drop them in the browser
+          from your phone with the ROM Manager addon. Updates install from
+          Settings, and a version that does not start is rolled back by itself.</p>
       </li>
     </ol>
   </div>
 </section>
 
-<!-- ── Differences ──────────────────────────────────────────────────────── -->
+<!-- ── What it does ─────────────────────────────────────────────────────── -->
 <section>
   <div class="wrap">
-    <h2>What it does differently</h2>
-    <p class="sub">
-      Most living-room emulation systems are built around decades of older
-      machines and shipped as a frozen image. This one takes the other bet.
-    </p>
+    <h2>What you get</h2>
     <ul class="points">
       <li>
-        <h3>The recent consoles come first</h3>
-        <p>PS3, PS4, Switch, Wii U and Xbox 360 are the reason it exists. The
-          17 retro systems through RetroArch come after them, not the other
-          way round.</p>
+        <h3>A console, not a launcher</h3>
+        <p>Suspend a game with the Guide button and come back to it, see who
+          is playing, close everything and rest the PC from the Power menu.
+          Wi-Fi, Bluetooth, display and audio are in Settings, readable from
+          the sofa.</p>
       </li>
       <li>
-        <h3>Emulators that stay current</h3>
-        <p>They are Flatpaks from Flathub and update on their own schedule.
-          RPCS3 and Ryujinx change every few weeks; on a frozen image a
-          compatibility fix waits for the image's next release.</p>
+        <h3>Your library, dressed</h3>
+        <p>Covers, 3D boxes, screenshots and synopses, matched by the game
+          file itself rather than its name, with an offline database when
+          you have no scraper account.</p>
       </li>
       <li>
         <h3>Still a real computer</h3>
-        <p>A full Arch install with KDE Plasma underneath. Nothing is
-          read-only or locked, and one command closes the console screen and
-          hands the desktop back.</p>
+        <p>Nothing is locked. Return to desktop, use the PC, click the
+          GameCore shortcut to come back. The installer records every change
+          it makes, and the uninstaller undoes exactly those.</p>
       </li>
     </ul>
   </div>
 </section>
 
-<!-- ── Controllers ──────────────────────────────────────────────────────── -->
-<section>
-  <div class="wrap">
-    <div class="narrow">
-      <h2>Plug a controller in. That's the configuration step.</h2>
-      <p class="sub">
-        The first pad plugged in is Player 1 whatever its brand, the next is
-        Player 2, like a real console. No player slot is tied to a brand.
-      </p>
-      <p>
-        This is harder than it sounds, and it is where most of the work went.
-        Every emulator identifies devices its own way: some speak SDL's role
-        names, some match a device name whose numbering is not the player
-        slot, and one binds by a GUID that differs between USB and Bluetooth
-        for the same pad, then fails silently when it does not match.
-      </p>
-      <p>
-        For a controller nothing recognises, a built-in wizard maps it in about
-        a minute, full screen, driven by the pad being mapped. Press to record,
-        hold to skip a button the pad does not have, press twice to go back.
-      </p>
-      <p><a href="https://github.com/p4v1c/GamecoreRenew/blob/main/docs/CONTROLLER_MODELS.md">Read how each emulator is set up</a></p>
-    </div>
-  </div>
-</section>
-
-<!-- ── Systems ──────────────────────────────────────────────────────────── -->
-<section id="systems">
-  <div class="wrap">
-    <h2>34 systems</h2>
-    <p class="sub">Every emulator installs from Flathub unless noted. Apps sit
-      next to them: Steam, Stremio, YouTube and Twitch.</p>
-    <div class="systems">
-      <div>
-        <h3>Consoles and handhelds</h3>
-        <table>
-          <thead><tr><th scope="col">System</th><th scope="col">Emulator</th></tr></thead>
-          <tbody>
-            <tr><td>PlayStation 3</td><td>RPCS3</td></tr>
-            <tr><td>PlayStation 4</td><td>shadPS4</td></tr>
-            <tr><td>Nintendo Switch</td><td>Ryujinx</td></tr>
-            <tr><td>Wii U</td><td>Cemu</td></tr>
-            <tr><td>Xbox 360</td><td>Xenia Canary <span class="dim">through Wine</span></td></tr>
-            <tr><td>PlayStation 2</td><td>PCSX2</td></tr>
-            <tr><td>PlayStation</td><td>DuckStation <span class="dim">AppImage</span></td></tr>
-            <tr><td>PlayStation Portable</td><td>PPSSPP</td></tr>
-            <tr><td>GameCube, Wii</td><td>Dolphin</td></tr>
-            <tr><td>Nintendo 3DS</td><td>Azahar</td></tr>
-            <tr><td>Nintendo DS</td><td>melonDS</td></tr>
-            <tr><td>Nintendo 64</td><td>Rosalie's Mupen GUI</td></tr>
-            <tr><td>Game Boy, Color, Advance</td><td>mGBA</td></tr>
-            <tr><td>Super Nintendo</td><td>Snes9x</td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div>
-        <h3>Retro, through RetroArch</h3>
-        <table>
-          <thead><tr><th scope="col">Systems</th><th scope="col">Core</th></tr></thead>
-          <tbody>
-            <tr><td>NES, Famicom Disk System</td><td>Mesen</td></tr>
-            <tr><td>Master System, Game Gear, SG-1000, Mega Drive, Mega-CD</td><td>Genesis Plus GX</td></tr>
-            <tr><td>32X</td><td>PicoDrive</td></tr>
-            <tr><td>Saturn</td><td>Kronos</td></tr>
-            <tr><td>Dreamcast, Naomi, Naomi GD-ROM, Atomiswave</td><td>Flycast</td></tr>
-            <tr><td>PC Engine, PC Engine CD, SuperGrafx</td><td>Beetle PCE</td></tr>
-            <tr><td>Arcade</td><td>MAME</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</section>
-
 <!-- ── Limits ───────────────────────────────────────────────────────────── -->
-<section>
+<section id="limits">
   <div class="wrap">
-    <h2>What it does not do</h2>
+    <h2>What it does not do yet</h2>
     <p class="sub">Better read here than found out after an install.</p>
     <ul class="limits">
-      <li><strong>Arch and Manjaro only.</strong> The installer is specific to them. If you run something else, this is not for you today.</li>
-      <li><strong>X11 only.</strong> The overlays, the fullscreen enforcer and the gamepad-to-keyboard bridge all depend on it. Wayland is not a small change.</li>
-      <li><strong>No bootable image.</strong> The installer goes onto an Arch that is already there, and it needs a network for Flathub.</li>
-      <li><strong>Multi-controller setups are proven by a test harness, not by hardware.</strong> Two, three and four-pad configurations are replayed as synthetic controller sets against the real config generators and compared with recorded output. That is real evidence for the generated configs. It is not four people playing on a real box.</li>
+      <li><strong>No emulator packs yet.</strong> The Linux edition's packs install Flatpaks; each is being rewritten for Windows. Until then no console appears in the library.</li>
+      <li><strong>No bezel overlay</strong> around games, and no graphical installer.</li>
+      <li><strong>Tested on one PC.</strong> The installer and the updater have run in a test folder and as dry runs; a full install on a fresh PC is the next check.</li>
+      <li><strong>Unsigned.</strong> Windows SmartScreen may warn about the shell on first start.</li>
       <li><strong>One developer.</strong> The bus factor is one.</li>
       <li><strong>No games, ROMs, BIOS files or keys</strong> are distributed, downloaded or included. Bring your own.</li>
     </ul>
@@ -490,15 +427,16 @@
 <footer>
   <div class="wrap">
     <ul>
-      <li>Free software under the <a href="https://github.com/p4v1c/GamecoreRenew/blob/main/LICENSE">GPL-3.0-or-later</a></li>
-      <li><a href="https://github.com/p4v1c/GamecoreRenew">Source</a></li>
-      <li><a href="https://github.com/p4v1c/GamecoreRenew/issues">Issues</a></li>
-      <li><a href="https://github.com/p4v1c/GamecoreRenew#readme">Documentation</a></li>
-      <li><a href="https://github.com/p4v1c/GamecoreRenew/releases">All releases</a></li>
+      <li>Free software under the <a href="https://github.com/p4v1c/GamecoreWindows/blob/main/LICENSE">GPL-3.0-or-later</a></li>
+      <li><a href="https://github.com/p4v1c/GamecoreWindows">Source</a></li>
+      <li><a href="https://github.com/p4v1c/GamecoreWindows/issues">Issues</a></li>
+      <li><a href="https://github.com/p4v1c/GamecoreWindows#readme">Documentation</a></li>
+      <li><a href="https://github.com/p4v1c/GamecoreWindows/releases">All releases</a></li>
+      <li><a href="https://github.com/p4v1c/GamecoreRenew">The Linux edition</a></li>
     </ul>
     <p>
       GameCore is not affiliated with Sony, Nintendo, Microsoft, Sega, or with
-      any of the emulator projects it installs.
+      any of the emulator projects it can install.
     </p>
   </div>
 </footer>
@@ -507,7 +445,8 @@
 (function () {
   'use strict';
 
-  var REPO = 'p4v1c/GamecoreRenew';
+  var REPO = 'p4v1c/GamecoreWindows';
+  var ASSET = 'gamecore-ota.zip';
 
   /* Copy buttons. Progressive: the command is readable and selectable whether
      or not the clipboard API is there, so a failure costs a convenience. */
@@ -532,29 +471,29 @@
     return mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : Math.round(mb) + ' MB';
   }
 
-  function renderInstaller(rel) {
-    var installer = (rel.assets || []).filter(function (a) { return a.name === 'gamecore-installer'; })[0];
-    if (!installer) return;
+  function renderArchive(rel) {
+    var archive = (rel.assets || []).filter(function (a) { return a.name === ASSET; })[0];
+    if (!archive) return;
+    var digest = String(archive.digest || '').replace(/^sha256:/, '');
     document.getElementById('installer-meta').innerHTML =
-      'A single x86-64 binary, ' + size(installer.size) + '. No runtime to install. ' +
-      '<code>' + esc(rel.tag_name || '') + '</code>';
+      '<code>' + esc(rel.tag_name || '') + '</code>, ' + size(archive.size) + '. ' +
+      (digest ? 'SHA-256 <code>' + esc(digest) + '</code>' : 'Check it against its SHA-256 before you run it.');
   }
 
   /* Ten releases, not just the latest: a release is published before all of its
      assets have finished uploading, so the newest one can genuinely not carry
-     the installer yet. The binary is taken from the newest release that
-     actually has it, and labelled with the tag it came from, so nothing is
-     presented as newer than it is. */
+     the archive yet. It is taken from the newest release that has it, and
+     labelled with that tag, so nothing is presented as newer than it is. */
   fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=10', {
     headers: { 'Accept': 'application/vnd.github+json' }
   }).then(function (r) {
     if (!r.ok) throw new Error('GitHub answered ' + r.status + '.');
     return r.json();
   }).then(function (releases) {
-    var withInstaller = (releases || []).filter(function (r) {
-      return !r.draft && (r.assets || []).some(function (a) { return a.name === 'gamecore-installer'; });
+    var withArchive = (releases || []).filter(function (r) {
+      return !r.draft && (r.assets || []).some(function (a) { return a.name === ASSET; });
     })[0];
-    if (withInstaller) renderInstaller(withInstaller);
+    if (withArchive) renderArchive(withArchive);
   }).catch(function () {
     /* Nothing to do, and that is the point: the download button is a static
        link and the line under it carries a written default. A failed request

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://p4v1c.github.io/GamecoreRenew/sitemap.xml
+Sitemap: https://p4v1c.github.io/GamecoreWindows/sitemap.xml

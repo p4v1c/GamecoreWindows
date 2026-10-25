@@ -6,7 +6,7 @@ Replaces `xset dpms`, `kscreen-doctor --dpms`, the session's
 
 | Here | Win32 |
 |---|---|
-| `screen_off()` / `screen_on()` | `SC_MONITORPOWER` posted to every top-level window; on: plus a zero-length mouse move, which is what lights a panel Windows turned off |
+| `screen_off()` / `screen_on()` | `SC_MONITORPOWER` posted to every top-level window, the PC held awake (`awake.py`); on a Modern Standby PC the screen stays on, black, held on, since switching it off sleeps the PC; on: plus a zero-length mouse move, which is what lights a panel Windows turned off, and the hold released |
 | `signal_activity()` | `SetThreadExecutionState` once, no `ES_CONTINUOUS`: resets the display and sleep idle timers, holds nothing |
 | `idle_timeouts()` / `set_idle_timeouts()` | the active scheme's "turn off the display" and "sleep after", on AC and battery (PowrProf) |
 | `active_scheme()` / `set_active_scheme()` | the power plan (Power saver while the screen is off) |
@@ -19,6 +19,8 @@ from __future__ import annotations
 import ctypes
 import uuid
 from ctypes import wintypes
+
+from . import awake
 
 _HWND_BROADCAST = 0xFFFF
 _WM_SYSCOMMAND = 0x0112
@@ -74,13 +76,30 @@ def _monitor(state: int) -> None:
     _user32().PostMessageW(_HWND_BROADCAST, _WM_SYSCOMMAND, _SC_MONITORPOWER, state)
 
 
+def _modern_standby() -> bool:
+    from . import sleep        # sleep imports this module
+    try:
+        return sleep.power_model() == sleep.MODERN_STANDBY
+    except OSError:
+        return False
+
+
 def screen_off() -> None:
-    """Turn the screen off now. Any input, or `screen_on()`, lights it again."""
+    """Dark screen, PC still running, as DPMS on the Linux box. Any input, or `screen_on()`, ends it.
+
+    Modern Standby: the display stays on (the interface is black) and held on,
+    since a display that goes off takes the PC into standby (dev-log D56).
+    """
+    if _modern_standby():
+        awake.hold({awake.DISPLAY_REQUIRED, awake.SYSTEM_REQUIRED})
+        return
+    awake.hold({awake.SYSTEM_REQUIRED})
     _monitor(_MONITOR_OFF)
 
 
 def screen_on() -> None:
-    """Light the screen: monitor-on message, a zero-length mouse move, display required."""
+    """Light the screen: the hold released, monitor-on message, a zero-length mouse move, display required."""
+    awake.release()
     _monitor(_MONITOR_ON)
     move = _INPUT(type=_INPUT_MOUSE, mi=_MOUSEINPUT(0, 0, 0, _MOUSEEVENTF_MOVE, 0, 0))
     _user32().SendInput(1, ctypes.byref(move), ctypes.sizeof(_INPUT))
