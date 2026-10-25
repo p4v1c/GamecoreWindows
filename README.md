@@ -466,8 +466,8 @@ surfaces, the SDK, the safety model, performance budget.
 
 ## Addons
 
-Optional modules live in [p4v1c/gamecore-addons](https://github.com/p4v1c/gamecore-addons)
-and are managed with one command:
+Optional modules live in [p4v1c/gamecore-addons-windows](https://github.com/p4v1c/gamecore-addons-windows)
+and are managed with one command (from an elevated prompt, or the Addons screen):
 
 ```
 gamecore-addon install <name>     # e.g. rom-manager

@@ -168,10 +168,10 @@ its `profile_playtime` rows for another
 
 | Function | Route | Notes |
 |---|---|---|
-| `_cli()` | — | locates the `gamecore-addon` binary |
+| `_cli()` | — | `[sys.executable, install/bin/gamecore-addon]`: the Python CLI on the backend's own interpreter |
 | `_registry()` | — | reads `config/addons.json` |
 | `list_installed()` | `GET /addons` | consumed by the TV **and** by every addon's nav bar |
-| `list_available()` | `GET /addons/available` | runs `gamecore-addon list --json`; may clone the repo |
+| `list_available()` | `GET /addons/available` | runs `gamecore-addon list --json`; may download the repo |
 | `notify(body)` | `POST /addons/notify` | generic hook: an addon pushes an event onto the core WebSocket |
 | `_run_cli(action, name)` / `_pump()` | — | runs the CLI, streams its output over the WS |
 | `_start(action, name)` | — | guards against two concurrent CLI runs |

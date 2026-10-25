@@ -153,9 +153,8 @@ each was wrong on the day the two trees first differed:
 | the backend | `gamecore-backend.service` (drop-in `userdata.conf`) | the whole point; nothing else matters until this is set |
 | Electron | `gamecore-ui.service` (same drop-in) — `bootBackground()` joins `config/theme.json` onto it | reads the abandoned copy; boots to the old theme's colour |
 | `update/windows.py` | inherited from the backend that spawns it (the Settings button); `%ProgramData%\GameCore\session.env` when typed at a prompt, which has none | the catalogue merge went into `$GAMECORE_PATH/config/systems.json` — the abandoned copy — so the live grid never gained a new emulator, a repaired launcher or a console list again. Fixed: the merge is handed both roots |
-| `gamecore-addon` | **the backend's unit**, when the caller's shell has none | typed at a shell, and the shell has no `GAMECORE_DATA`. It used to fall straight back to the install: the first `update` after the move would have handed every addon's `install.sh` the old root and baked it into their units. ROM uploads into the tree the box no longer reads |
-| each addon's unit | rewritten by `gamecore-addon update` from what the CLI knows | stays on the old root until `update` is run again |
-| `/usr/local/bin/gamecore-addon` itself | — it is a root-owned copy that only `install/arch.sh` writes | the OTA cannot refresh it and now says so, with the command. A copy from before the split does not know `GAMECORE_DATA` at all |
+| `gamecore-addon` | inherited from the backend that runs it; `%ProgramData%\GameCore\session.env` when typed at a prompt (an unreadable one is an error, not a guess) | a prompt has no `GAMECORE_DATA`: falling back to the install would hand every addon's `install.ps1` the wrong root, and ROM uploads would land in a tree the box never reads |
+| each addon's `addon.env` | rewritten by `gamecore-addon update` from what the CLI knows | stays on the old root until `update` is run again |
 | every Flatpak emulator's sandbox | `flatpak override --filesystem=…` — a list of literal paths the installer wrote (`installer/providers.py`, `catalog-query.py sandbox`) with the install root in it | **found the hard way, on the reference box, the evening it moved**: every launch handed RPCS3 a path under `/userdata`, RPCS3 said the game did not exist, the file was right there. The installer now grants both roots when they differ; an existing box adds `--filesystem=<data>` per emulator — no root needed — and the migration script prints the loop |
 | the emulators' own settings | their config files: PCSX2's game-list folders, RPCS3's last-explored path, mGBA's recent files, **Ryujinx's DLC and update paths** | keep working only while the old tree still exists. Not rewritten by anything — they are the emulator's — so the script says to grep for them before the old side is ever deleted |
 
@@ -486,7 +485,8 @@ So an addon must declare `"api": 1` in its `addon.json`. One that does not is
 person reading that message is a player on a television, not the addon's
 author.
 
-What `install.sh` / `uninstall.sh` receive:
+What `install.ps1` / `uninstall.ps1` receive (the full table:
+[12](12-addon-contract.md)):
 
 | Variable | Meaning |
 |---|---|
@@ -494,7 +494,8 @@ What `install.sh` / `uninstall.sh` receive:
 | `ADDON_DATA_DIR` | `<DATA>/addons/<id>/`, created before the hook runs — an addon should not have to know the layout to keep a config file |
 | `GAMECORE_PATH` | the install root. **Read-only.** Passed so an addon can find shipped code, never so it can write |
 | `GAMECORE_ADDON_API` | the version the CLI speaks |
-| `ADDON_DIR`, `USER_NAME`, `GAMECORE_BACKEND_PORT`, `OFFLINE`, `PAYLOAD_DIR` | unchanged |
+| `GAMECORE_ADDON_PYTHON` | the interpreter for the addon's venv: a copy in `<DATA>\addons\_python` |
+| `ADDON_DIR`, `USER_NAME`, `GAMECORE_BACKEND_PORT`, `OFFLINE`, `PAYLOAD_DIR` | as on Linux |
 
 **The gate is on install and update, never on remove.** A box updated to this
 release has addons installed by the old CLI, none of which declares a version.
@@ -502,18 +503,20 @@ Refusing to remove them would strand the player with something they cannot
 uninstall from the screen that installed it — the update would have taken away
 the exit.
 
-### `/opt/gamecore-addons` — the fourth category
+### `<DATA>\addons\_repo` and `_python` — the fourth category
 
-The checkout is git-managed code, but the player installs and removes it at
-runtime, so it can live on neither a read-only root nor the OTA. It is
-**mutable code**, which the code/data split had no name for, and it belongs on
-the data side: new installs put it at `<DATA>/addons/_repo` (addon ids cannot
-start with `_`, so it cannot collide with an addon's own directory).
+The addons repo is code, but the player installs and removes it at runtime, so
+it can live neither in the code root nor in the OTA. It is **mutable code**,
+which the code/data split had no name for, and it belongs on the data side:
+`<DATA>\addons\_repo`, GitHub's archive of
+`p4v1c/gamecore-addons-windows` (no git on the box). Addon ids cannot start
+with `_`, so neither `_repo` nor `_python` can collide with an addon's own
+directory.
 
-An existing `/opt/gamecore-addons` keeps being used. Boxes installed before
-this release have their addons there with services already pointing into it;
-relocating it from under them would break running addons for no gain, and the
-player would have no way to tell why.
+`_python` is a copy of the installation's interpreter, made by the CLI, that
+every addon venv is built on. Not the code root's own: the updater stops every
+process whose executable lives in the code root and renames the folder, so an
+addon running on it would die, and block the swap, at every release.
 
 ## `config/standby.json`
 
