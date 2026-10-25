@@ -36,8 +36,10 @@ reaches Electron only through `preload.js`.
 
 `createWindow()` runs FIRST, before the backend is waited for, and its first
 document is `electron/boot/boot.html` — from disk, with no backend, no network
-and no bundle. The window is created `show: false` and presented on
-`ready-to-show`, so its first visible frame is that document rather than white.
+and no bundle. The window is created shown, already fullscreen and kiosk
+(`show: true`), so its first frames are black, then its `backgroundColor`.
+Not `show: false` + `ready-to-show`: Windows resizes a hidden fullscreen window
+when it is shown and paints that frame white, ~100 ms at every sign-in (D64).
 
 Once the backend answers, the shell posts `/api/standby/desktop` `{active: false}`
 (a start is often a return from Desktop mode) and the interface is loaded into
