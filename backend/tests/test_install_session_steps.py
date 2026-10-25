@@ -176,7 +176,8 @@ AUTOLOGON_FAKES = r"""
     function Restore-GcRegistryValue { param($Path, $Name, $Previous, $Type) Note 'restore' "$Name=$Previous" }
     function Remove-ItemProperty { param($LiteralPath, $Name, $ErrorAction) Note 'remove' $Name }
     function Set-GcLsaSecret { param($Name, $Value) Note 'lsa' @{ name = $Name; value = $Value } }
-    function Read-GcLogonPassword { param($User) Note 'asked' $User; 'pw' }
+    function Read-GcLogonPassword { param($User, [switch]$Microsoft) Note 'asked' $User; Note 'microsoft' ([bool]$Microsoft); 'pw' }
+    function Get-LocalUser { param($Name, $ErrorAction) $null }
 """
 
 
@@ -193,6 +194,25 @@ def test_autologon_stores_the_password_as_an_lsa_secret_never_in_the_registry(tm
     assert "pw" not in str(result["manifest"])
 
 
+def test_a_microsoft_account_signs_in_as_its_email_in_the_microsoftaccount_domain(tmp_path):
+    result = run_ps(tmp_path, AUTOLOGON_FAKES + rf"""
+        function Get-LocalUser {{ param($Name, $ErrorAction) [pscustomobject]@{{ PrincipalSource = 'MicrosoftAccount' }} }}
+        function Get-GcMicrosoftAccountEmail {{ param($User) 'player@outlook.com' }}
+        Install-GcAutologon {settings_ps(tmp_path)}
+    """)
+    assert calls(result, "asked") == ["player@outlook.com"] and calls(result, "microsoft") == [True]
+    assert {"DefaultUserName=player@outlook.com", "DefaultDomainName=MicrosoftAccount"} <= set(calls(result, "set"))
+
+
+def test_a_microsoft_account_without_a_known_email_is_refused_before_asking(tmp_path):
+    result = run_ps(tmp_path, AUTOLOGON_FAKES + rf"""
+        function Get-LocalUser {{ param($Name, $ErrorAction) [pscustomobject]@{{ PrincipalSource = 'MicrosoftAccount' }} }}
+        function Get-GcMicrosoftAccountEmail {{ param($User) $null }}
+        try {{ Install-GcAutologon {settings_ps(tmp_path)} }} catch {{ $GcTest['error'] = $_.Exception.Message }}
+    """)
+    assert "Microsoft account" in result["error"] and calls(result, "asked") == []
+
+
 def test_autologon_unattended_leaves_it_to_the_owner(tmp_path):
     result = run_ps(tmp_path, AUTOLOGON_FAKES + f"Install-GcAutologon {settings_ps(tmp_path)} -Unattended")
     assert result["calls"] == []
@@ -201,7 +221,7 @@ def test_autologon_unattended_leaves_it_to_the_owner(tmp_path):
 
 def test_autologon_already_on_for_this_user_asks_nothing(tmp_path):
     result = run_ps(tmp_path, AUTOLOGON_FAKES + rf"""
-        $script:reg = @{{ AutoAdminLogon = '1'; DefaultUserName = 'Player' }}
+        $script:reg = @{{ AutoAdminLogon = '1'; DefaultUserName = 'Player'; DefaultDomainName = $env:COMPUTERNAME }}
         Install-GcAutologon {settings_ps(tmp_path)}
     """)
     assert result["calls"] == []

@@ -122,7 +122,8 @@ What the installer does, one step per file in `install\steps\`:
 - installs OpenSSH Server if you want it
 - sets the power options a console needs, in every power plan: power button =
   sleep, no wake timers, no password on wake, Fast Startup off
-- signs your account in at boot (the password is stored as an LSA secret, never in a file)
+- signs your account in at boot (the password is stored as an LSA secret, never in a file;
+  a Microsoft account needs its password, a PIN cannot sign in automatically)
 - registers the `\GameCore\Session` logon task and a `GameCore` shortcut
 - makes GameCore your account's Windows shell in place of Explorer: the PC
   boots straight into GameCore, as the Linux box does (`KIOSK=0` keeps Explorer)
