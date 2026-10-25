@@ -408,6 +408,28 @@ use:
 | `"gamepadTrigger": true` | ignored on Windows (it re-fired udev for Flatpak apps); kept so a Linux tile still loads |
 | `"fullscreen": {…}` | `fullscreen_enforcer.enforce()` makes the launched job's window borderless fullscreen, for apps with no fullscreen flag |
 
+### Moving from the Linux box — `scripts/import-linux-data.py`
+
+The data layout is the same on both editions (`_LAYOUT` in
+`backend/services/paths.py`), so a Linux `/userdata` becomes a Windows data
+root by copy. The script plans by default, copies with `--apply`, only ever
+reads the source and never overwrites a file in the destination.
+
+| Source | Destination |
+|---|---|
+| ROMs and the saves beside them, `emu/covers`, `emu/gamemedia`, `emu/gamescrape`, `emu/metadata`, `emu/profile-saves` | same relative path |
+| `config/` (`playtime.db`, `profiles/`, `per-game/`, `theme.json`, `standby.json`, `auth.json`, `themes/`) | same relative path; JSON strings under `/userdata/` (`--linux-root`) rewritten into the destination, the original kept in `linux-import\` |
+| `config/systems.json`, `apps.json`, `session.json`, `addons.json`, `catalog.d/`, `controller-autoconfig.json`; `addons/`, `logs/`, `volumes/`, `emu/lutris/` | `<DEST>\linux-import\` (Linux packs, units, GUIDs and process groups the Windows edition cannot use) |
+| a file already in the destination (the installer's themes, a second run) | kept; the source's copy goes to `linux-import\` |
+| a name Windows refuses, two names that differ only by case | renamed (`_`, ` (2)`) and listed. A ROM renamed loses its playtime and favourite, keyed by the file name |
+| a symlink or junction | not followed, listed |
+
+The report is printed and, with `--apply`, saved in `<DEST>\logs\import\`;
+`playtime.db` gets an SQLite integrity check. Run `split-systems.py` on the
+Linux box first if it still has the `dolphin` or `mgba` tile. Then
+`install\install.ps1 -DataRoot <DEST>`. Nothing calls the script
+(`test_import_linux_data.py` checks).
+
 ### Splitting a system — `scripts/split-systems.py`
 
 `dolphin` and `mgba` each covered several consoles. They are now one pack per
