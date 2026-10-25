@@ -5,6 +5,7 @@ pure parts and run as a command once, as the owner will run it.
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sqlite3
@@ -207,12 +208,31 @@ def test_a_second_run_overwrites_nothing(tmp_path):
         "played on Windows")
 
 
+def _code_only(path: Path) -> str:
+    """The file without its comments and Python docstrings: a mention there runs nothing."""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    lines = text.splitlines()
+    if path.suffix == ".py":
+        try:
+            nodes = list(ast.walk(ast.parse(text)))
+        except SyntaxError:
+            nodes = []
+        for node in nodes:
+            body = getattr(node, "body", None)
+            if (isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)):
+                for i in range(body[0].lineno - 1, body[0].end_lineno or body[0].lineno):
+                    lines[i] = ""
+    return "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+
+
 def test_nothing_in_the_tree_runs_the_import():
     """A human types it once; an installer step or the OTA running it would copy a library unasked."""
     tracked = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z"], capture_output=True,
                              text=True, check=True).stdout.split("\0")
+    mine = ("scripts/import-linux-data.py", "backend/tests/test_import_linux_data.py")
     hits = [rel for rel in filter(None, tracked)
-            if not rel.endswith(".md") and not rel.startswith("docs/") and rel not in ("scripts/import-linux-data.py",
-                                                      "backend/tests/test_import_linux_data.py")
-            and "import-linux-data" in (REPO / rel).read_text(encoding="utf-8", errors="ignore")]
+            if not rel.endswith(".md") and not rel.startswith("docs/") and rel not in mine
+            and (REPO / rel).is_file() and "import-linux-data" in _code_only(REPO / rel)]
     assert not hits, hits
+
