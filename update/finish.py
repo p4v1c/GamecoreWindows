@@ -88,10 +88,26 @@ def merge_catalogue(root: Path, data: Path, say: Say) -> None:
     from backend.services.catalog.merge import merge_file
 
     config = data / "config"
-    notes = merge_file(config / "systems.json", load_catalog(root / "catalog", config / "catalog.d"),
-                       root, data_root=data, only_present=True)
+    packs = load_catalog(root / "catalog", config / "catalog.d")
+    notes = merge_file(config / "systems.json", packs, root, data_root=data, only_present=True)
     for note in notes or ["nothing to change."]:
         say(f"  {note}")
+    seed_windows_apps(config / "apps.json", packs, root, data, say)
+
+
+def seed_windows_apps(apps_file: Path, packs: dict, root: Path, data: Path, say: Say) -> None:
+    """Add the tiles of the app packs ported to Windows; apps.json is created on a fresh install.
+
+    Only `"windows": true` packs: the Linux app packs (Firefox, Flatpak launchers) would be dead tiles.
+    """
+    from backend.services.catalog.merge import merge_file
+
+    ported = {pid: p for pid, p in packs.items() if p.data.get("windows")}
+    if not apps_file.exists():
+        apps_file.parent.mkdir(parents=True, exist_ok=True)
+        apps_file.write_text("[]\n", encoding="utf-8", newline="\n")
+    for note in merge_file(apps_file, ported, root, kind="app", data_root=data) or ["nothing to change."]:
+        say(f"  apps: {note}")
 
 
 def finish(root: Path, data: Path, say: Say) -> int:

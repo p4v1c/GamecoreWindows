@@ -63,6 +63,18 @@ function Install-GcDataRoot {
     if ((Test-Path -LiteralPath $data) -and -not (Test-GcUserCanModify $data $Settings.ConsoleUser)) {
         Invoke-GcChange "let $($Settings.ConsoleUser) write $data" { Grant-GcModify $data $Settings.ConsoleUser }
     }
+    Invoke-GcChange 'put the ported packs on the grid (update\windows.py finish)' {
+        Invoke-GcCatalogMerge -CodeRoot $Settings.CodeRoot -DataRoot $data
+    }
+}
+
+function Invoke-GcCatalogMerge {
+    <# The step an update runs after the swap (update/finish.py): tiles of the "windows" packs, themes kept. #>
+    param([Parameter(Mandatory)][string]$CodeRoot, [Parameter(Mandatory)][string]$DataRoot)
+    $python = Join-Path $CodeRoot '.venv\Scripts\python.exe'
+    $env:PYTHONUTF8 = '1'
+    Invoke-GcNative $python @((Join-Path $CodeRoot 'update\windows.py'), 'finish',
+        '--root', $CodeRoot, '--data', $DataRoot) | Out-Null
 }
 
 function Uninstall-GcDataRoot {

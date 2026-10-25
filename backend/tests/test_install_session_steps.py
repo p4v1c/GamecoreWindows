@@ -57,7 +57,13 @@ def test_session_env_is_written_admin_only_and_read_back_by_the_launcher(tmp_pat
 DATA_FAKES = r"""
     function Test-GcUserCanModify { param($Path, $User) $false }
     function Grant-GcModify { param($Path, $User) Note 'grant' "$User|$Path" }
+    function Invoke-GcCatalogMerge { param($CodeRoot, $DataRoot) Note 'merge' "$CodeRoot|$DataRoot" }
 """
+
+
+def test_the_data_root_step_puts_the_ported_packs_on_the_grid_through_the_update_finish(tmp_path):
+    result = run_ps(tmp_path, DATA_FAKES + f"Install-GcDataRoot {settings_ps(tmp_path)}")
+    assert calls(result, "merge") == [f"{tmp_path / 'code'}|{tmp_path / 'data'}"]
 
 
 def test_the_data_root_gets_its_folders_the_themes_and_the_console_users_write_access(tmp_path):
