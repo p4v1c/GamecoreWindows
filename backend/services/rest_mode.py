@@ -160,8 +160,11 @@ async def enter() -> dict:
         log.warning("rest: suspend refused: %s", detail)
         raise ServiceError(503, REFUSED)
     log.info("rest: suspend requested (%s)", detail)
-    _reopen_task = asyncio.create_task(_reopen_later())
-    if detail == sleep.DARK_REST:
+    if detail != sleep.DARK_REST:
+        _reopen_task = asyncio.create_task(_reopen_later())
+    else:
+        # The wake is ours (the first press), never lost: no timer would clear
+        # the dark rest under a player who comes back after an hour.
         _dark = True
         from . import resume        # resume imports this module
         await resume.dark_rest_began()

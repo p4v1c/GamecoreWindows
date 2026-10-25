@@ -115,3 +115,17 @@ def test_an_s3_rest_waits_for_windows_to_announce_the_wake(box):
     asyncio.run(scenario())
     assert not rest_mode.is_dark()
     assert "power:sleeping" not in seen
+
+
+def test_a_dark_rest_has_no_timer_that_would_end_it_under_the_player(box, monkeypatch):
+    seen, _ = box
+    monkeypatch.setattr(rest_mode, "REOPEN_AFTER_SECS", 0.01)
+
+    async def scenario():
+        await rest_mode.enter()
+        await asyncio.sleep(0.1)
+        assert rest_mode.is_dark()
+        await _press_and_settle()
+
+    asyncio.run(scenario())
+    assert seen.count("power:resumed") == 1

@@ -198,7 +198,7 @@ HUD instead, because the React toast is hidden under the emulator.
 | `rest_mode.enter()` | close the launch gate, wait for a launch in flight, `close_everything()`, `platform/sleep.py` `suspend()` in a thread; `ServiceError` 409/503 (`REFUSED`) |
 | `rest_mode.close_everything()` | `process_manager.kill()` per session, poll jobs (`EXIT_WAIT_SECS`), terminate survivors (`FORCE_WAIT_SECS`) |
 | `rest_mode.woke()` | reopen launches; also after `REOPEN_AFTER_SECS` if no wake is reported |
-| `rest_mode.is_dark()` | resting on a Modern Standby PC (`suspend()` answered `DARK_REST`): `enter()` calls `resume.dark_rest_began()`, the next press (`standby.on_input()`) `resume.dark_rest_ended()` |
+| `rest_mode.is_dark()` | resting on a Modern Standby PC (`suspend()` answered `DARK_REST`, no reopen timer: the wake is never lost): `enter()` calls `resume.dark_rest_began()`, the next press (`standby.on_input()`) `resume.dark_rest_ended()` |
 | `resume.dark_rest_began()` / `dark_rest_ended()` | the sleep and the wake Windows does not announce on a dark rest, through `handle()` and the same lock as Windows' events |
 | `launch.close_gate(reason)` / `open_gate()` / `is_launching()` | the gate `launch()` checks first |
 | `resume.run()` | reads `sleep.power_model()` once, registers `sleep.watch()`; each event goes to `handle()` on the loop, one at a time; a `SUSPEND` holds Windows' power thread up to `SUSPEND_HOLD_SECS` (1.8 s) |
