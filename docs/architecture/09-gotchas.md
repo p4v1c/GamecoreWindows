@@ -110,11 +110,13 @@ for the same reason: `SetWindowLongPtrW` waits for the window's thread. Same
 reason argon2 goes through `asyncio.to_thread` in the auth router.
 
 **Explorer started by the GameCore shell is a folder window.** Explorer
-becomes the desktop (taskbar, Start) only when the Winlogon `Shell` value it
-reads names it; started under `gamecore-shell` it opens a File Explorer window.
-Desktop mode therefore points the per-user value at `explorer.exe` for the
-start and back (`install/bin/kiosk_shell.py`). Do not start Explorer from the
-interface: it would also be elevated (`electron/desktop.js`).
+becomes the desktop (taskbar, Start) only when HKLM Winlogon `Shell` names it
+as it starts; under `gamecore-shell` it opens File Explorer windows. Desktop
+mode points HKLM `Shell` at `explorer.exe` for the start and back, from the
+elevated `gamecore-session` (`install/bin/kiosk_desktop.py`). The per-user
+values look like the fix and are not: HKCU `Winlogon\Shell` is mapped to HKLM
+only (IniFileMapping `SYS:`) and the HKCU `Policies\System\Shell` policy is
+ignored on Home; a reboot with either still landed on the desktop.
 
 **The kiosk window one pixel short.** Windows hides the taskbar only for a
 window covering the whole monitor. Electron's frameless fullscreen came back

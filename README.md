@@ -142,7 +142,7 @@ builds the interface and the shell, which needs Node.js 22 and npm.
 **Return to desktop** in the Power menu opens the Windows desktop (Explorer,
 taskbar and all); the `GameCore` shortcut brings GameCore back and closes
 the desktop. If GameCore ever shows nothing: Ctrl+Alt+Del, Task Manager,
-Run new task, and type
+Run new task, tick "Create this task with administrative privileges", and type
 `"C:\Program Files\GameCore\.venv\Scripts\pythonw.exe" "C:\Program Files\GameCore\install\bin\gamecore-shell" --desktop`.
 Apps that start with Windows (Startup folder, Steam's autostart) start only
 with the desktop.

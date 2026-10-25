@@ -1,13 +1,17 @@
-"""The console user's shell: GameCore in place of Explorer, and the trip to the Windows desktop.
+r"""The console's shell: GameCore in place of Explorer, and the pieces of the trip to the Windows desktop.
 
 Shared by `gamecore-shell` (the shell itself, unelevated) and `gamecore-session`
 (the elevated supervisor). Stdlib only: both run before anything else.
 
-Winlogon starts the per-user `Shell` value (HKCU) at sign-in, on every edition.
-Explorer decides it is the desktop, not a folder window, only when that value
-names it; so Desktop mode points the value at Explorer while it starts, then
-back (`open_desktop`). A crash in between would boot the next session on the
-desktop: `REARM_VALUE` holds the GameCore command until the value is put back.
+The shell is HKLM `Winlogon\Shell` (install/steps/set-kiosk-shell.ps1). The
+per-user values are not read on Windows 11 Home: HKCU `Winlogon\Shell` is
+mapped to HKLM only (`IniFileMapping\system.ini\boot\Shell` = `SYS:`), and the
+"Custom User Interface" policy (HKCU `Policies\System\Shell`) is ignored there
+too, both measured on the owner's PC. Explorer takes the desktop (taskbar)
+only when HKLM `Shell` names it at the moment it starts, so Desktop mode
+points it at Explorer for the start and back (kiosk_desktop.DesktopTrip).
+`KIOSK_VALUE` holds the GameCore command: the installer's record of what the
+shell must be, re-armed by every session start.
 """
 from __future__ import annotations
 
@@ -17,15 +21,14 @@ from typing import Callable, Protocol
 
 log = logging.getLogger("gamecore-shell")
 
-WINLOGON_KEY = r"Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
+WINLOGON_KEY = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
 SHELL_VALUE = "Shell"
-GAMECORE_KEY = r"Software\GameCore"
-REARM_VALUE = "ShellRearm"
+GAMECORE_KEY = r"SOFTWARE\GameCore"
+KIOSK_VALUE = "KioskShell"
 EXPLORER = "explorer.exe"
 
 # Created by gamecore-shell, set by gamecore-session (same user, higher label).
 DESKTOP_EVENT = "Local\\GameCoreShellDesktop"
-RETURN_EVENT = "Local\\GameCoreShellReturn"
 SHELL_MUTEX = "Local\\GameCoreShell"
 # gamecore-session's own mutex: present while the elevated session runs.
 SESSION_MUTEX = "Local\\GameCoreSession"
@@ -40,62 +43,50 @@ WM_EXIT_EXPLORER = 0x0400 + 436
 
 
 class Registry(Protocol):
-    """HKCU values, as `gamecore-shell` needs them; tests hand in a dict-backed fake."""
+    """Registry values under one root; tests hand in a dict-backed fake."""
 
     def get(self, key: str, name: str) -> str | None: ...
     def set(self, key: str, name: str, value: str) -> None: ...
-    def delete(self, key: str, name: str) -> None: ...
 
 
-class CurrentUserRegistry:
-    """The real HKCU of the process's user (the console user, elevated or not)."""
+class WinRegistry:
+    """A real hive: HKLM for the shell (writes need the elevated session), HKCU for the wallpaper."""
+
+    def __init__(self, machine: bool = True):
+        import winreg
+        self._root = winreg.HKEY_LOCAL_MACHINE if machine else winreg.HKEY_CURRENT_USER
 
     def get(self, key: str, name: str) -> str | None:
         import winreg
         try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+            with winreg.OpenKey(self._root, key, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as handle:
                 return str(winreg.QueryValueEx(handle, name)[0])
         except OSError:
             return None
 
     def set(self, key: str, name: str, value: str) -> None:
         import winreg
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE) as handle:
+        with winreg.CreateKeyEx(self._root, key, 0, winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as handle:
             winreg.SetValueEx(handle, name, 0, winreg.REG_SZ, value)
 
-    def delete(self, key: str, name: str) -> None:
-        import winreg
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE) as handle:
-                winreg.DeleteValue(handle, name)
-        except OSError:
-            pass
+
+def kiosk_command(registry: Registry) -> str | None:
+    """The GameCore shell command when the installer made GameCore the shell (KIOSK=1), else None."""
+    return registry.get(GAMECORE_KEY, KIOSK_VALUE) or None
 
 
-def point_shell_at_explorer(registry: Registry) -> str | None:
-    """Make Explorer the shell for the next Explorer start. Returns the GameCore command it replaced."""
-    current = registry.get(WINLOGON_KEY, SHELL_VALUE)
-    if not current or current.strip().lower() == EXPLORER:
-        return None
-    registry.set(GAMECORE_KEY, REARM_VALUE, current)
-    registry.set(WINLOGON_KEY, SHELL_VALUE, EXPLORER)
-    return current
-
-
-def is_gamecore_shell(registry: Registry) -> bool:
-    """True when the console user's shell is gamecore-shell (KIOSK=1), even mid-trip."""
-    current = registry.get(WINLOGON_KEY, SHELL_VALUE) or ""
-    return "gamecore-shell" in current or bool(registry.get(GAMECORE_KEY, REARM_VALUE))
+def point_shell(registry: Registry, command: str) -> None:
+    registry.set(WINLOGON_KEY, SHELL_VALUE, command)
 
 
 def rearm(registry: Registry) -> bool:
-    """Put the GameCore shell back if a desktop trip left Explorer in its place. True when it did."""
-    command = registry.get(GAMECORE_KEY, REARM_VALUE)
-    if not command:
+    """Make HKLM `Shell` GameCore's again if a trip, a crash or anything else changed it. True when it did."""
+    command = kiosk_command(registry)
+    current = registry.get(WINLOGON_KEY, SHELL_VALUE)
+    if not command or current == command:
         return False
-    registry.set(WINLOGON_KEY, SHELL_VALUE, command)
-    registry.delete(GAMECORE_KEY, REARM_VALUE)
-    log.info("shell put back to %s", command)
+    point_shell(registry, command)
+    log.warning("shell was %r; put back to %s", current, command)
     return True
 
 

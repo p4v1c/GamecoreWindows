@@ -2,10 +2,10 @@
 
 Run by the `\\GameCore\\Session` task: elevated, in the console user's
 session, with `pythonw.exe` from the installation's venv (no console window),
-at sign-in and by gamecore-shell, the console user's shell. Run it again (the
+at sign-in and by gamecore-shell, the console's shell. Run it again (the
 GameCore shortcut, coming back from the Windows desktop) and it asks the
-running copy to show the interface, then exits. The desktop round trip itself
-is gamecore-shell's (install/bin/kiosk_desktop.py).
+running copy to show the interface, then exits. It runs the desktop round
+trip, being the elevated side (install/bin/kiosk_desktop.py).
 
 Stdlib only: it runs before anything else and must not depend on the backend.
 
@@ -292,25 +292,24 @@ def _setup_logging(settings: Settings) -> None:
                         format="%(asctime)s %(levelname)s %(message)s")
 
 
+_TRIP_LOCK = threading.Lock()
+
+
 def _in_background(action: Callable[[], object]) -> None:
-    """The desktop trip waits on Explorer for seconds; the supervisor keeps ticking meanwhile."""
-    threading.Thread(target=action, daemon=True).start()
+    """A trip waits on Explorer for seconds: off the supervisor's loop, one trip at a time."""
+    def serialised() -> None:
+        with _TRIP_LOCK:
+            action()
+    threading.Thread(target=serialised, daemon=True).start()
 
 
 def leave_to_desktop() -> None:
-    """gamecore-shell opens the desktop. Without it (an update ended it, or KIOSK=0), this does, elevated."""
-    if kiosk_shell.signal_event(kiosk_shell.DESKTOP_EVENT):
-        return
-    _in_background(kiosk_desktop.Shell(kiosk_shell.CurrentUserRegistry()).open_desktop)
+    """Desktop mode. Only this elevated process may point HKLM `Shell` at Explorer for the start."""
+    _in_background(kiosk_desktop.DesktopTrip(kiosk_shell.WinRegistry()).open)
 
 
 def back_from_desktop() -> None:
-    if kiosk_shell.signal_event(kiosk_shell.RETURN_EVENT):
-        return
-    registry = kiosk_shell.CurrentUserRegistry()
-    # With Explorer as the real shell (KIOSK=0), the desktop stays under the interface.
-    if kiosk_shell.is_gamecore_shell(registry):
-        _in_background(kiosk_desktop.Shell(registry).close_desktop)
+    _in_background(kiosk_desktop.DesktopTrip(kiosk_shell.WinRegistry()).close)
 
 
 class _WtsInfo(ctypes.Structure):
@@ -362,7 +361,8 @@ def run(settings: Settings) -> int:
         return 0 if shown else 1
     log.info("session started (%s)", startup_timeline())
     try:
-        kiosk_shell.rearm(kiosk_shell.CurrentUserRegistry())
+        # A trip cut short, or anything else that reset it, would boot the next session on the desktop.
+        kiosk_shell.rearm(kiosk_shell.WinRegistry())
     except OSError as e:
         log.error("could not put the GameCore shell back: %s", e)
     supervisor = Supervisor(settings, spawn_process, on_desktop=leave_to_desktop,

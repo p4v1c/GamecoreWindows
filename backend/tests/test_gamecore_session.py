@@ -232,35 +232,46 @@ class _FakeTrip:
     def __call__(self, registry):
         return self
 
-    def open_desktop(self):
+    def open(self):
         self.calls.append("open")
 
-    def close_desktop(self):
+    def close(self):
         self.calls.append("close")
 
 
 @pytest.fixture
-def no_shell_listening(monkeypatch):
+def trips(monkeypatch):
     calls = []
-    monkeypatch.setattr(gs.kiosk_shell, "signal_event", lambda name: False)
-    monkeypatch.setattr(gs.kiosk_shell, "CurrentUserRegistry", lambda: "registry")
-    monkeypatch.setattr(gs.kiosk_desktop, "Shell", _FakeTrip(calls))
+    monkeypatch.setattr(gs.kiosk_shell, "WinRegistry", lambda: "registry")
+    monkeypatch.setattr(gs.kiosk_desktop, "DesktopTrip", _FakeTrip(calls))
     monkeypatch.setattr(gs, "_in_background", lambda action: action())
     return calls
 
 
-def test_without_a_running_shell_the_session_opens_the_desktop_itself(no_shell_listening):
+def test_desktop_mode_and_the_way_back_are_the_elevated_sessions_trip(trips):
     gs.leave_to_desktop()
-    assert no_shell_listening == ["open"]
+    gs.back_from_desktop()
+    assert trips == ["open", "close"]
 
 
-def test_with_explorer_as_the_real_shell_coming_back_leaves_it_running(no_shell_listening, monkeypatch):
-    monkeypatch.setattr(gs.kiosk_shell, "is_gamecore_shell", lambda registry: False)
-    gs.back_from_desktop()
-    assert no_shell_listening == []
-    monkeypatch.setattr(gs.kiosk_shell, "is_gamecore_shell", lambda registry: True)
-    gs.back_from_desktop()
-    assert no_shell_listening == ["close"]
+def test_trips_run_one_at_a_time(monkeypatch):
+    import threading
+    order = []
+    release = threading.Event()
+
+    def slow():
+        order.append("open-start")
+        release.wait(5)
+        order.append("open-end")
+
+    gs._in_background(slow)
+    gs._in_background(lambda: order.append("close"))
+    release.set()
+    for _ in range(200):
+        if len(order) == 3:
+            break
+        threading.Event().wait(0.01)
+    assert order == ["open-start", "open-end", "close"]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="GetTickCount64 and WTS are Windows calls")

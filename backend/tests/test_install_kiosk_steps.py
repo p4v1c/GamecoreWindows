@@ -10,16 +10,19 @@ from backend.tests.powershell_harness import calls, needs_powershell, run_ps, se
 pytestmark = needs_powershell
 
 SID = "S-1-5-21-1-2-3-1002"
-WINLOGON = rf"Registry::HKEY_USERS\{SID}\Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
+MACHINE = r"HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+MARKER = r"HKLM:\SOFTWARE\GameCore"
+USER_WINLOGON = rf"Registry::HKEY_USERS\{SID}\Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
+USER_POLICY = rf"Registry::HKEY_USERS\{SID}\Software\Microsoft\Windows\CurrentVersion\Policies\System"
 
 SHELL_FAKES = rf"""
-    $script:reg = @{{}}
+    $script:reg = @{{ '{MACHINE}|Shell' = 'explorer.exe' }}
     $script:sddl = 'D:(A;;FA;;;BA)(A;;FA;;;SY)'
     function Get-GcUserSid {{ param($User) '{SID}' }}
     function Test-Path {{ param($LiteralPath) $true }}
     function Get-GcRegistryValue {{ param($Path, $Name) $script:reg["$Path|$Name"] }}
     function Set-GcRegistryValue {{ param($Path, $Name, $Value, $Type) Note 'set' "$Path|$Name=$Value"; $script:reg["$Path|$Name"] = $Value }}
-    function Restore-GcRegistryValue {{ param($Path, $Name, $Previous, $Type) Note 'restore' "$Name=$Previous" }}
+    function Restore-GcRegistryValue {{ param($Path, $Name, $Previous, $Type) Note 'restore' "$Path|$Name=$Previous" }}
     function Get-GcTaskSddl {{ $script:sddl }}
     function Set-GcTaskSddl {{ param($Sddl) Note 'sddl' $Sddl; $script:sddl = $Sddl }}
 """
@@ -30,10 +33,28 @@ def _shell_command(tmp_path):
     return f'"{code}\\.venv\\Scripts\\pythonw.exe" "{code}\\install\\bin\\gamecore-shell"'
 
 
-def test_gamecore_becomes_the_console_users_shell_and_the_old_value_is_recorded(tmp_path):
+def test_gamecore_becomes_the_machine_shell_and_the_session_gets_its_record(tmp_path):
     result = run_ps(tmp_path, SHELL_FAKES + f"Install-GcKioskShell {settings_ps(tmp_path)}")
-    assert calls(result, "set") == [f"{WINLOGON}|Shell={_shell_command(tmp_path)}"]
-    assert result["manifest"]["set-kiosk-shell"] == {"sid": SID, "Shell": None}
+    command = _shell_command(tmp_path)
+    assert calls(result, "set") == [f"{MACHINE}|Shell={command}", f"{MARKER}|KioskShell={command}"]
+    assert result["manifest"]["set-kiosk-shell"] == {"MachineShell": "explorer.exe", "KioskShell": None}
+
+
+def test_the_per_user_values_windows_ignores_are_removed_when_they_are_gamecores(tmp_path):
+    result = run_ps(tmp_path, SHELL_FAKES + rf"""
+        $script:reg['{USER_WINLOGON}|Shell'] = 'pythonw.exe gamecore-shell'
+        $script:reg['{USER_POLICY}|Shell'] = 'pythonw.exe gamecore-shell'
+        Install-GcKioskShell {settings_ps(tmp_path)}
+    """)
+    assert calls(result, "restore") == [f"{USER_WINLOGON}|Shell=", f"{USER_POLICY}|Shell="]
+
+
+def test_a_per_user_shell_someone_else_set_is_left_alone(tmp_path):
+    result = run_ps(tmp_path, SHELL_FAKES + rf"""
+        $script:reg['{USER_POLICY}|Shell'] = 'C:\kiosk\other.exe'
+        Install-GcKioskShell {settings_ps(tmp_path)}
+    """)
+    assert calls(result, "restore") == []
 
 
 def test_the_console_user_may_start_the_session_task(tmp_path):
@@ -61,12 +82,26 @@ def test_a_dry_run_of_a_first_install_lists_the_task_grant_without_a_task(tmp_pa
         Install-GcKioskShell {settings_ps(tmp_path)}
     """, dry_run=True)
     assert any("start the \\GameCore\\Session task" in c for c in result["changes"])
+    assert any("HKLM Winlogon Shell" in c for c in result["changes"])
     assert result["calls"] == []
 
 
-def test_uninstall_puts_explorer_back_and_drops_a_leftover_rearm(tmp_path):
-    result = run_ps(tmp_path, SHELL_FAKES + f"Uninstall-GcKioskShell @{{ sid = '{SID}'; Shell = $null }}")
-    assert calls(result, "restore") == ["Shell=", "ShellRearm="]
+def test_uninstall_gives_windows_explorer_back_and_drops_the_record(tmp_path):
+    result = run_ps(tmp_path, SHELL_FAKES + rf"""
+        $script:reg['{MACHINE}|Shell'] = 'pythonw.exe gamecore-shell'
+        $script:reg['{MARKER}|KioskShell'] = 'pythonw.exe gamecore-shell'
+        Uninstall-GcKioskShell @{{ MachineShell = 'explorer.exe'; KioskShell = $null }}
+    """)
+    assert calls(result, "set") == [f"{MACHINE}|Shell=explorer.exe"]
+    assert calls(result, "restore") == [f"{MARKER}|KioskShell="]
+
+
+def test_uninstall_never_leaves_windows_without_a_shell(tmp_path):
+    result = run_ps(tmp_path, SHELL_FAKES + rf"""
+        $script:reg['{MACHINE}|Shell'] = 'pythonw.exe gamecore-shell'
+        Uninstall-GcKioskShell @{{ MachineShell = $null }}
+    """)
+    assert calls(result, "set") == [f"{MACHINE}|Shell=explorer.exe"]
 
 
 def test_a_sid_already_in_the_dacl_is_not_added_again(tmp_path):

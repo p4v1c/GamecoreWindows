@@ -1,13 +1,14 @@
-"""`gamecore-shell` and `kiosk_desktop`: the console user's shell, and the desktop round trip it runs.
+"""`gamecore-shell` and `kiosk_desktop`: the console's shell, and the desktop round trip.
 
-Driven through `kiosk_desktop.Shell` with a dict registry and fake effects: nothing here
-starts Explorer, runs a task or writes the real HKCU. What is pinned, each a
-failure only a reboot would show:
+Driven through `kiosk_desktop.Shell` and `DesktopTrip` with a dict registry
+and fake effects: nothing here starts Explorer, runs a task or writes the real
+registry. What is pinned, each a failure only a reboot would show:
 
   · the session task is started at once, and again if the session dies, never in a loop;
-  · Explorer starts as the desktop (Shell value pointed at it) and the GameCore
-    shell is back in the profile before the trip ends, even when Explorer fails;
-  · a trip cut short is undone by the next session (rearm).
+  · Explorer starts while HKLM `Shell` names it (or it is a folder window, no
+    taskbar) and `Shell` is GameCore's again before the trip ends, even when
+    Explorer never shows a taskbar or fails to start;
+  · a shell value changed by anything else is put back at the next session start.
 """
 from __future__ import annotations
 
@@ -52,12 +53,14 @@ class DictRegistry:
         self.writes.append((name, value))
         self.values[(key, name)] = value
 
-    def delete(self, key, name):
-        self.values.pop((key, name), None)
+
+def kiosk_registry(shell=GAMECORE_SHELL):
+    return DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): shell,
+                         (ks.GAMECORE_KEY, ks.KIOSK_VALUE): GAMECORE_SHELL})
 
 
 class World:
-    """The session, the taskbar and Explorer, as the shell sees them."""
+    """The session, the taskbar and Explorer, as both sides see them."""
 
     def __init__(self, registry):
         self.registry = registry
@@ -65,28 +68,39 @@ class World:
         self.session = False
         self.taskbar = 0
         self.runs = []
-        self.explorer_starts = []
+        self.started = []
+        self.explorer_saw = []
         self.exits = []
+        self.shell_listens = True
         self.explorer_comes_up = True
-        self.ending = False
         self.explorer_leaves = True
+        self.ending = False
 
     def shell(self):
-        return kd.Shell(
-            self.registry, run=self._run, session_running=lambda: self.session,
-            taskbar=lambda: self.taskbar, explorer=self._explorer, exit_explorer=self._exit,
-            ending=lambda: self.ending,
-            clock=lambda: self.now, sleep=self._sleep)
+        return kd.Shell(DictRegistry(), run=self._run, session_running=lambda: self.session,
+                        start=self._start, ending=lambda: self.ending, clock=lambda: self.now)
+
+    def trip(self):
+        return kd.DesktopTrip(self.registry, run=self._run, ask_shell=self._ask_shell, start=self._start,
+                              taskbar=lambda: self.taskbar, exit_explorer=self._exit,
+                              ending=lambda: self.ending, sleep=self._sleep)
+
+    def _ask_shell(self):
+        if self.shell_listens:
+            self._start([ks.EXPLORER])      # what gamecore-shell does on the event
+        return self.shell_listens
 
     def _run(self, argv):
         self.runs.append(argv)
         return 0
 
-    def _explorer(self):
-        # Explorer reads the Shell value as it starts: a desktop only if it names Explorer.
-        self.explorer_starts.append(self.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE))
-        if self.explorer_comes_up:
-            self.taskbar = 0x1234
+    def _start(self, argv):
+        self.started.append(argv[0])
+        if argv[0] == ks.EXPLORER:
+            # Explorer reads HKLM Shell as it starts: the desktop only if it names Explorer.
+            self.explorer_saw.append(self.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE))
+            if self.explorer_comes_up:
+                self.taskbar = 0x1234
 
     def _exit(self, window):
         self.exits.append(window)
@@ -102,12 +116,15 @@ class World:
 def no_real_desktop(monkeypatch):
     monkeypatch.setattr(kd, "black_desktop", lambda: None)
     monkeypatch.setattr(kd, "restore_wallpaper", lambda registry: None)
+    monkeypatch.setattr(kd, "session_id", lambda: 1)
 
 
 @pytest.fixture
 def world():
-    return World(DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): GAMECORE_SHELL}))
+    return World(kiosk_registry())
 
+
+# -- the shell's side -----------------------------------------------------------
 
 def test_the_shell_starts_the_session_task_at_once(world):
     world.shell().keep_session()
@@ -131,80 +148,95 @@ def test_a_session_that_died_is_started_again_at_a_bounded_pace(world):
     assert len(world.runs) == 2
 
 
-def test_desktop_mode_starts_explorer_as_the_desktop_and_puts_gamecore_back(world):
-    assert world.shell().open_desktop() is True
-    assert world.explorer_starts == [ks.EXPLORER]
+def test_no_session_is_started_while_windows_signs_out(world):
+    world.ending = True
+    world.shell().keep_session()
+    assert world.runs == []
+
+
+# -- the session's side ---------------------------------------------------------
+
+def test_desktop_mode_starts_explorer_while_the_shell_names_it_then_puts_gamecore_back(world):
+    assert world.trip().open() is True
+    assert world.explorer_saw == [ks.EXPLORER]
     assert world.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == GAMECORE_SHELL
-    assert world.registry.get(ks.GAMECORE_KEY, ks.REARM_VALUE) is None
 
 
-def test_explorer_that_never_shows_a_taskbar_still_gives_the_shell_back(world):
+def test_without_gamecore_shell_the_session_starts_explorer_itself(world):
+    world.shell_listens = False
+    assert world.trip().open() is True
+    assert world.started == [ks.EXPLORER] and world.explorer_saw == [ks.EXPLORER]
+
+
+def test_explorer_without_a_taskbar_gives_the_shell_back_and_opens_task_manager(world):
     world.explorer_comes_up = False
-    assert world.shell().open_desktop() is False
+    assert world.trip().open() is False
     assert world.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == GAMECORE_SHELL
+    assert world.started[-1] == "taskmgr.exe"
 
 
 def test_explorer_that_fails_to_start_still_gives_the_shell_back(world):
-    def broken():
-        raise OSError("explorer.exe not found")
-    shell = world.shell()
-    shell._explorer = broken
+    world.shell_listens = False
+    trip = world.trip()
+    trip._start = lambda argv: (_ for _ in ()).throw(OSError("explorer.exe not found"))
     with pytest.raises(OSError):
-        shell.open_desktop()
+        trip.open()
     assert world.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == GAMECORE_SHELL
-
-
-def test_a_sign_out_is_not_a_trip_to_the_desktop(world):
-    """The interface exits 0 when Windows signs out too; a Shell value flipped then would boot the desktop."""
-    world.ending = True
-    shell = world.shell()
-    assert shell.open_desktop() is False
-    shell.keep_session()
-    assert world.explorer_starts == [] and world.registry.writes == [] and world.runs == []
 
 
 def test_a_desktop_already_open_starts_no_second_explorer(world):
     world.taskbar = 0x1234
-    assert world.shell().open_desktop() is True
-    assert world.explorer_starts == [] and world.registry.writes == []
+    assert world.trip().open() is True
+    assert world.started == [] and world.registry.writes == []
 
 
-def test_where_explorer_is_still_the_shell_the_profile_is_not_touched():
+def test_a_sign_out_is_not_a_trip_to_the_desktop(world):
+    """The interface exits 0 when Windows signs out too."""
+    world.ending = True
+    assert world.trip().open() is False
+    assert world.started == [] and world.registry.writes == []
+
+
+def test_with_explorer_as_the_real_shell_the_value_is_never_touched():
     world = World(DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): "explorer.exe"}))
-    world.shell().open_desktop()
+    world.shell_listens = False
+    world.trip().open()
     assert world.registry.writes == []
 
 
-def test_coming_back_asks_explorer_to_exit(world):
+def test_coming_back_asks_explorer_to_exit_then_ends_every_leftover_by_name(world):
     world.taskbar = 0x1234
-    assert world.shell().close_desktop() is True
-    assert world.exits == [0x1234] and world.runs == []
-
-
-def test_an_explorer_that_will_not_exit_is_ended(world, monkeypatch):
-    monkeypatch.setattr(kd, "session_id", lambda: 1)
-    world.taskbar = 0x1234
-    world.explorer_leaves = False
-    assert world.shell().close_desktop() is False
+    assert world.trip().close() is True
+    assert world.exits == [0x1234]
     assert world.runs == [["taskkill.exe", "/f", "/im", "explorer.exe", "/fi", "SESSION eq 1"]]
 
 
-def test_a_trip_cut_short_is_undone_by_the_next_session():
-    registry = DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): GAMECORE_SHELL})
-    ks.point_shell_at_explorer(registry)              # the shell died here
-    assert registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == ks.EXPLORER
+def test_an_explorer_that_will_not_exit_is_reported_forced(world):
+    world.taskbar = 0x1234
+    world.explorer_leaves = False
+    assert world.trip().close() is False
+    assert world.runs[-1][:4] == ["taskkill.exe", "/f", "/im", "explorer.exe"]
+
+
+def test_with_explorer_as_the_real_shell_coming_back_leaves_it_running():
+    world = World(DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): "explorer.exe"}))
+    world.taskbar = 0x1234
+    world.trip().close()
+    assert world.exits == [] and world.runs == []
+
+
+# -- re-arming ------------------------------------------------------------------
+
+def test_a_shell_reset_to_explorer_is_put_back_at_session_start():
+    registry = kiosk_registry(shell="explorer.exe")
     assert ks.rearm(registry) is True
     assert registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == GAMECORE_SHELL
-    assert ks.rearm(registry) is False                # nothing left to undo
+    assert ks.rearm(registry) is False
 
 
-def test_the_gamecore_shell_is_recognised_even_mid_trip():
-    assert ks.is_gamecore_shell(DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): GAMECORE_SHELL}))
-    mid_trip = DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): "explorer.exe",
-                             (ks.GAMECORE_KEY, ks.REARM_VALUE): GAMECORE_SHELL})
-    assert ks.is_gamecore_shell(mid_trip)
-    assert not ks.is_gamecore_shell(DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): "explorer.exe"}))
-    assert not ks.is_gamecore_shell(DictRegistry())
+def test_without_kiosk_the_shell_is_never_rearmed():
+    registry = DictRegistry({(ks.WINLOGON_KEY, ks.SHELL_VALUE): "explorer.exe"})
+    assert ks.rearm(registry) is False and registry.writes == []
 
 
 def test_wait_until_gives_up_after_its_timeout():

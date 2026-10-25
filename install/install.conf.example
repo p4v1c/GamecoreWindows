@@ -29,7 +29,7 @@ AUTOLOGON=1
 # 1 = install and start OpenSSH Server, reachable from private networks only.
 SSH=1
 
-# 1 = GameCore replaces Explorer as USER_NAME's Windows shell: the PC boots
+# 1 = GameCore replaces Explorer as the PC's Windows shell (every account): the PC boots
 # straight into GameCore, and Settings > Desktop mode opens the Windows desktop
 # until the GameCore shortcut brings it back. 0 = Explorer stays the shell.
 KIOSK=1
