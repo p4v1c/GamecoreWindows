@@ -534,10 +534,9 @@ themes: a cover-art slideshow), then turns
 the screen off and switches to Windows' Power saver plan when the PC has one.
 **Any controller button wakes it** (read by the backend, so it works even
 with the interface asleep); mouse and keyboard work too. A running game
-always blocks standby. On a PC with S3 sleep the PC stays up meanwhile. On a
-Modern Standby PC, Windows may enter Modern Standby once the screen is off
-(measured on the reference PC): it then wakes on what Windows accepts, a
-keyboard for sure, a pad depending on the pad and the Bluetooth adapter.
+always blocks standby. The PC keeps running meanwhile, as the Linux box does:
+on a Modern Standby PC, where a display switched off puts the whole PC to
+sleep, the screen is left on and black instead.
 While standby is on, GameCore sets Windows' own "turn off the display" and
 "sleep after" timers to never and gives them back when standby is switched off.
 
@@ -559,9 +558,10 @@ How it sleeps depends on the PC:
   Bluetooth adapter and your pads to wake it, at every start and whenever a
   new pad connects. Press the PS / Guide button on a paired pad to wake it.
 - **Modern Standby** (most recent mini PCs and laptops): GameCore closes every
-  game and switches the screen off, and Windows enters Modern Standby on its
-  own. Windows decides what wakes it: a keyboard does; whether a pad press does
-  depends on the pad and the Bluetooth adapter.
+  game, turns the screen black and keeps the PC running, as the Linux box
+  does; any button on a connected pad wakes it. Windows is kept from sleeping
+  meanwhile (switching the display off would put this kind of PC to sleep),
+  so the TV shows black rather than going to its own standby.
 
 After a wake the screen stays black until the TV has the signal back, then
 the theme's boot animation plays with its sound and you land on Home. TVs

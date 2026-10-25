@@ -30,6 +30,9 @@ from . import power
 log = logging.getLogger(__name__)
 
 S3, MODERN_STANDBY, NO_SLEEP = "s3", "modern_standby", "none"
+# What suspend() answers on Modern Standby: no sleep happened, so no power
+# event will say so either (dev-log D56).
+DARK_REST = "modern standby: screen dark, PC kept running"
 SUSPEND, RESUME, DISPLAY_OFF, DISPLAY_ON = "suspend", "resume", "display_off", "display_on"
 
 _PBT_APMSUSPEND = 0x0004
@@ -114,7 +117,8 @@ def suspend() -> tuple[bool, str]:
     """Put the PC to sleep. (True, how) when asked, (False, why) when refused.
 
     S3 blocks until the wake. Modern Standby returns at once with the screen
-    off: a pad press lights it again through standby (services/standby.py).
+    dark and the PC held running (`power.screen_off()`): a pad press lights it
+    again through standby (services/standby.py).
     """
     try:
         model = power_model()
@@ -122,7 +126,7 @@ def suspend() -> tuple[bool, str]:
         return False, str(e)
     if model == MODERN_STANDBY:
         power.screen_off()
-        return True, "modern standby: screen off"
+        return True, DARK_REST
     if model == NO_SLEEP:
         return False, "this PC offers no sleep state"
     try:

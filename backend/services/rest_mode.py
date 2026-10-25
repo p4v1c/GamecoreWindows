@@ -38,6 +38,7 @@ GATE_REASON = "The box is going to sleep."
 REFUSED = "This PC can’t sleep right now. Turn it off instead."
 
 _resting = False
+_dark = False
 _reopen_task: asyncio.Task | None = None
 
 
@@ -116,13 +117,19 @@ async def _suspend() -> tuple[bool, str]:
     return await asyncio.to_thread(sleep.suspend)
 
 
+def is_dark() -> bool:
+    """Resting with the screen dark and the PC running (Modern Standby, dev-log D56)."""
+    return _dark
+
+
 def woke() -> None:
     """The box is awake: launches are allowed again."""
-    global _resting, _reopen_task
+    global _resting, _reopen_task, _dark
     if _reopen_task is not None and not _reopen_task.done():
         _reopen_task.cancel()
     _reopen_task = None
     _resting = False
+    _dark = False
     launch.open_gate()
 
 
@@ -136,7 +143,7 @@ async def _reopen_later() -> None:
 
 async def enter() -> dict:
     """Close everything, then suspend. Raises ServiceError when sleep is refused."""
-    global _resting, _reopen_task
+    global _resting, _reopen_task, _dark
     if _resting:
         raise ServiceError(409, "The box is already going to sleep.")
     _resting = True
@@ -152,6 +159,10 @@ async def enter() -> dict:
         woke()
         log.warning("rest: suspend refused: %s", detail)
         raise ServiceError(503, REFUSED)
-    log.info("rest: suspend requested")
+    log.info("rest: suspend requested (%s)", detail)
     _reopen_task = asyncio.create_task(_reopen_later())
+    if detail == sleep.DARK_REST:
+        _dark = True
+        from . import resume        # resume imports this module
+        await resume.dark_rest_began()
     return {"ok": True, "forced": len(survivors)}

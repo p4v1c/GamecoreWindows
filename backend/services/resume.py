@@ -115,6 +115,27 @@ async def on_resume() -> None:
     await _step("wake record", asyncio.to_thread(wake_source.remember))
 
 
+_lock: asyncio.Lock | None = None
+
+
+def _event_lock() -> asyncio.Lock:
+    """One lock for Windows' events and the dark rest's own, created in the loop."""
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
+
+
+async def dark_rest_began() -> None:
+    """Rest mode darkened a Modern Standby PC it keeps running: the sleep Windows will not announce."""
+    await handle(sleep.DISPLAY_OFF, sleep.MODERN_STANDBY, _event_lock())
+
+
+async def dark_rest_ended() -> None:
+    """A press during a dark rest: the wake Windows will not announce."""
+    await handle(sleep.DISPLAY_ON, sleep.MODERN_STANDBY, _event_lock())
+
+
 async def handle(event: str, model: str, lock: asyncio.Lock) -> None:
     """Act on one power event, one at a time: a wake waits for its sleep's sweep."""
     async with lock:
@@ -129,7 +150,7 @@ async def handle(event: str, model: str, lock: asyncio.Lock) -> None:
 async def run() -> None:
     """Follow Windows' sleeps and wakes for the life of the backend."""
     loop = asyncio.get_running_loop()
-    lock = asyncio.Lock()
+    lock = _event_lock()
     try:
         model = await asyncio.to_thread(sleep.power_model)
     except OSError as e:

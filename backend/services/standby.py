@@ -298,6 +298,17 @@ def _rest_screen_off() -> bool:
     return rest_mode.is_resting() or resume.is_sleeping()
 
 
+def _dark_rest() -> bool:
+    from . import rest_mode
+    return rest_mode.is_dark()
+
+
+async def _wake_dark_rest() -> None:
+    """The press that ends a dark rest: the whole wake (screen, splash, launches)."""
+    from . import resume
+    await resume.dark_rest_ended()
+
+
 def on_input() -> None:
     """Any controller input: called from gamepad_monitor's read loop."""
     global _last_input, _last_activity_signal, _last_press
@@ -313,6 +324,8 @@ def on_input() -> None:
 
     if _state != "active":
         _spawn(exit_standby())          # already turns the screen back on
+    elif _dark_rest():
+        _spawn(_wake_dark_rest())
     elif silence >= _WAKE_AFTER_SILENCE or _rest_screen_off():
         # GameCore thinks it is awake and the TV may still be dark (Windows'
         # timer); restarting a timer does not light a screen that is off.
