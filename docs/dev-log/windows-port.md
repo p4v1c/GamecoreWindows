@@ -17,8 +17,8 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | 5. Pads (SDL), standby, display, audio, Wi-Fi, Bluetooth, storage, logs | merged | #6 |
 | 6. Rest mode (sleep, wake by pad, splash after wake) | merged | #7 |
 | 7. Services, Caddy, SSH, firewall, installer + uninstaller, autologon | merged | #8 |
-| 8. OTA update + rollback, release workflow | in review | #9 |
-| 9. Addons repo (`p4v1c/gamecore-addons-windows`) | — | — |
+| 8. OTA update + rollback, release workflow | merged | #9 |
+| 9. Addons repo (`p4v1c/gamecore-addons-windows`), the `gamecore-addon` CLI in Python | in review | addons #1, this repo: see below |
 | 10. Data import script, README and website | — | — |
 
 ## Decisions
@@ -353,21 +353,35 @@ Deleted with their code: the `update/linux.sh`, sudoers-step and
   updater, its sudoers step and `gamecore-restart` left with their tests. CI
   lints `update/` too.
 
+- Step 9: `install/bin/gamecore-addon` rewritten in Python (stdlib) with a
+  `gamecore-addon.cmd` shim: the repo arrives as GitHub's archive of
+  `p4v1c/gamecore-addons-windows` (no git on the box), hooks are
+  `install.ps1` / `uninstall.ps1` run by Windows PowerShell 5.1, the data root
+  comes from the environment or `session.env`, addon venvs are built on a copy
+  of the core's Python in `<DATA>\addons\_python` (the updater kills
+  processes running from the code root), and `update` stops every addon
+  before swapping the repo. `routers/addons.py` runs it on its own
+  interpreter. The addons themselves, their scheduled tasks, Windows emulator
+  folders and their dev notes (tested, not tested, open questions) are in the
+  addons repository's README. The bash CLI's 9 Linux-only test items left
+  with it; `test_addon_contract.py` now runs real PowerShell hooks.
+
 ## Next
 
-Step 9: the addons repository (`p4v1c/gamecore-addons-windows`): the contract
-(`docs/architecture/12-addon-contract.md`, `api: 1`), the CLI as Python with
-a `.cmd` shim, the four addons with PowerShell install scripts and Windows
-save paths. Carry over from step 8: an addon's own files live outside the
-code root, so an update leaves them alone, but an addon that runs from the
-code root's venv would hold it during the swap (stage 2 stops only
-GameCore's processes and Caddy); addons get their own venv, as on Linux.
-
-Before the first real update (owner, see the open questions): a real install
-(step 7), then the merge that publishes `v0.1.0`, then a second release for
-the box to take.
+Step 10: `scripts/import-linux-data.py` (an existing `/userdata` tree made the
+Windows data root without loss, with a report of what could not be mapped),
+the README's user manual and the website for the Windows edition.
 
 ## Open questions for the owner
+
+- Step 9, conservative choices made (details in the addons repo README): the
+  addon tasks run elevated like the backend; `install` of a new addon does
+  not refresh the repo while others run from it (`update` first);
+  `uninstall.ps1` does not remove the addons' tasks yet (run
+  `gamecore-addon remove` for each before uninstalling GameCore).
+- Step 9: merging this PR publishes a release (it touches `install/bin` and
+  `backend/`); the addons repo has no release flow, its `main` is what
+  `gamecore-addon` downloads.
 
 - Step 8: **merging #9 publishes the first release, `v0.1.0`** (it touches
   shipped paths), and every later merge to `main` publishes another. Merge one

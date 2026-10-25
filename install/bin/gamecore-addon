@@ -1,391 +1,480 @@
-#!/usr/bin/env bash
-# ================================================================
-#  gamecore-addon — GameCore addon manager
-#
-#  install <name>   clone/pull the addons repo, run the addon's
-#                   install.sh, record it in the registry
-#  remove  <name>   run uninstall.sh, clean the registry
-#  list [--json]    available (repo) vs installed (registry)
-#  update [<name>]  git pull + re-run install.sh (default: all installed)
-#
-#  The repo checkout IS the runtime: services run straight from
-#  $GCA_REPO_DIR. The registry ($GAMECORE_DATA/config/addons.json)
-#  is written by this tool only — addon scripts never touch it.
-#
-#  Env overrides (sandbox / ISO):
-#    GCA_REPO_URL   addons repo         (default: p4v1c/gamecore-addons)
-#    GCA_REPO_DIR   checkout dir        (default: see below)
-#    GAMECORE_PATH  core install dir    (default: /opt/GameCore)
-#    GAMECORE_DATA  player data dir     (default: $GAMECORE_PATH)
-#    OFFLINE=1      never hit the network (repo comes from PAYLOAD_DIR)
-#    PAYLOAD_DIR    offline assets dir for the ISO installer
-#
-#  ── The hook contract, version 1 ────────────────────────────────
-#  An addon's install.sh / uninstall.sh is handed GAMECORE_DATA and
-#  ADDON_DATA_DIR, and must write to those. GAMECORE_PATH is passed
-#  for reading only: it becomes a read-only mount, and an addon that
-#  writes under it will fail at install time on a box nobody is
-#  watching. addon.json must declare `"api": 1` to say it knows this;
-#  one without it is refused by name rather than left to write into a
-#  directory that will not accept it.
-# ================================================================
-set -euo pipefail
+"""gamecore-addon: install, update and remove GameCore addons.
 
-GCA_REPO_URL="${GCA_REPO_URL:-https://github.com/p4v1c/gamecore-addons.git}"
-GAMECORE_PATH="${GAMECORE_PATH:-/opt/GameCore}"
+    gamecore-addon install <name>   fetch the addons repo if absent, run the addon's install.ps1, register it
+    gamecore-addon remove  <name>   run its uninstall.ps1, drop it from the registry
+    gamecore-addon update  [name]   stop every installed addon, fetch the repo again, reinstall them all
+    gamecore-addon list    [--json] available (repo) vs installed (registry)
+    gamecore-addon auth-reset       new web password; every web session ends
 
-# Where the player's data is, when the caller did not say.
-#
-# This CLI is typed at a shell, and a shell has no GAMECORE_DATA in it — the
-# variable is set on the backend's systemd unit, which is the one place the
-# migration procedure tells the operator to set it. Reading it from there means
-# `gamecore-addon update` follows the box's real data root instead of the
-# caller's environment; without this, the first update after a data move would
-# hand every addon's install.sh the OLD root, bake it into their units, and
-# ROM uploads would quietly land in the tree the box no longer reads.
-#
-# The unit is the source of truth and this only reads it. A caller who sets
-# GAMECORE_DATA explicitly (the installer, a sandbox, a test) still wins.
-_data_root_from_backend_unit() {
-  command -v systemctl >/dev/null 2>&1 || return 0
-  local env kv
-  env="$(systemctl show gamecore-backend.service -p Environment --value 2>/dev/null)" || return 0
-  # Space-separated KEY=VALUE pairs; the installer refuses a data path with a
-  # space or a quote in it (arch.sh, _conf_path), so this split is safe.
-  for kv in $env; do
-    if [[ "$kv" == GAMECORE_DATA=* ]]; then
-      printf '%s\n' "${kv#GAMECORE_DATA=}"
-      return 0
-    fi
-  done
-}
-if [[ -z "${GAMECORE_DATA:-}" ]]; then
-  GAMECORE_DATA="$(_data_root_from_backend_unit)"
-fi
-# Then the install, exactly like the backend's services/paths.py: until the
-# data physically moves the two are the same directory, and nothing an addon
-# touches changes location on the release that introduces this.
-GAMECORE_DATA="${GAMECORE_DATA:-$GAMECORE_PATH}"
-OFFLINE="${OFFLINE:-0}"
-PAYLOAD_DIR="${PAYLOAD_DIR:-}"
-REGISTRY="${GAMECORE_DATA}/config/addons.json"
+The checkout IS the runtime: addons run straight from `<DATA>\\addons\\_repo`.
+The registry (`<DATA>\\config\\addons.json`) is written by this tool only.
+The hook contract is `docs/architecture/12-addon-contract.md` (`api: 1`).
 
-# The checkout is git-managed code, but the player installs and removes it at
-# runtime — so it cannot live on a read-only root, and it is not shipped by the
-# OTA either. It is the fourth category the code/data split did not have a name
-# for: mutable code, which belongs on the data side.
-#
-# An existing /opt/gamecore-addons keeps being used. Every box installed before
-# this release has its addons there, with services already pointing into it;
-# relocating it from under them would break running addons for no gain, and the
-# player would have no way to tell why.
-if [[ -z "${GCA_REPO_DIR:-}" ]]; then
-  if [[ -d /opt/gamecore-addons/.git || -d /opt/gamecore-addons/addons ]]; then
-    GCA_REPO_DIR="/opt/gamecore-addons"
-  else
-    GCA_REPO_DIR="${GAMECORE_DATA}/addons/_repo"
-  fi
-fi
+Stdlib only. Run by the backend with its own interpreter, or by hand through
+`gamecore-addon.cmd`. Environment overrides (tests, offline installs):
+GCA_REPO_URL (zip archive), GCA_REPO_DIR, GCA_ADDON_PYTHON, GAMECORE_PATH,
+GAMECORE_DATA, GAMECORE_SESSION_ENV, OFFLINE=1 with PAYLOAD_DIR.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import getpass
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import zipfile
+from pathlib import Path
 
 # The hook contract this CLI speaks. Bumped only when a guarantee is withdrawn.
-GCA_API_VERSION=1
+GCA_API_VERSION = 1
+# No git on a Windows box: the repo arrives as GitHub's archive of main.
+DEFAULT_REPO_URL = "https://codeload.github.com/p4v1c/gamecore-addons-windows/zip/refs/heads/main"
+DOWNLOAD_TIMEOUT_S = 60
+MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
+HOOK_TIMEOUT_S = 900
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+REGISTRY_KEYS = ("label", "description", "version", "type", "service", "path")
+# Written by install/steps/write-session-env.ps1: the installed box's two roots.
+SESSION_ENV = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "GameCore" / "session.env"
+POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+PYTHON_STAMP = "gamecore-python.txt"
 
-# systemctl --user must work when we are called from a system service
-# (the core backend drives this CLI from the Addons screen).
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
-die()  { echo "[gamecore-addon] ERROR: $*" >&2; exit 1; }
-info() { echo "[gamecore-addon] $*"; }
+class AddonError(Exception):
+    """A refusal or a failure the player reads on the Addons screen."""
 
-command -v python3 >/dev/null || die "python3 not found"
-command -v git     >/dev/null || die "git not found"
 
-# ── addon.json / registry helpers (python3 — no jq dependency) ───
-meta() {  # meta <addon-dir> <key> → value ("" if absent)
-  python3 - "$1/addon.json" "$2" <<'PY'
-import json, sys
-v = json.load(open(sys.argv[1])).get(sys.argv[2], "")
-print(v if not isinstance(v, bool) else str(v).lower())
-PY
-}
+def info(message: str) -> None:
+    print(f"[gamecore-addon] {message}", flush=True)
 
-registry_add() {  # registry_add <addon-dir>
-  python3 - "$1/addon.json" "$REGISTRY" <<'PY'
-import json, sys, datetime, os, tempfile
-meta = json.load(open(sys.argv[1]))
-path = sys.argv[2]
-try:
-    reg = json.load(open(path))
-except (FileNotFoundError, json.JSONDecodeError):
-    reg = {}
-entry = {k: meta[k] for k in ("label", "description", "version", "type", "service", "path") if k in meta}
-if meta.get("type") == "web":
-    entry["port"] = meta.get("port")
-entry["installed_at"] = datetime.datetime.now().isoformat(timespec="seconds")
-reg[meta["name"]] = entry
-os.makedirs(os.path.dirname(path), exist_ok=True)
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
-with os.fdopen(fd, "w") as f:
-    json.dump(reg, f, indent=2, sort_keys=True)
-    f.write("\n")
-os.replace(tmp, path)
-PY
-}
 
-registry_remove() {  # registry_remove <name>
-  python3 - "$1" "$REGISTRY" <<'PY'
-import json, sys, os, tempfile
-name, path = sys.argv[1], sys.argv[2]
-try:
-    reg = json.load(open(path))
-except (FileNotFoundError, json.JSONDecodeError):
-    sys.exit(0)
-reg.pop(name, None)
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
-with os.fdopen(fd, "w") as f:
-    json.dump(reg, f, indent=2, sort_keys=True)
-    f.write("\n")
-os.replace(tmp, path)
-PY
-}
+# ── roots ────────────────────────────────────────────────────────────────────
 
-registry_names() {
-  python3 - "$REGISTRY" <<'PY'
-import json, sys
-try:
-    print("\n".join(sorted(json.load(open(sys.argv[1])))))
-except (FileNotFoundError, json.JSONDecodeError):
-    pass
-PY
-}
+def parse_env_file(text: str) -> dict[str, str]:
+    """`KEY=value` lines, as gamecore-session reads them; comments and blanks skipped."""
+    values = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
 
-# ── repo checkout ────────────────────────────────────────────────
-ensure_repo() {  # ensure_repo [pull]
-  if [[ ! -d "$GCA_REPO_DIR/.git" ]]; then
-    if [[ "$OFFLINE" == "1" ]]; then
-      # The payload copy carries no .git — a previous offline install already
-      # populated the dir. Without this guard, `cp -r` would nest a second
-      # gamecore-addons/ INSIDE the existing checkout on every re-run.
-      if [[ -d "$GCA_REPO_DIR/addons" ]]; then
-        return
-      fi
-      [[ -n "$PAYLOAD_DIR" && -d "$PAYLOAD_DIR/gamecore-addons" ]] \
-        || die "offline mode: no checkout at $GCA_REPO_DIR and no gamecore-addons/ in PAYLOAD_DIR"
-      info "Offline: copying addons repo from payload"
-      mkdir -p "$(dirname "$GCA_REPO_DIR")" 2>/dev/null \
-        || die "cannot create $(dirname "$GCA_REPO_DIR") (run the core installer first, or sudo mkdir + chown)"
-      cp -r "$PAYLOAD_DIR/gamecore-addons" "$GCA_REPO_DIR"
-    else
-      info "Cloning $GCA_REPO_URL → $GCA_REPO_DIR"
-      timeout 300 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
-          clone -q "$GCA_REPO_URL" "$GCA_REPO_DIR" \
-        || { rm -rf "$GCA_REPO_DIR"; die "clone failed — does $(dirname "$GCA_REPO_DIR") exist and belong to you?"; }
-    fi
-  elif [[ "${1:-}" == "pull" && "$OFFLINE" != "1" ]]; then
-    info "Updating addons repo (git pull)"
-    git -C "$GCA_REPO_DIR" pull -q --ff-only || die "git pull failed in $GCA_REPO_DIR"
-  fi
-}
 
-addon_dir() {  # addon_dir <name> — validates the name, echoes the path
-  local name="$1"
-  [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid addon name '$name'"
-  local dir="$GCA_REPO_DIR/addons/$name"
-  [[ -f "$dir/addon.json" ]] || die "unknown addon '$name' (no addons/$name/addon.json in $GCA_REPO_DIR)"
-  echo "$dir"
-}
+def resolve_roots(env: dict[str, str]) -> tuple[Path, Path]:
+    """(GAMECORE_PATH, GAMECORE_DATA). An explicit variable wins, then session.env, then the checkout.
 
-check_api() {  # check_api <addon-dir> — refuse an addon written before the split
-  local dir="$1" name declared
-  name="$(basename "$dir")"
-  declared="$(meta "$dir" api)"
-  if [[ -z "$declared" ]]; then
-    die "addon '$name' does not declare an api version in addon.json.
+    A shell has no GAMECORE_DATA in it; guessing would hand every hook the
+    wrong root and uploads would land where the box no longer reads.
+    """
+    code = env.get("GAMECORE_PATH") or str(Path(__file__).resolve().parents[2])
+    data = env.get("GAMECORE_DATA")
+    if not data:
+        session_env = Path(env.get("GAMECORE_SESSION_ENV") or SESSION_ENV)
+        if session_env.exists():
+            try:
+                values = parse_env_file(session_env.read_text(encoding="utf-8-sig"))
+            except OSError as e:
+                raise AddonError(f"cannot read {session_env} ({e.strerror or e}): "
+                                 "run this from an elevated prompt, or set GAMECORE_DATA") from e
+            code = env.get("GAMECORE_PATH") or values.get("GAMECORE_PATH") or code
+            data = values.get("GAMECORE_DATA")
+    return Path(code), Path(data or code)
 
-  It was written before GameCore separated code from data, so it may well
-  write under \$GAMECORE_PATH — which is becoming a read-only mount. Refusing
-  now, by name, rather than letting it install and fail later on a box with
-  nobody in front of it.
 
-  To port it: write to \$ADDON_DATA_DIR (or under \$GAMECORE_DATA), never to
-  \$GAMECORE_PATH, then add \"api\": $GCA_API_VERSION to its addon.json."
-  fi
-  if [[ "$declared" != "$GCA_API_VERSION" ]]; then
-    die "addon '$name' speaks api $declared, this GameCore speaks $GCA_API_VERSION."
-  fi
-}
+class Context:
+    """Every path and setting one run needs, resolved once."""
 
-run_script() {  # run_script <addon-dir> <install.sh|uninstall.sh>
-  local dir="$1" script="$2"
-  [[ -f "$dir/$script" ]] || die "$script missing for addon $(basename "$dir")"
-  local scope; scope="$(meta "$dir" service)"
-  if [[ "$scope" == "system" && $EUID -ne 0 ]]; then
-    die "addon '$(basename "$dir")' installs a system service — run with sudo"
-  fi
-  # The addon's own writable corner, created before the hook runs so that
-  # `install.sh` can simply write into it — an addon should not have to know
-  # how GameCore lays out its data to keep a config file.
-  local addon_data
-  addon_data="${GAMECORE_DATA}/addons/$(basename "$dir")"
-  mkdir -p "$addon_data" 2>/dev/null || true
-  USER_NAME="${SUDO_USER:-$(id -un)}" \
-  GAMECORE_PATH="$GAMECORE_PATH" \
-  GAMECORE_DATA="$GAMECORE_DATA" \
-  GAMECORE_ADDON_API="$GCA_API_VERSION" \
-  ADDON_DATA_DIR="$addon_data" \
-  GAMECORE_BACKEND_PORT="${GAMECORE_BACKEND_PORT:-8765}" \
-  ADDON_DIR="$dir" \
-  OFFLINE="$OFFLINE" \
-  PAYLOAD_DIR="$PAYLOAD_DIR" \
-    bash "$dir/$script"
-}
+    def __init__(self, env: dict[str, str]):
+        self.env = env
+        self.code, self.data = resolve_roots(env)
+        self.registry = self.data / "config" / "addons.json"
+        self.repo = Path(env.get("GCA_REPO_DIR") or self.data / "addons" / "_repo")
+        self.repo_url = env.get("GCA_REPO_URL") or DEFAULT_REPO_URL
+        self.offline = env.get("OFFLINE") == "1"
+        self.payload = env.get("PAYLOAD_DIR", "")
 
-# ── commands ─────────────────────────────────────────────────────
-cmd_install() {
-  local name="${1:-}"; [[ -n "$name" ]] || die "usage: gamecore-addon install <name>"
-  ensure_repo pull
-  local dir; dir="$(addon_dir "$name")"
-  check_api "$dir"
-  info "Installing '$name' v$(meta "$dir" version)"
-  run_script "$dir" install.sh
-  registry_add "$dir"
-  info "'$name' installed and registered."
-}
 
-cmd_remove() {
-  local name="${1:-}"; [[ -n "$name" ]] || die "usage: gamecore-addon remove <name>"
-  # same validation as addon_dir — remove must never eval an arbitrary path
-  [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid addon name '$name'"
-  local dir="$GCA_REPO_DIR/addons/$name"
-  if [[ -f "$dir/uninstall.sh" ]]; then
-    run_script "$dir" uninstall.sh
-  else
-    info "WARNING: no checkout/uninstall.sh for '$name' — cleaning the registry only."
-  fi
-  registry_remove "$name"
-  info "'$name' removed."
-}
+# ── addon.json and the registry ──────────────────────────────────────────────
 
-cmd_update() {
-  # `git pull` is repo-wide: naming one addon still brings down new code for
-  # every one of them, since the addons run straight out of this checkout. If
-  # only the named addon's install.sh were replayed, the others would be left
-  # running new code with their deploy step (shared files, dependencies,
-  # service units) never re-applied — a state nothing else would ever repair.
-  # So every registered addon is reinstalled after a pull, whatever was asked
-  # for; the request only decides what gets mentioned.
-  local requested=("$@")
-  ensure_repo pull
-
-  local targets=()
-  mapfile -t targets < <(registry_names)
-  if [[ ${#requested[@]} -gt 0 && ${#targets[@]} -gt 1 ]]; then
-    info "Note: the pull updates the whole addons repo, so every installed addon"
-    info "      is reinstalled — not just ${requested[*]}."
-  fi
-  [[ ${#targets[@]} -gt 0 ]] || targets=("${requested[@]}")
-  [[ ${#targets[@]} -gt 0 ]] || { info "No addon installed — nothing to update."; return; }
-  for name in "${targets[@]}"; do
-    local dir
-    if ! dir="$(addon_dir "$name" 2>/dev/null)"; then
-      # an installed addon that vanished from the repo must not abort the
-      # update of every following addon
-      info "WARNING: '$name' is not in the repo anymore — skipped."
-      continue
-    fi
-    check_api "$dir"
-    info "Updating '$name' → v$(meta "$dir" version)"
-    run_script "$dir" install.sh
-    registry_add "$dir"
-  done
-  info "Update done."
-}
-
-cmd_list() {
-  # Try to have a checkout for the "available" side, but never fail `list` —
-  # subshell required: die() would exit the whole script through `|| true`.
-  [[ -d "$GCA_REPO_DIR/.git" ]] || ( ensure_repo ) >/dev/null 2>&1 || true
-  python3 - "$GCA_REPO_DIR" "$REGISTRY" "${1:-}" <<'PY'
-import json, sys, glob, os
-repo_dir, registry, flag = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    installed = json.load(open(registry))
-except (FileNotFoundError, json.JSONDecodeError):
-    installed = {}
-available = []
-for f in sorted(glob.glob(os.path.join(repo_dir, "addons", "*", "addon.json"))):
-    name = os.path.basename(os.path.dirname(f))
-    if name.startswith("_"):
-        continue
+def read_json(path: Path, default):
+    """JSON from a file that may carry a BOM (a zip made on Windows); `default` when absent or broken."""
     try:
-        available.append(json.load(open(f)))
-    except json.JSONDecodeError:
-        print(f"[gamecore-addon] WARNING: bad JSON in {f}", file=sys.stderr)
-if flag == "--json":
-    print(json.dumps({"available": available, "installed": installed}, indent=2, sort_keys=True))
-else:
-    if not available and not installed:
-        print("No addons repo checkout and nothing installed.")
-    for a in available:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def write_json_atomic(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(value, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def registry_entry(meta: dict, now: datetime.datetime) -> dict:
+    entry = {k: meta[k] for k in REGISTRY_KEYS if k in meta}
+    if meta.get("type") == "web":
+        entry["port"] = meta.get("port")
+    entry["installed_at"] = now.isoformat(timespec="seconds")
+    return entry
+
+
+def registry_add(ctx: Context, meta: dict) -> None:
+    reg = read_json(ctx.registry, {})
+    reg[meta["name"]] = registry_entry(meta, datetime.datetime.now())
+    write_json_atomic(ctx.registry, reg)
+
+
+def registry_remove(ctx: Context, name: str) -> None:
+    reg = read_json(ctx.registry, None)
+    if reg is not None:
+        reg.pop(name, None)
+        write_json_atomic(ctx.registry, reg)
+
+
+def check_name(name: str) -> str:
+    if not NAME_RE.fullmatch(name or ""):
+        raise AddonError(f"invalid addon name '{name}'")
+    return name
+
+
+def addon_dir(ctx: Context, name: str) -> Path:
+    path = ctx.repo / "addons" / check_name(name)
+    if not (path / "addon.json").is_file():
+        raise AddonError(f"unknown addon '{name}' (no addons\\{name}\\addon.json in {ctx.repo})")
+    return path
+
+
+def check_api(path: Path) -> dict:
+    """The addon's manifest, or a refusal by name when it does not speak this api."""
+    meta = read_json(path / "addon.json", {})
+    declared = meta.get("api")
+    if declared is None:
+        raise AddonError(
+            f"addon '{path.name}' does not declare an api version in addon.json.\n"
+            "  It may write under GAMECORE_PATH, which an update replaces wholesale.\n"
+            "  To port it: write to $env:ADDON_DATA_DIR (or under GAMECORE_DATA), never to\n"
+            f"  GAMECORE_PATH, then add \"api\": {GCA_API_VERSION} to its addon.json.")
+    if declared != GCA_API_VERSION:
+        raise AddonError(f"addon '{path.name}' speaks api {declared}, this GameCore speaks {GCA_API_VERSION}.")
+    return meta
+
+
+# ── the repo checkout ────────────────────────────────────────────────────────
+
+def download(url: str, dest: Path) -> None:
+    with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_S) as resp, dest.open("wb") as out:
+        total = 0
+        while chunk := resp.read(1 << 16):
+            total += len(chunk)
+            if total > MAX_ARCHIVE_BYTES:
+                raise AddonError(f"{url} is larger than {MAX_ARCHIVE_BYTES >> 20} MB")
+            out.write(chunk)
+
+
+def extract_repo(archive: Path, dest: Path) -> None:
+    """Unpack GitHub's archive into `dest`, dropping its single top folder. Refuses paths that escape."""
+    with zipfile.ZipFile(archive) as zf:
+        names = [n for n in zf.namelist() if n.strip("/")]
+        tops = {n.split("/", 1)[0] for n in names}
+        strip = len(tops) == 1 and all("/" in n for n in names)
+        root = dest.resolve()
+        for member in zf.infolist():
+            rel = member.filename.split("/", 1)[1] if strip and "/" in member.filename else member.filename
+            if not rel.strip("/"):
+                continue
+            target = (dest / rel).resolve()
+            if not target.is_relative_to(root):
+                raise AddonError(f"the addons archive holds a path outside it: {member.filename}")
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+    if not (dest / "addons").is_dir():
+        raise AddonError("the addons archive has no addons folder")
+
+
+def fetch_repo(ctx: Context) -> None:
+    """Put a fresh copy of the repo at ctx.repo. Addons running from the old one must be stopped first."""
+    staged = ctx.repo.with_name(ctx.repo.name + ".new")
+    old = ctx.repo.with_name(ctx.repo.name + ".old")
+    for leftover in (staged, old):
+        shutil.rmtree(leftover, ignore_errors=True)
+    if ctx.offline:
+        source = Path(ctx.payload) / "gamecore-addons" if ctx.payload else None
+        if not source or not (source / "addons").is_dir():
+            raise AddonError(f"offline mode: no gamecore-addons folder in PAYLOAD_DIR ({ctx.payload or 'unset'})")
+        info(f"Offline: copying the addons repo from {source}")
+        shutil.copytree(source, staged)
+    else:
+        info(f"Downloading {ctx.repo_url}")
+        staged.mkdir(parents=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "addons.zip"
+            try:
+                download(ctx.repo_url, archive)
+            except OSError as e:
+                shutil.rmtree(staged, ignore_errors=True)
+                raise AddonError(f"download failed: {e}") from e
+            extract_repo(archive, staged)
+    swap_repo(ctx.repo, staged, old)
+
+
+def swap_repo(current: Path, staged: Path, old: Path) -> None:
+    """Rename staged into place, keeping the current copy until the new one is in."""
+    if current.exists():
+        try:
+            current.rename(old)
+        except OSError as e:
+            shutil.rmtree(staged, ignore_errors=True)
+            raise AddonError(f"cannot replace {current} ({e.strerror or e}): is an addon still running from it?") from e
+    try:
+        staged.rename(current)
+    except OSError as e:
+        # Never leave the box with no repo: the old one goes back.
+        if old.exists():
+            old.rename(current)
+        shutil.rmtree(staged, ignore_errors=True)
+        raise AddonError(f"cannot put the new repo in place ({e.strerror or e}); the old one is kept") from e
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def ensure_repo(ctx: Context) -> None:
+    if not (ctx.repo / "addons").is_dir():
+        fetch_repo(ctx)
+
+
+# ── the addons' own Python ───────────────────────────────────────────────────
+
+def addon_python(ctx: Context, refresh: bool) -> Path:
+    """The interpreter addon venvs are built on: a copy in the data root.
+
+    Not the code root's: an update stops every process whose executable lives
+    there, and renames the folder, so an addon running on it would die (and
+    block the rename) at every release.
+    """
+    if ctx.env.get("GCA_ADDON_PYTHON"):
+        return Path(ctx.env["GCA_ADDON_PYTHON"])
+    home = ctx.data / "addons" / "_python"
+    wanted = sys.version.split()[0]
+    stamp = home / PYTHON_STAMP
+    have = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else ""
+    if have == wanted or (have and not refresh):
+        return home / "python.exe"
+    info(f"Copying Python {wanted} to {home}")
+    shutil.rmtree(home, ignore_errors=True)
+    shutil.copytree(sys.base_prefix, home, ignore=shutil.ignore_patterns("__pycache__", "site-packages"))
+    (home / "Lib" / "site-packages").mkdir(parents=True, exist_ok=True)
+    stamp.write_text(wanted + "\n", encoding="utf-8", newline="\n")
+    return home / "python.exe"
+
+
+# ── hooks ────────────────────────────────────────────────────────────────────
+
+def hook_env(ctx: Context, path: Path, python: Path | None) -> dict[str, str]:
+    """What install.ps1 and uninstall.ps1 receive (the contract's table)."""
+    env = {k: v for k, v in ctx.env.items() if k.upper() != "PSMODULEPATH"}
+    env.update({
+        "USER_NAME": "\\".join(p for p in (ctx.env.get("USERDOMAIN", ""), getpass.getuser()) if p),
+        "GAMECORE_PATH": str(ctx.code),
+        "GAMECORE_DATA": str(ctx.data),
+        "GAMECORE_ADDON_API": str(GCA_API_VERSION),
+        "ADDON_DATA_DIR": str(ctx.data / "addons" / path.name),
+        "GAMECORE_BACKEND_PORT": ctx.env.get("GAMECORE_BACKEND_PORT", "8765"),
+        "ADDON_DIR": str(path),
+        "OFFLINE": "1" if ctx.offline else "0",
+        "PAYLOAD_DIR": ctx.payload,
+    })
+    if python:
+        env["GAMECORE_ADDON_PYTHON"] = str(python)
+    return env
+
+
+def run_hook(ctx: Context, path: Path, script: str, python: Path | None = None) -> None:
+    hook = path / script
+    if not hook.is_file():
+        raise AddonError(f"{script} missing for addon {path.name}")
+    # Created before the hook runs: an addon should not have to know the data layout.
+    (ctx.data / "addons" / path.name).mkdir(parents=True, exist_ok=True)
+    argv = [str(POWERSHELL), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(hook)]
+    try:
+        result = subprocess.run(argv, env=hook_env(ctx, path, python), cwd=path,
+                                stdin=subprocess.DEVNULL, timeout=HOOK_TIMEOUT_S)
+    except subprocess.TimeoutExpired as e:
+        raise AddonError(f"{path.name}: {script} still running after {HOOK_TIMEOUT_S} s") from e
+    if result.returncode != 0:
+        raise AddonError(f"{path.name}: {script} failed (exit {result.returncode})")
+
+
+def registered(ctx: Context) -> list[str]:
+    return sorted(read_json(ctx.registry, {}))
+
+
+# ── commands ─────────────────────────────────────────────────────────────────
+
+def cmd_install(ctx: Context, name: str) -> None:
+    ensure_repo(ctx)
+    path = addon_dir(ctx, name)
+    meta = check_api(path)
+    info(f"Installing '{name}' v{meta.get('version', '?')}")
+    run_hook(ctx, path, "install.ps1", addon_python(ctx, refresh=not registered(ctx)))
+    registry_add(ctx, {**meta, "name": name})
+    info(f"'{name}' installed and registered.")
+
+
+def cmd_remove(ctx: Context, name: str) -> None:
+    path = ctx.repo / "addons" / check_name(name)
+    if (path / "uninstall.ps1").is_file():
+        run_hook(ctx, path, "uninstall.ps1")
+    else:
+        info(f"WARNING: no checkout or uninstall.ps1 for '{name}': cleaning the registry only.")
+    registry_remove(ctx, name)
+    info(f"'{name}' removed.")
+
+
+def stop_installed(ctx: Context, names: list[str]) -> None:
+    """Run each installed addon's uninstall.ps1: the checkout and Python cannot be replaced under them."""
+    for name in names:
+        path = ctx.repo / "addons" / name
+        if (path / "uninstall.ps1").is_file():
+            info(f"Stopping '{name}'")
+            run_hook(ctx, path, "uninstall.ps1")
+
+
+def cmd_update(ctx: Context, requested: list[str]) -> None:
+    # The archive replaces the whole repo, so every installed addon is reinstalled,
+    # whatever was named: one left out would run new code without its deploy step.
+    names = registered(ctx) or [check_name(n) for n in requested]
+    if requested and len(names) > 1:
+        info("Note: the whole addons repo is replaced, so every installed addon is reinstalled.")
+    stop_installed(ctx, names)
+    try:
+        fetch_repo(ctx)
+    except AddonError as fetch_error:
+        info("Fetching the new repo failed: restarting the installed addons as they were.")
+        try:
+            reinstall(ctx, names, addon_python(ctx, refresh=False))
+        except AddonError as e:
+            print(f"[gamecore-addon] ERROR: {e}", file=sys.stderr, flush=True)
+        raise fetch_error
+    if not names:
+        info("No addon installed: repo refreshed, nothing to update.")
+        return
+    reinstall(ctx, names, addon_python(ctx, refresh=True))
+    info("Update done.")
+
+
+def reinstall(ctx: Context, names: list[str], python: Path) -> None:
+    """Install each addon again. One failure does not leave the following ones stopped."""
+    failed = []
+    for name in names:
+        try:
+            path = addon_dir(ctx, name)
+        except AddonError:
+            info(f"WARNING: '{name}' is not in the repo anymore: skipped.")
+            continue
+        try:
+            meta = check_api(path)
+            info(f"Updating '{name}' to v{meta.get('version', '?')}")
+            run_hook(ctx, path, "install.ps1", python)
+            registry_add(ctx, {**meta, "name": name})
+        except AddonError as e:
+            print(f"[gamecore-addon] ERROR: {e}", file=sys.stderr, flush=True)
+            failed.append(name)
+    if failed:
+        raise AddonError(f"not reinstalled: {', '.join(failed)}")
+
+
+def available(ctx: Context) -> list[dict]:
+    found = []
+    for manifest in sorted((ctx.repo / "addons").glob("*/addon.json")):
+        if manifest.parent.name.startswith("_"):
+            continue
+        meta = read_json(manifest, None)
+        if meta is None:
+            print(f"[gamecore-addon] WARNING: bad JSON in {manifest}", file=sys.stderr)
+        else:
+            found.append(meta)
+    return found
+
+
+def cmd_list(ctx: Context, as_json: bool) -> None:
+    # Never fail `list`: the Addons screen calls it, and an offline box still has a registry.
+    try:
+        ensure_repo(ctx)
+    except (AddonError, OSError) as e:
+        print(f"[gamecore-addon] WARNING: {e}", file=sys.stderr)
+    installed, avail = read_json(ctx.registry, {}), available(ctx)
+    if as_json:
+        print(json.dumps({"available": avail, "installed": installed}, indent=2, sort_keys=True))
+        return
+    if not avail and not installed:
+        print("No addons repo and nothing installed.")
+    for a in avail:
         name = a.get("name", "?")
-        mark = "✓ installed" if name in installed else "  available"
-        extra = f" :{a['port']}" if a.get("type") == "web" and a.get("port") else ""
+        mark = "installed" if name in installed else "available"
         if name in installed and installed[name].get("version") != a.get("version"):
-            mark += f" (update: {installed[name].get('version')} → {a.get('version')})"
-        print(f"{mark}  {name:<16} {a.get('type', '?'):<8}{extra}  {a.get('description', '')}")
-    for name in sorted(set(installed) - {a.get("name") for a in available}):
-        print(f"✓ installed  {name:<16} {installed[name].get('type', '?'):<8}  (not in repo anymore)")
-PY
-}
+            mark += f" (update: {installed[name].get('version')} to {a.get('version')})"
+        port = f" :{a['port']}" if a.get("type") == "web" and a.get("port") else ""
+        print(f"{mark:<11} {name:<16} {a.get('type', '?'):<8}{port}  {a.get('description', '')}")
+    for name in sorted(set(installed) - {a.get("name") for a in avail}):
+        print(f"{'installed':<11} {name:<16} {installed[name].get('type', '?'):<8}  (not in the repo anymore)")
 
-cmd_auth_reset() {
-  # Rotates the cookie HMAC secret AND sets a new password hash — every
-  # open session dies. The auth code lives in the core venv (argon2).
-  local py="$GAMECORE_PATH/.venv/bin/python3"
-  [[ -x "$py" ]] || die "core venv not found at $py (is GameCore installed?)"
-  local p1 p2
-  while true; do
-    read -rsp "New web password (cannot be empty): " p1; echo
-    [[ -n "$p1" ]] || { echo "Empty password refused." >&2; continue; }
-    read -rsp "Confirm                           : " p2; echo
-    [[ "$p1" == "$p2" ]] && break
-    echo "Passwords differ — try again." >&2
-  done
-  WEB_PASSWORD="$p1" GAMECORE_PATH="$GAMECORE_PATH" GAMECORE_DATA="$GAMECORE_DATA" "$py" - <<'PY'
-import os, sys
-sys.path.insert(0, os.environ["GAMECORE_PATH"])
-from backend.services import auth
-auth.set_password(os.environ["WEB_PASSWORD"], reset_secret=True)
-PY
-  # auth.py writes both files 0600 with the CURRENT euid. Run under sudo — the
-  # natural thing to type for a root-installed CLI — that leaves them root:root,
-  # the backend (User=<gamecore user>) then cannot read them, is_configured()
-  # reports False, and the box is locked out of its own web UI with no way in.
-  if [[ $EUID -eq 0 ]]; then
-    owner="$(stat -c '%U:%G' "$GAMECORE_DATA/config" 2>/dev/null)"
-    if [[ -n "$owner" && "$owner" != "root:root" ]]; then
-      chown "$owner" "$GAMECORE_DATA/config/auth.json" "$GAMECORE_DATA/config/auth_secret" 2>/dev/null \
-        && info "Credential files handed back to $owner."
-    fi
-  fi
-  info "Password reset — all web sessions are now invalid."
-}
 
-# ── dispatch ─────────────────────────────────────────────────────
-case "${1:-}" in
-  install)    shift; cmd_install "$@" ;;
-  remove)     shift; cmd_remove  "$@" ;;
-  update)     shift; cmd_update  "$@" ;;
-  list)       shift || true; cmd_list "${1:-}" ;;
-  auth-reset) cmd_auth_reset ;;
-  *) cat >&2 <<'EOF'
-gamecore-addon — GameCore addon manager
-Usage:
-  gamecore-addon install <name>
-  gamecore-addon remove  <name>
-  gamecore-addon update  [<name>...]
-  gamecore-addon list    [--json]
-  gamecore-addon auth-reset      (new web password + kill all sessions)
-EOF
-     exit 1 ;;
-esac
+def cmd_auth_reset(ctx: Context) -> None:
+    """Rotate the cookie secret and set a new password hash: every open session ends."""
+    while True:
+        first = getpass.getpass("New web password (cannot be empty): ")
+        if not first:
+            print("Empty password refused.", file=sys.stderr)
+            continue
+        if getpass.getpass("Confirm: ") == first:
+            break
+        print("The passwords differ. Try again.", file=sys.stderr)
+    os.environ["GAMECORE_DATA"] = str(ctx.data)
+    sys.path.insert(0, str(ctx.code))
+    from backend.services import auth
+    auth.set_password(first, reset_secret=True)
+    info("Password reset: all web sessions are now invalid.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="gamecore-addon", description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("install").add_argument("name")
+    sub.add_parser("remove").add_argument("name")
+    sub.add_parser("update").add_argument("names", nargs="*")
+    sub.add_parser("list").add_argument("--json", action="store_true")
+    sub.add_parser("auth-reset")
+    args = parser.parse_args(argv)
+    try:
+        ctx = Context(dict(os.environ))
+        if args.command == "install":
+            cmd_install(ctx, args.name)
+        elif args.command == "remove":
+            cmd_remove(ctx, args.name)
+        elif args.command == "update":
+            cmd_update(ctx, args.names)
+        elif args.command == "list":
+            cmd_list(ctx, args.json)
+        else:
+            cmd_auth_reset(ctx)
+    except AddonError as e:
+        print(f"[gamecore-addon] ERROR: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

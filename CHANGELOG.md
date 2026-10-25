@@ -17,6 +17,12 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, addons: `gamecore-addon` is a Python script now
+  (`install\bin\gamecore-addon`, `gamecore-addon.cmd` for a prompt) and
+  installs from `p4v1c/gamecore-addons-windows`. Run it from an elevated
+  prompt. Each addon becomes a scheduled task `\GameCore\Addons\<name>`;
+  before uninstalling GameCore, `gamecore-addon remove` each addon.
+
 - Windows edition, updates: Settings → Update installs this repository's
   releases (`p4v1c/GamecoreWindows`, `gamecore-ota.zip`), never the Linux
   original's. The archive's SHA-256 is checked; GameCore restarts to swap its

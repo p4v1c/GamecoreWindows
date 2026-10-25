@@ -15,10 +15,10 @@ Plus, out of band:
 
 | Process | Unit | Listens |
 |---|---|---|
-| rom-manager | `gamecore-addon-rom-manager.service` (**user** unit) | `127.0.0.1:8770` |
-| rpcs3-manager | `gamecore-addon-rpcs3-manager.service` | `127.0.0.1:8771` |
-| save-manager | `gamecore-addon-save-manager.service` | `127.0.0.1:8772` |
-| bios-manager | `gamecore-addon-bios-manager.service` | `127.0.0.1:8773` |
+| rom-manager | `\GameCore\Addons\rom-manager` task, at the console user's logon, elevated | `127.0.0.1:8770` |
+| rpcs3-manager | `\GameCore\Addons\rpcs3-manager` | `127.0.0.1:8771` |
+| save-manager | `\GameCore\Addons\save-manager` | `127.0.0.1:8772` |
+| bios-manager | `\GameCore\Addons\bios-manager` | `127.0.0.1:8773` |
 | Caddy | `GameCoreCaddy` Windows service | `:8443` — **the only LAN-facing port** |
 | OpenSSH | `sshd` Windows service (optional feature) | `:22`, private networks only |
 
