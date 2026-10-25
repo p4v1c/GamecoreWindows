@@ -239,7 +239,14 @@ def swap_repo(current: Path, staged: Path, old: Path) -> None:
         except OSError as e:
             shutil.rmtree(staged, ignore_errors=True)
             raise AddonError(f"cannot replace {current} ({e.strerror or e}): is an addon still running from it?") from e
-    staged.rename(current)
+    try:
+        staged.rename(current)
+    except OSError as e:
+        # Never leave the box with no repo: the old one goes back.
+        if old.exists():
+            old.rename(current)
+        shutil.rmtree(staged, ignore_errors=True)
+        raise AddonError(f"cannot put the new repo in place ({e.strerror or e}); the old one is kept") from e
     shutil.rmtree(old, ignore_errors=True)
 
 
@@ -354,10 +361,13 @@ def cmd_update(ctx: Context, requested: list[str]) -> None:
     stop_installed(ctx, names)
     try:
         fetch_repo(ctx)
-    except AddonError:
+    except AddonError as fetch_error:
         info("Fetching the new repo failed: restarting the installed addons as they were.")
-        reinstall(ctx, names, addon_python(ctx, refresh=False))
-        raise
+        try:
+            reinstall(ctx, names, addon_python(ctx, refresh=False))
+        except AddonError as e:
+            print(f"[gamecore-addon] ERROR: {e}", file=sys.stderr, flush=True)
+        raise fetch_error
     if not names:
         info("No addon installed: repo refreshed, nothing to update.")
         return

@@ -313,3 +313,21 @@ def test_the_cmd_shim_runs_the_cli_on_the_installations_venv(tmp_path):
                         "list", "--json"], capture_output=True, text=True, timeout=120, env=env)
     assert r.returncode == 0, r.stderr
     assert list(json.loads(r.stdout)["installed"]) == ["from-the-shim"]
+
+
+def test_a_failed_swap_puts_the_old_repo_back(tmp_path, monkeypatch):
+    """The new copy cannot be renamed in: the box must not end with no repo at all."""
+    current, staged, old = tmp_path / "_repo", tmp_path / "_repo.new", tmp_path / "_repo.old"
+    (current / "addons").mkdir(parents=True)
+    (staged / "addons").mkdir(parents=True)
+    real_rename = Path.rename
+
+    def rename(self, target):
+        if self == staged:
+            raise PermissionError(5, "Access is denied")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    with pytest.raises(gca.AddonError, match="old one is kept"):
+        gca.swap_repo(current, staged, old)
+    assert (current / "addons").is_dir() and not old.exists() and not staged.exists()
