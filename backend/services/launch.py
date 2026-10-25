@@ -301,15 +301,17 @@ async def _gates(system: dict, system_id: str, exec_args: str, game_key: str) ->
 
 
 async def _prepare(system_id: str, rom_path: str, exec_path: str,
-                   exec_args: str, game_key: str) -> None:
+                   exec_args: str, game_key: str, is_app: bool = False) -> None:
     """Everything the emulator must find on disk when it starts."""
     # A launch may come from the LAN while the box sleeps; a dark screen with
     # standby still armed swallows gp:guide, the only way out of a game.
     await standby.exit_standby()
     # Emulators read input config once at startup: the profile write must have
-    # landed before the stale-slot sweep and before the spawn.
-    await _await_controller_profiles(system_id, game_key)
-    await _free_stale_slots(system_id)
+    # landed before the stale-slot sweep and before the spawn. An app reads no
+    # emulator config, and the wait cost Steam 6.7 s of a press that did nothing.
+    if not is_app:
+        await _await_controller_profiles(system_id, game_key)
+        await _free_stale_slots(system_id)
     await _place_profile_saves(system_id, game_key)
     if rom_path:
         await _place_per_game_config(system_id, rom_path)
@@ -341,17 +343,34 @@ async def _spawn(system: dict, system_id: str, rom_path: str, exec_path: str,
         raise LaunchRefused(503, detail)
 
 
+async def _hand_over(system: dict, system_id: str, started) -> None:
+    """The new session's window to the front, then `game:presented`.
+
+    The interface stays shown, black and locked, until that event, then the
+    shell hides it: no empty desktop while the app starts. Sent at the
+    timeout too (`window: false`): the interface never waits for good.
+    """
+    fs_cfg = system.get("fullscreen")
+    if fs_cfg:
+        shown = await fullscreen_enforcer.enforce(system_id, fs_cfg, started.job)
+    else:
+        shown = await window_focus.present(system_id, started.job)
+    try:
+        await ws.broadcast("game:presented", {
+            "game_key": started.game_key, "system_id": started.system_id,
+            "session": started.session_id, "window": bool(shown),
+        })
+    except Exception:
+        log.exception("launch: failed to broadcast game:presented")
+
+
 def start_window_task(system: dict, system_id: str) -> None:
     """Bring the new game's window to the front, fullscreen first if the tile
     asks: its window opens behind the interface otherwise (window_focus.present)."""
     started = process_manager.foreground_session
     if started is None:
         return
-    fs_cfg = system.get("fullscreen")
-    if fs_cfg:
-        task = asyncio.create_task(fullscreen_enforcer.enforce(system_id, fs_cfg, started.job))
-    else:
-        task = asyncio.create_task(window_focus.present(system_id, started.job))
+    task = asyncio.create_task(_hand_over(system, system_id, started))
     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
@@ -406,7 +425,7 @@ async def _launch(system: dict, system_id: str, rom_path: str, game_key: str) ->
 
     exec_args = await _gates(system, system_id, system.get("args", ""), game_key)
     try:
-        await _prepare(system_id, rom_path, exec_path, exec_args, game_key)
+        await _prepare(system_id, rom_path, exec_path, exec_args, game_key, _is_app(system))
         exec_path, exec_args = await _pack_launch_command(system_id, rom_path,
                                                           exec_path, exec_args)
         resumed_flag = await _spawn(system, system_id, rom_path, exec_path, exec_args, game_key)

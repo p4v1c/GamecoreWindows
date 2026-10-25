@@ -779,10 +779,12 @@ signatures. The docstrings carry the rest.
 `launch(system, system_id, rom_path, game_key)` runs, in order: foreground
 check → ROM path inside `romsPath` → resume-or-refuse (one resident game) →
 catalogue args → BIOS gate → USB notice → `standby.exit_standby()` → wait for
-pad profiles → release stale slots → profile saves → per-game config → pack
+pad profiles → release stale slots (both skipped for an app: no emulator
+config to wait for) → profile saves → per-game config → pack
 `prepare_launch` → pack `launch_command` → `process_manager.launch()` →
-the window task (`start_window_task()`: `window_focus.present` or
-`fullscreen_enforcer.enforce`; the per-game settings window gets it too). Refusals raise `LaunchRefused(status, detail)`; the router maps them.
+the window task (`start_window_task()` → `_hand_over()`: `window_focus.present` or
+`fullscreen_enforcer.enforce`, then `game:presented` with `window` true or
+false, which lets the interface hide; the per-game settings window gets it too). Refusals raise `LaunchRefused(status, detail)`; the router maps them.
 The foreground check also claims a module-level `_launching` flag, held until
 the spawn returns: a second launch arriving meanwhile is refused (409) before
 any preparation. Without it, the refused launch re-placed and then released the
@@ -863,7 +865,7 @@ A Linux mechanism leaves the tree in the port step that lands its replacement
 | | `start_time(pid)` | creation time from `psutil`, ms precision, as a string; `""` for no such process | field 22 of `/proc/<pid>/stat` |
 | | `kill_tree(pid)` | kills a process and its descendants (`psutil`); for a child with no job (the update script) | `os.killpg` |
 | | `physical_memory()` | installed RAM in bytes, 0 when unknown | `os.sysconf` (absent on Windows: the resident cap silently stayed at 2) |
-| `jobs.py` | `spawn(cmd, env, stdout)` | starts `cmd` suspended, assigns it to a new named Job Object (`Local\GameCore-<uuid>`), gives the first process a duplicate of the job handle, resumes it; returns a `GameJob` | `start_new_session=True` + `create_subprocess_exec` |
+| `jobs.py` | `spawn(cmd, env, stdout)` | starts `cmd` suspended, assigns it to a new named Job Object (`Local\GameCore-<uuid>`), gives the first process a duplicate of the job handle and the job's name in `GAMECORE_JOB` (`JOB_ENV`), resumes it; returns a `GameJob` | `start_new_session=True` + `create_subprocess_exec` |
 | | `GameJob.alive()`, `.pids()` | any process left (`JobObjectBasicAccountingInformation`), every pid (`JobObjectBasicProcessIdList`) | `os.killpg(pgid, 0)`, `/proc` scan |
 | | `.suspend()`, `.resume()` | `NtSuspendProcess` / `NtResumeProcess` on every process; suspend is all or nothing | `SIGSTOP` / `SIGCONT` to the group |
 | | `.terminate()`, `.close()` | `TerminateJobObject` (exit code 137); let go of the handle, processes untouched | `SIGKILL` to the group |

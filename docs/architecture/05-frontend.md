@@ -148,7 +148,8 @@ and returns an unsubscribe.
 
 | Event | Emitted by | Payload | UI effect |
 |---|---|---|---|
-| `game:started` | `process_manager.launch()` | `game_key`, `system_id`, `session` | the session takes the screen; Electron hides its window |
+| `game:started` | `process_manager.launch()` | `game_key`, `system_id`, `session` | the session holds the pad; `awaitingWindow` set (the launch curtain) |
+| `game:presented` | `launch._hand_over()`, once the new window is in front or at the timeout | `game_key`, `system_id`, `session`, `window` | `awaitingWindow` cleared: `useSessionScreen` lets Electron hide its window |
 | `game:finished` | `process_manager._watch()` | + `elapsed`, `session` | removes that run; Electron shows its window again when it was foreground |
 | `game:running` | `ws.connect()` | foreground plus `background[]` | late-joining client catches up |
 | `game:backgrounded` / `game:foregrounded` | `process_manager` | transition plus complete state snapshot | atomically moves the run between screen and session bar |
@@ -194,7 +195,8 @@ and returns an unsubscribe.
 | `components/CrtStandby/index.tsx` | — | the CRT standby (`sdk.defaults.CrtStandby`, SDK 11): stage, playlist (`api.standby.videos`), fallbacks video → stills → snow. Orbit and Shelf opt in; see [CRT standby](#crt-standby) |
 | `hooks/useLocalWake.ts` | — | mouse move / key press ends standby; shared by both standby screens |
 | `hooks/useWakeSplash.ts` | — | `App.tsx`'s "splash done" flag, derived per `wakeCount`: the store write that lifts the black layer after a wake renders the splash in the same frame (an effect-based reset showed one frame of Home first) |
-| `hooks/useSessionScreen.ts` | — | tells Electron (`window.gamecore.sessionScreen`) whether a session owns the screen, from `sessionGameKey`; a resumed game maps no new window, so the shell must hide itself |
+| `components/LaunchCurtain.tsx` | — | host layer (z 950, `App.tsx`): black, "Starting <app>" for an app, from the press until `game:presented` |
+| `hooks/useSessionScreen.ts` | — | tells Electron (`window.gamecore.sessionScreen`) whether a session owns the screen, from `sessionGameKey`, not while `awaitingWindow` (at most `AWAIT_WINDOW_MAX_MS`); a resumed game maps no new window, so the shell must hide itself |
 | `components/modals/SettingsModal.tsx` | 85 | menu; pages live in `settings/`. **Every id in `ITEMS` needs a matching `page === …` line** — `themes` was missing one and the button was silently dead. |
 | `components/modals/PowerModal.tsx` | — | **flow**: Rest mode (cursor opens on it), Turn off, Restart, Return to desktop (led by In the background), two-press confirm, ↑↓ and ←→ both move, `POWER_FAILSAFE_MS = 10000`, `REST_FAILSAFE_MS = 35000`; Rest mode is `api.power.rest()`, a refusal shows in the row's subtitle |
 | `components/modals/power/DefaultPowerView.tsx` | 68 | **markup** of the default power menu |

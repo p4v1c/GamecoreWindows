@@ -85,6 +85,7 @@ Resume point for anyone picking the work up: read **Status**, then **Next**.
 | D59 | GameCore is the console's Windows shell: HKLM Winlogon `Shell` = `install\bin\gamecore-shell` (unelevated), which starts the elevated `\GameCore\Session` task at once and again if it dies. Desktop mode: `gamecore-session` (elevated) points HKLM `Shell` at Explorer while it starts (the desktop, not a folder window) and back, Task Manager if no taskbar comes; the way back closes Explorer. HKLM `SOFTWARE\GameCore\KioskShell` is re-armed at every session start. `KIOSK=0` keeps Explorer | owner (25/10): landing on the Windows desktop after a reboot was "catastrophic"; on Linux GameCore is the session and the desktop is a round trip. Measured on the owner's Windows 11 Home PC: HKCU Winlogon `Shell` ignored (IniFileMapping `SYS:`), HKCU `Policies\System\Shell` ignored, HKLM `Shell` boots into GameCore. Shell Launcher is Enterprise and Education only. HKLM is machine-wide: every account of the PC gets GameCore as its shell |
 | D60 | Quiet boot (`QUIET_BOOT=1`): `bcdedit bootuxdisabled on` for the running entry, first sign-in animation and status messages off, plain sign-in background; `NoLockScreen` only where honoured (Enterprise, Education). The firmware logo stays | as close as Windows gets to the Linux quiet boot; the UEFI/OEM logo is drawn by the firmware before Windows loads |
 | D61 | The kiosk window is created on the primary display's bounds and put back on its monitor's full bounds on show, resize and display changes (`electron/fullscreen.js`) | measured on the installed PC: the window was 1920x1079 and Explorer's taskbar stayed over it (Windows hides it only for a window covering the whole monitor); a fullscreen round trip in Electron reproduces the 1079 |
+| D63 | Launch hand-over: an app tile locks the pad and shows a black "Starting <app>" curtain at the press (`launchAppSession()`), the interface stays shown under it until the backend has the new window in front (`game:presented`, sent at the 45 s timeout too; the frontend gives up at 50 s), then the shell hides it. An app skips the pad-profile wait. The Steam helper takes a running Steam into the session's job (its process tree, `AssignProcessToJobObject` on the job named by `GAMECORE_JOB`) and asks it for Big Picture (`steam://open/bigpicture`); if Steam cannot join, the D58 close-and-restart path. Supersedes D58's "close a running Steam" | owner (25/10): Steam had a delay during which GameCore still answered the pad, where Linux feels immediate. Measured on the PC: the launch POST waited 6.7 s on a pad profile no app reads; the press-to-Big-Picture time with Steam already running went from 9.4 s (`-shutdown` and restart) to 0.9 s, the Big Picture window in the job, a kill ending Steam as before. `-gamepadui` handed to a running Steam opens nothing; the URL does |
 | D37 | Pads stay on into a sleep (Linux disconnected them first) | no public Windows call drops one device's link (D28); an Xbox pad paging back after the sleep, which woke the Linux box, is untested here |
 
 ## Baseline on Windows (19/10/2026, before any port change)
@@ -397,6 +398,10 @@ New: `test_import_linux_data.py` (18), `test_platform_awake.py` (6), `test_rest_
   Windows user manual; `docs/index.html` is the Windows edition's site.
   Steps 1-9 re-verified on the real PC ("Tested on the real Windows PC").
 
+- Smooth launch (D63, branch `fix/windows-smooth-launch`): the launch curtain and
+  `game:presented` hand-over, apps skip the pad-profile wait, the Steam helper
+  reuses a running Steam.
+
 ## Next
 
 The ten steps of the brief are done. What remains is the owner's (open
@@ -508,6 +513,7 @@ install provider in `catalog/_schema/pack.schema.json` (D57, deferred to the fir
 
 | What | When | Result |
 |---|---|---|
+| D63, Steam with Steam already running: press to Big Picture window 9.38 s on main (`-shutdown` and restart, through the installed v0.1.5 API), 0.87 s with the new helper in a real Job Object (the window's process in the job, `terminate()` ended Steam); cold Steam 4.99 s on main. Forwarding `-gamepadui` to a running Steam opened nothing in 30 s; `steam://open/bigpicture` 0.61 s | 25/10/2026 | green |
 | Kiosk session (D59-D61), on the installed PC (v0.1.3), read-only: last boot 11:39:24, sign-in 11:40:37 (account picked by hand, no autologon), `\GameCore\Session` started 11:40:47, backend ready 11:40:53, interface `RUNNING` +6.3 s; the kiosk window was 1920x1079 (`GetWindowRect`), Explorer's taskbar (`Shell_TrayWnd`, topmost) at y 1032-1080 over it | 25/10/2026 | the diagnosis |
 | Kiosk: the main window's options in a real Electron 31: 1920x1080; after `setFullScreen(false)` then `(true)` 1920x1079; with the guard, put back to 1920x1080 | 25/10/2026 | green |
 | Kiosk: `install.ps1 -DryRun -Only register-session-task,set-kiosk-shell,configure-boot-visuals` on the installed PC: Shell for pavic, `bootuxdisabled`, three policies; the task already lets pavic run it | 25/10/2026 | green |

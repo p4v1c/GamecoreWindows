@@ -7,9 +7,8 @@
  * that wants to wrap the default look instead of replacing it.
  */
 import { playSound } from '../lib/sounds'
-import { api } from '../api'
 import { useStore } from '../store'
-import { launchSession } from '../hooks/useWebSocket'
+import { launchAppSession, launchSession } from '../hooks/useWebSocket'
 import { gateGameLaunch } from '../lib/launchGate'
 
 import HomeScreen from './HomeScreen'
@@ -38,11 +37,12 @@ import { BiosPage } from './modals/settings/BiosPage'
 import { StoragePage } from './modals/settings/StoragePage'
 
 /** Launching lives here rather than in App so a prop-less surface can do it. */
-export async function launchApp(system: { id: string }): Promise<void> {
+export async function launchApp(system: { id: string; label?: string }): Promise<void> {
+  // A second press, or one over a session, is not a second launch.
+  if (useStore.getState().sessionGameKey) return
   playSound('launch')
   try {
-    await api.games.launch(system.id)
-    useStore.getState().setSession(system.id, system.id)
+    await launchAppSession(system.id, system.label || system.id)
   } catch (e) {
     console.error('Failed to launch app:', e)
   }

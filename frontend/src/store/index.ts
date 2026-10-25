@@ -100,6 +100,13 @@ interface GamecoreStore {
    */
   transition: 'launch' | 'resume' | 'suspend' | null
   setTransition: (t: 'launch' | 'resume' | 'suspend' | null) => void
+  /**
+   * A new session whose first window is not up yet: the app's name ('' for a
+   * game). The interface stays shown under the launch curtain, the pad already
+   * locked, until the backend says the window is in front (`game:presented`).
+   */
+  awaitingWindow: string | null
+  setAwaitingWindow: (label: string | null) => void
   setSessionState: (fg: { gameKey: string | null; systemId: string | null },
                     background: BackgroundSession[]) => void
 
@@ -180,6 +187,7 @@ export const useStore = create<GamecoreStore>((set) => ({
   backgroundSessions: [],
   launchConflict: null,
   transition: null,
+  awaitingWindow: null,
   remapRequest: 0,
   gameOptions: null,
   sessionMenuRequest: 0,
@@ -193,6 +201,7 @@ export const useStore = create<GamecoreStore>((set) => ({
   setSelectedGameIdx: (idx) => set({ selectedGameIdx: idx }),
   setSession: (gameKey, systemId) => set({ sessionGameKey: gameKey, sessionSystemId: systemId }),
   setTransition: (transition) => set({ transition }),
+  setAwaitingWindow: (awaitingWindow) => set({ awaitingWindow }),
   // Both halves in one write. Two `set` calls would render once with the game
   // gone from the screen and still absent from the session bar, which is one
   // frame of a box that has lost the player's game.
