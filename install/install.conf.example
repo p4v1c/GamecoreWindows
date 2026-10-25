@@ -29,6 +29,11 @@ AUTOLOGON=1
 # 1 = install and start OpenSSH Server, reachable from private networks only.
 SSH=1
 
+# 1 = GameCore replaces Explorer as USER_NAME's Windows shell: the PC boots
+# straight into GameCore, and Settings > Desktop mode opens the Windows desktop
+# until the GameCore shortcut brings it back. 0 = Explorer stays the shell.
+KIOSK=1
+
 # 1 = build the offline metadata index (LaunchBox dump, 234 MB download):
 # titles, synopses and covers with no account. 0 = skip; build it later with
 #   .\install\install.ps1 -Only build-media-index

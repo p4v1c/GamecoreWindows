@@ -1,9 +1,11 @@
 """gamecore-session: the console session. Starts the backend, then the interface, and keeps both up.
 
-Run by the `\\GameCore\\Session` logon task: elevated, in the console user's
-session, with `pythonw.exe` from the installation's venv (no console window).
-Run it again (the GameCore shortcut, coming back from the Windows desktop)
-and it asks the running copy to show the interface, then exits.
+Run by the `\\GameCore\\Session` task: elevated, in the console user's
+session, with `pythonw.exe` from the installation's venv (no console window),
+at sign-in and by gamecore-shell, the console user's shell. Run it again (the
+GameCore shortcut, coming back from the Windows desktop) and it asks the
+running copy to show the interface, then exits. The desktop round trip itself
+is gamecore-shell's (install/bin/kiosk_desktop.py).
 
 Stdlib only: it runs before anything else and must not depend on the backend.
 
@@ -18,10 +20,14 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+import kiosk_desktop
+import kiosk_shell
 
 log = logging.getLogger("gamecore-session")
 
@@ -43,7 +49,7 @@ POLL_S = 1.0
 # it instead of flashing a window of its own over the TV.
 CREATE_NO_WINDOW = 0x08000000
 
-MUTEX_NAME = "Local\\GameCoreSession"
+MUTEX_NAME = kiosk_shell.SESSION_MUTEX
 SHOW_EVENT_NAME = "Local\\GameCoreSessionShowInterface"
 ERROR_ACCESS_DENIED = 5
 ERROR_ALREADY_EXISTS = 183
@@ -137,10 +143,13 @@ class Supervisor:
     """Keeps the backend and the interface running. Every effect is injected, so tests drive it."""
 
     def __init__(self, settings: Settings, spawn: Spawn,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 on_desktop: Callable[[], None] = lambda: None,
+                 on_return: Callable[[], None] = lambda: None):
         self.settings = settings
         self._spawn = spawn
         self._clock = clock
+        self._on_desktop, self._on_return = on_desktop, on_return
         self.backend = Child("backend", settings.backend_argv(), settings.backend_env(),
                              "backend-console.log", hidden=True, restart_on_clean_exit=True)
         self.interface = Child("interface", settings.interface_argv(), settings.interface_env(),
@@ -158,6 +167,7 @@ class Supervisor:
             return
         child.stopped_by_player = False
         child.next_start = 0.0
+        self._on_return()
         self._start(child)
 
     def tick(self) -> None:
@@ -178,6 +188,7 @@ class Supervisor:
             # The shell exits 0 only when the player chose Desktop mode.
             log.info("%s exited cleanly: left to the Windows desktop", child.name)
             child.stopped_by_player = True
+            self._on_desktop()
             return
         child.crashes = [t for t in child.crashes if now - t < CRASH_WINDOW_S] + [now]
         delay = SLOW_RESTART_DELAY_S if len(child.crashes) >= CRASH_BURST else RESTART_DELAY_S
@@ -280,13 +291,39 @@ def _setup_logging(settings: Settings) -> None:
                         format="%(asctime)s %(levelname)s %(message)s")
 
 
+def _in_background(action: Callable[[], object]) -> None:
+    """The desktop trip waits on Explorer for seconds; the supervisor keeps ticking meanwhile."""
+    threading.Thread(target=action, daemon=True).start()
+
+
+def leave_to_desktop() -> None:
+    """gamecore-shell opens the desktop. Without it (an update ended it, or KIOSK=0), this does, elevated."""
+    if kiosk_shell.signal_event(kiosk_shell.DESKTOP_EVENT):
+        return
+    _in_background(kiosk_desktop.Shell(kiosk_shell.CurrentUserRegistry()).open_desktop)
+
+
+def back_from_desktop() -> None:
+    if kiosk_shell.signal_event(kiosk_shell.RETURN_EVENT):
+        return
+    registry = kiosk_shell.CurrentUserRegistry()
+    # With Explorer as the real shell (KIOSK=0), the desktop stays under the interface.
+    if kiosk_shell.is_gamecore_shell(registry):
+        _in_background(kiosk_desktop.Shell(registry).close_desktop)
+
+
 def run(settings: Settings) -> int:
     instance = SingleInstance()
     if not instance.acquire():
         shown = instance.ask_first_copy_to_show()
         log.info("already running; asked it to show the interface (%s)", shown)
         return 0 if shown else 1
-    supervisor = Supervisor(settings, spawn_process)
+    try:
+        kiosk_shell.rearm(kiosk_shell.CurrentUserRegistry())
+    except OSError as e:
+        log.error("could not put the GameCore shell back: %s", e)
+    supervisor = Supervisor(settings, spawn_process, on_desktop=leave_to_desktop,
+                            on_return=back_from_desktop)
     supervisor.start()
     while True:
         if instance.show_requested(int(POLL_S * 1000)):

@@ -165,7 +165,8 @@ Written by `install/install.ps1` ([11](11-install-script-seams.md)):
 
 | Piece | What | Why this form |
 |---|---|---|
-| `\GameCore\Session` | scheduled task: at the console user's sign-in, highest privileges, `.venv\Scripts\pythonw.exe install\bin\gamecore-session` | a window opens only in its own process's session; a service lives in session 0 (D8). Elevated: games inherit it, the wake settings need it (D36) |
+| `gamecore-shell` | the console user's Windows shell (HKCU Winlogon `Shell`, `install/steps/set-kiosk-shell.ps1`), unelevated: starts `\GameCore\Session` at once with `schtasks /run` and again if its mutex disappears (every 30 s at most), and runs the desktop round trip ([below](#the-console-users-desktop)). Logs to `%LOCALAPPDATA%\GameCore\shell.log` | the Linux console session has no desktop either; the per-user value works on Home, Shell Launcher is Enterprise and Education only (D59) |
+| `\GameCore\Session` | scheduled task: at the console user's sign-in and on demand from `gamecore-shell`, highest privileges, `.venv\Scripts\pythonw.exe install\bin\gamecore-session`; the console user may run it (`FRFX` in its DACL) | a window opens only in its own process's session; a service lives in session 0 (D8). Elevated: games inherit it, the wake settings need it (D36) |
 | `gamecore-session` | starts the backend (`python -m uvicorn backend.main:app --host 127.0.0.1`), then the shell (`<code>\shell\GameCore.exe`) at once, since the shell waits for `/api/ready` itself; restarts either 5 s after a crash, 60 s after five in two minutes. A clean exit of the shell is Desktop mode and is not undone; the `GameCore` shortcut runs `gamecore-session` again, unelevated, and it only asks the running copy to start the shell (a named mutex and event whose descriptor lets the unelevated user see and set them) | the Linux units' `Restart=on-failure`, without a "failed" state nobody can reset on a console |
 | `%ProgramData%\GameCore\session.env` | `GAMECORE_PATH`, `GAMECORE_DATA`, `GAMECORE_BACKEND_PORT`, the scraper keys; Administrators and SYSTEM only | the Linux unit's `Environment=` lines and its `override.conf` drop-in, in one file |
 | `GameCoreCaddy` | Windows service, automatic, restarted on failure: `caddy\caddy.exe run --config install\system\Caddyfile`; `XDG_DATA_HOME` = `%ProgramData%\GameCore\caddy` (the local CA) | web access works before anyone signs in |
@@ -209,11 +210,28 @@ that is off still lists its output.
 
 ### The console user's desktop
 
-Explorer stays the console user's shell: GameCore's kiosk window covers it, and
-Desktop mode leaves the kiosk for it (`electron/desktop.js`). Replacing the
-shell for that user (Winlogon `Shell`) would boot without Explorer, but an
-`explorer.exe` started later may then open a folder window instead of the
-desktop Desktop mode needs; untested, so not done (dev log, open questions).
+GameCore is the console user's shell; Explorer runs only in Desktop mode, as
+Plasma does on the Linux box (dev log D59). `gamecore-shell` and
+`gamecore-session` share `install/bin/kiosk_shell.py` (the registry values, the
+named objects) and `install/bin/kiosk_desktop.py` (the decisions).
+
+| Moment | What happens |
+|---|---|
+| sign-in | Winlogon starts `gamecore-shell`; it blacks the desktop for this sign-in (`SetSysColors`, no wallpaper, nothing saved to the profile) and starts `\GameCore\Session` |
+| Settings → Desktop mode | the interface exits 0; `gamecore-session` sets `Local\GameCoreShellDesktop`; `gamecore-shell` points HKCU `Shell` at `explorer.exe`, puts the wallpaper back, starts Explorer unelevated and, once `Shell_TrayWnd` exists (20 s at most), points `Shell` back at itself. Explorer is the desktop only when that value names it; otherwise it opens a folder window |
+| the `GameCore` shortcut | `gamecore-session` restarts the interface and sets `Local\GameCoreShellReturn`; `gamecore-shell` asks Explorer to exit (the taskbar's own "Exit Explorer" message) and ends it after 8 s if it stays |
+| no `gamecore-shell` running | an update stops every process of the code root, the shell included; it is back at the next sign-in. Until then `gamecore-session` finds nobody on the events and runs the same trip itself, so Explorer is elevated |
+| a trip cut short | the GameCore command waits in HKCU `Software\GameCore\ShellRearm` while `Shell` names Explorer; `gamecore-session` puts it back at its next start, so the next boot is GameCore again (the Linux box's `rearm-console`) |
+| `KIOSK=0` | Explorer stays the shell; Desktop mode has `gamecore-session` start `explorer.exe` (elevated) only when no taskbar exists |
+
+Way out without the interface: Ctrl+Alt+Del → Task Manager → Run new task →
+`"C:\Program Files\GameCore\.venv\Scripts\pythonw.exe" "C:\Program Files\GameCore\install\bin\gamecore-shell" --desktop`
+(plain `explorer.exe` there gives a folder window). `install\uninstall.ps1`
+gives the user Explorer back; it shows at the next sign-in.
+
+Gone without Explorer: the Run keys and the Startup folder (Explorer starts
+them), so apps that autostart with Windows (Steam's `-silent`) do not; toast
+notifications.
 
 ## Environment reconstruction
 

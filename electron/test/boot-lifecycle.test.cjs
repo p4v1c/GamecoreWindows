@@ -27,8 +27,7 @@ const MAIN = path.join(__dirname, '..', 'main.js')
  * @param answers  the sequence /api/ready gives back, `true` = 200 {ready}
  * @param env      the process environment main.js sees
  */
-function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {}) {
-  const execFiles = []      // every program the shell ran with execFile
+function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
   const windows = []
   const spawned = []
   const switches = []       // every Chromium flag the shell asked for
@@ -92,10 +91,6 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     electron,
     'child_process': {
       spawn: (bin, args, options) => { spawned.push({ bin, args, options }); return child },
-      execFile: (bin, args, options, cb) => {
-        execFiles.push([bin, ...args].join(' '))
-        setTimeout(() => (tasklist instanceof Error ? cb(tasklist, '') : cb(null, tasklist)), 0)
-      },
       exec: (cmd, cb) => {
         execs.push(cmd)
         const bad = execRefuses.some(frag => cmd.includes(frag))
@@ -366,24 +361,16 @@ test('the boot screen paints no ground of its own', () => {
 
 // ── Leaving for the Windows desktop ───────────────────────────────────
 
-test('leaving starts Explorer when the console session has none, then quits', async () => {
-  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: 'INFO: No tasks are running which match the specified criteria.' })
+test('leaving starts no Explorer itself: gamecore-session opens the desktop', async () => {
+  const r = rig({ env: { GAMECORE_MANAGED: '1' } })
   r.quit()
   await settle(20)
-  assert.deepEqual(r.spawned().map(s => s.bin), ['explorer.exe'])
+  assert.deepEqual(r.spawned(), [], 'an Explorer started here is elevated, and a folder window under the GameCore shell')
   assert.equal(r.quits.length, 1, 'the app stayed up after asking to leave')
 })
 
-test('leaving with Explorer already running starts no second one', async () => {
-  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: '"explorer.exe","4242","Console","1","120 000 K"' })
-  r.quit()
-  await settle(20)
-  assert.deepEqual(r.spawned(), [])
-  assert.equal(r.quits.length, 1)
-})
-
 test('leaving tells the backend first, so Windows gets its idle timers back', async () => {
-  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: '"explorer.exe","4242","Console","1","120 000 K"' })
+  const r = rig({ env: { GAMECORE_MANAGED: '1' } })
   r.quit()
   await settle(20)
   assert.deepEqual(r.posts, [{ url: 'http://127.0.0.1:8765/api/standby/desktop', body: { active: true } }])
@@ -397,13 +384,6 @@ test('a start tells the backend the player is back from the desktop', async () =
   r.stop()
   assert.deepEqual(r.posts.map(p => [p.url.replace(/^.*\/api/, '/api'), p.body.active]),
     [['/api/standby/desktop', false]])
-})
-
-test('a tasklist that fails does not keep the player in GameCore', async () => {
-  const r = rig({ env: { GAMECORE_MANAGED: '1' }, tasklist: new Error('tasklist missing') })
-  r.quit()
-  await settle(20)
-  assert.equal(r.quits.length, 1)
 })
 
 test('systemctl stop actually stops the shell', async () => {

@@ -49,6 +49,7 @@ def settings_ps(tmp_path: Path, **overrides) -> str:
     values = {
         "SourceRoot": str(REPO), "CodeRoot": str(tmp_path / "code"), "DataRoot": str(tmp_path / "data"),
         "ConsoleUser": "player", "Port": "8765", "WebPort": "8443", "Autologon": True, "Ssh": True,
+        "Kiosk": True,
     }
     values.update(overrides)
     config = values.pop("Config", {})

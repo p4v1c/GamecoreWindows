@@ -21,6 +21,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "install" / "bin" / "gamecore-session"
+sys.path.insert(0, str(SCRIPT.parent))     # kiosk_shell, beside the script
 
 
 def _load():
@@ -190,6 +191,76 @@ def test_coming_back_from_the_desktop_starts_the_interface(started):
     sup.tick()
     sup.show_interface()
     assert len(spawned) == 3 and spawned[2]["env"]["GAMECORE_MANAGED"] == "1"
+
+
+def test_desktop_mode_and_the_way_back_reach_the_shell(settings):
+    events = []
+    spawned = []
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        spawned.append(FakeProc())
+        return spawned[-1]
+
+    sup = gs.Supervisor(settings, spawn, clock=Clock(), on_desktop=lambda: events.append("desktop"),
+                        on_return=lambda: events.append("return"))
+    sup.start()
+    spawned[1].code = 0
+    sup.tick()
+    sup.show_interface()
+    assert events == ["desktop", "return"]
+
+
+def test_an_interface_crash_is_not_a_trip_to_the_desktop(settings):
+    events = []
+    spawned = []
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        spawned.append(FakeProc())
+        return spawned[-1]
+
+    sup = gs.Supervisor(settings, spawn, clock=Clock(), on_desktop=lambda: events.append("desktop"))
+    sup.start()
+    spawned[1].code = 1
+    sup.tick()
+    assert events == []
+
+
+class _FakeTrip:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def __call__(self, registry):
+        return self
+
+    def open_desktop(self):
+        self.calls.append("open")
+
+    def close_desktop(self):
+        self.calls.append("close")
+
+
+@pytest.fixture
+def no_shell_listening(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gs.kiosk_shell, "signal_event", lambda name: False)
+    monkeypatch.setattr(gs.kiosk_shell, "CurrentUserRegistry", lambda: "registry")
+    monkeypatch.setattr(gs.kiosk_desktop, "Shell", _FakeTrip(calls))
+    monkeypatch.setattr(gs, "_in_background", lambda action: action())
+    return calls
+
+
+def test_without_a_running_shell_the_session_opens_the_desktop_itself(no_shell_listening):
+    gs.leave_to_desktop()
+    assert no_shell_listening == ["open"]
+
+
+def test_with_explorer_as_the_real_shell_coming_back_leaves_it_running(no_shell_listening, monkeypatch):
+    monkeypatch.setattr(gs.kiosk_shell, "is_gamecore_shell", lambda registry: False)
+    gs.back_from_desktop()
+    assert no_shell_listening == []
+    monkeypatch.setattr(gs.kiosk_shell, "is_gamecore_shell", lambda registry: True)
+    gs.back_from_desktop()
+    assert no_shell_listening == ["close"]
 
 
 def test_asking_to_show_a_running_interface_starts_nothing(started):

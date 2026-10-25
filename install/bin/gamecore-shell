@@ -1,0 +1,95 @@
+"""gamecore-shell: the console user's Windows shell, in place of Explorer.
+
+Winlogon starts it at sign-in (HKCU `Shell`, written by
+install/steps/set-kiosk-shell.ps1), unelevated, with the venv's `pythonw.exe`.
+It starts the elevated `\\GameCore\\Session` task at once (the logon trigger
+fires too; the task runs one copy), starts it again if the session dies, and
+runs the Windows desktop round trip gamecore-session asks for: Explorer as the
+desktop on Desktop mode, Explorer closed on the way back. As on Linux, where
+the console session has no desktop until the player asks for one.
+The decisions live in install/bin/kiosk_desktop.py. Stdlib only.
+
+    gamecore-shell              run as the shell
+    gamecore-shell --desktop    open the Windows desktop now (escape hatch:
+                                Ctrl+Alt+Del, Task Manager, Run new task)
+"""
+from __future__ import annotations
+
+import argparse
+import ctypes
+import logging
+import os
+import sys
+from pathlib import Path
+
+import kiosk_desktop as kd
+import kiosk_shell as ks
+
+log = logging.getLogger("gamecore-shell")
+
+POLL_MS = 2000
+WAIT_OBJECT_0 = 0
+ERROR_ALREADY_EXISTS = 183
+LOG_CAP_BYTES = 1_000_000
+
+
+def _events() -> tuple[int, int]:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateEventW.restype = ctypes.c_void_p
+    return (k32.CreateEventW(None, False, False, ks.DESKTOP_EVENT),
+            k32.CreateEventW(None, False, False, ks.RETURN_EVENT))
+
+
+def _single_instance() -> bool:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW(None, False, ks.SHELL_MUTEX)    # held until the process ends
+    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+
+
+def run(shell: kd.Shell) -> int:
+    if not _single_instance():
+        log.info("a shell already runs in this session")
+        return 0
+    kd.black_desktop()
+    shell.keep_session()
+    desktop, back = _events()
+    handles = (ctypes.c_void_p * 2)(desktop, back)
+    k32 = ctypes.WinDLL("kernel32")
+    while True:
+        which = k32.WaitForMultipleObjects(2, handles, False, POLL_MS)
+        if which == WAIT_OBJECT_0:
+            shell.open_desktop()
+        elif which == WAIT_OBJECT_0 + 1:
+            shell.close_desktop()
+        shell.keep_session()
+
+
+def _setup_logging() -> None:
+    # The unelevated shell cannot read session.env, so it does not know the data root.
+    logs = Path(os.environ.get("LOCALAPPDATA", ".")) / "GameCore"
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / "shell.log"
+    try:
+        if path.stat().st_size > LOG_CAP_BYTES:
+            path.replace(path.with_suffix(".log.1"))
+    except OSError:
+        pass
+    logging.basicConfig(filename=path, encoding="utf-8", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="gamecore-shell", description=__doc__.splitlines()[0])
+    parser.add_argument("--desktop", action="store_true", help="open the Windows desktop now")
+    args = parser.parse_args(argv)
+    _setup_logging()
+    shell = kd.Shell(ks.CurrentUserRegistry())
+    if args.desktop:
+        return 0 if (ks.signal_event(ks.DESKTOP_EVENT) or shell.open_desktop()) else 1
+    log.info("shell started")
+    return run(shell)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

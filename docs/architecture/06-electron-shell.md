@@ -92,7 +92,7 @@ X-wide; on Windows a game hides its own pointer.
 |---|---|
 | `system:reboot` | `exec('shutdown /r /t 0')` (`electron/power.js`) |
 | `system:shutdown` | `exec('shutdown /s /t 0')` (`electron/power.js`) |
-| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), starts `explorer.exe` when `tasklist` shows none in this session, then `app.quit()`; the check is bounded by `LEAVE_DEADLINE_MS` (5 s) |
+| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), then `app.quit()` (exit code 0), bounded by `LEAVE_DEADLINE_MS` (5 s). Opening the desktop is `gamecore-session`'s and `gamecore-shell`'s ([1](01-runtime-topology.md#the-console-users-desktop)): Explorer started here would be elevated, and a folder window under the GameCore shell |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
 

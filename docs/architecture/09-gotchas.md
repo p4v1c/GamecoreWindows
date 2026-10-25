@@ -109,6 +109,13 @@ Window moves (`window_focus`, `fullscreen_enforcer`) run in `asyncio.to_thread`
 for the same reason: `SetWindowLongPtrW` waits for the window's thread. Same
 reason argon2 goes through `asyncio.to_thread` in the auth router.
 
+**Explorer started by the GameCore shell is a folder window.** Explorer
+becomes the desktop (taskbar, Start) only when the Winlogon `Shell` value it
+reads names it; started under `gamecore-shell` it opens a File Explorer window.
+Desktop mode therefore points the per-user value at `explorer.exe` for the
+start and back (`install/bin/kiosk_shell.py`). Do not start Explorer from the
+interface: it would also be elevated (`electron/desktop.js`).
+
 **The kiosk window one pixel short.** Windows hides the taskbar only for a
 window covering the whole monitor. Electron's frameless fullscreen came back
 1920x1079 after a fullscreen round trip, and the taskbar stayed over the

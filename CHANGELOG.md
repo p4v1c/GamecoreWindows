@@ -17,6 +17,12 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, kiosk boot: re-run the installer (or
+  `install.ps1 -Only set-kiosk-shell`) as administrator, then restart.
+  GameCore becomes the account's shell: no Windows desktop until Return
+  to desktop. `KIOSK=0` in `install.conf` keeps Explorer; `uninstall.ps1`
+  puts it back.
+
 - Windows edition, first pack: the Steam tile. Install Steam yourself; the
   installer (and each update) adds the tile to `config\apps.json`. Launching
   it closes a Steam already open and reopens it in Big Picture inside the

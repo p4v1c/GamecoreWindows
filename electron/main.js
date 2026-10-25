@@ -1,6 +1,6 @@
 'use strict'
 const { app, BrowserWindow, ipcMain, powerMonitor, screen } = require('electron')
-const { exec, execFile, spawn } = require('child_process')
+const { exec, spawn } = require('child_process')
 const path = require('path')
 const fs   = require('fs')
 const { leaveToDesktop } = require('./desktop.js')
@@ -404,7 +404,7 @@ require('./power.js').register({ app, ipcMain, exec, powerMonitor,
 // from an accidental close.
 ipcMain.on('system:quit', () => {
   quitting = true
-  leaveToDesktop({ execFile, spawn, quit: () => app.quit(), announce: () => announceDesktop(true) })
+  leaveToDesktop({ quit: () => app.quit(), announce: () => announceDesktop(true) })
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

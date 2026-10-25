@@ -139,6 +139,7 @@ function Resolve-GcConfiguration {
         WebPort     = Get-GcSetting $Config 'LAN_PORT' '8443'
         Autologon   = (Get-GcSetting $Config 'AUTOLOGON' '1') -eq '1'
         Ssh         = (Get-GcSetting $Config 'SSH' '1') -eq '1'
+        Kiosk       = (Get-GcSetting $Config 'KIOSK' '1') -eq '1'
         Config      = $Config
     }
 }
