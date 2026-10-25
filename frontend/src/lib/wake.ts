@@ -11,6 +11,7 @@
  */
 import { api } from '../api'
 import { useStore } from '../store'
+import { setAudioAsleep } from './sounds'
 
 let lastResumes: number | null = null
 
@@ -25,12 +26,14 @@ export function onResumed(resumes: unknown): void {
 /** Home with the splash, and the shell's window back in front: a Modern
  *  Standby wake sends the shell no resume of its own. */
 function wakeUp(): void {
+  setAudioAsleep(false)
   useStore.getState().wake()
   window.gamecore?.wakeWindow?.()
 }
 
 /** `power:sleeping`: black over everything until the wake is announced. */
 export function onSleeping(): void {
+  setAudioAsleep(true)
   useStore.getState().setAsleep(true)
 }
 
@@ -51,10 +54,13 @@ export async function syncWake(): Promise<void> {
     if (lastResumes !== null && resumes > lastResumes) wakeUp()
     // `power:sleeping` can die with the socket it was sent on: the backend's
     // word puts the black back until the wake is announced.
-    else if (sleeping || resting) useStore.getState().setAsleep(true)
+    else if (sleeping || resting) onSleeping()
     // A black layer the backend no longer stands behind (a page reloaded, an
     // announcement lost) would hide the box for good.
-    else if (useStore.getState().asleep) useStore.getState().setAsleep(false)
+    else if (useStore.getState().asleep) {
+      setAudioAsleep(false)
+      useStore.getState().setAsleep(false)
+    }
     lastResumes = resumes
   } catch { /* the socket will tell us */ }
 }

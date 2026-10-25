@@ -291,11 +291,21 @@ def _spawn(coro) -> None:
     task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
+def seconds_since_pad_input() -> float:
+    """Seconds since the last controller input (Windows' own idle clock ignores pads)."""
+    return time.monotonic() - _last_press
+
+
+def _rest_in_progress() -> bool:
+    from . import rest_mode, resume     # resume imports this module
+    return rest_mode.is_resting() or resume.is_sleeping()
+
+
 def _rest_screen_off() -> bool:
     """Rest mode put the screen out: the next press is the wake, however soon
     it comes, once the press that chose Rest mode is behind it."""
-    from . import rest_mode, resume     # resume imports this module
-    return (rest_mode.is_resting() or resume.is_sleeping()) and resume.press_guard_over()
+    from . import resume     # resume imports this module
+    return _rest_in_progress() and resume.press_guard_over()
 
 
 def _press_wakes_rest() -> bool:
@@ -316,17 +326,22 @@ def on_input() -> None:
     _last_input = now
     silence, _last_press = now - _last_press, now
 
-    # Unconditional: Windows' own timer may have blanked the TV while _state
-    # sat at "active". Throttled, which costs a press nothing.
-    if now - _last_activity_signal >= _ACTIVITY_SIGNAL_GAP:
+    # Windows' own timer may have blanked the TV while _state sat at "active".
+    # Throttled, which costs a press nothing. Never during Rest: display
+    # required lights a display Rest put out, which ends the standby.
+    resting = _rest_in_progress()
+    if not resting and now - _last_activity_signal >= _ACTIVITY_SIGNAL_GAP:
         _last_activity_signal = now
         _spawn(_signal_user_activity())
 
-    if _state != "active":
+    if resting:
+        if _press_wakes_rest():
+            _spawn(_wake_rest_by_press())
+        elif _rest_screen_off():
+            _spawn(_screen(True))
+    elif _state != "active":
         _spawn(exit_standby())          # already turns the screen back on
-    elif _press_wakes_rest():
-        _spawn(_wake_rest_by_press())
-    elif silence >= _WAKE_AFTER_SILENCE or _rest_screen_off():
+    elif silence >= _WAKE_AFTER_SILENCE:
         # GameCore thinks it is awake and the TV may still be dark (Windows'
         # timer); restarting a timer does not light a screen that is off.
         _spawn(_screen(True))
@@ -365,7 +380,8 @@ async def _tick(cfg: dict) -> None:
     global _last_input, _last_activity_signal
     from .process_manager import process_manager
 
-    if _on_desktop:
+    if _on_desktop or _rest_in_progress():
+        # Rest owns the screen: a stage here would hold or light the display.
         _last_input = time.monotonic()
         return
     await _ensure_timers_owned(cfg["enabled"])

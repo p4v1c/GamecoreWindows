@@ -9,8 +9,10 @@ Rest mode or not (power button, Start menu, lid, idle timer):
   before switching the display off, since Windows freezes the backend within
   a second and says nothing first. The console display coming back on is the
   wake; so is a press the backend sees while asleep (a display that never went
-  off). A display going off outside Rest mode is standby's own screen-off and
-  means nothing here.
+  off). A display back on within seconds of Rest putting it out is input
+  settling: Rest puts it out again (`rest_mode.is_early_wake()`). A display
+  going off outside Rest mode is standby's own screen-off and means nothing
+  here.
 
 A wake puts the screen, pads and launch gate back. The interface learns it
 from the `power:resumed` event, and from `GET /api/power/state` after a
@@ -146,8 +148,9 @@ def _event_lock() -> asyncio.Lock:
 
 
 def press_guard_over() -> bool:
-    """The press that chose Rest mode is behind us: a new one is a wake."""
-    return time.monotonic() - _slept_at >= PRESS_WAKE_GUARD_SECS
+    """The press that chose Rest mode is behind us, and the display is not
+    still settling into the standby: a new press is a wake."""
+    return time.monotonic() - _slept_at >= PRESS_WAKE_GUARD_SECS and not rest_mode.settling()
 
 
 def is_press_a_wake() -> bool:
@@ -167,6 +170,8 @@ async def handle(event: str, model: str, lock: asyncio.Lock) -> None:
                           sleeping=_sleeping)
         if action == SLEEP:
             await going_to_sleep()
+        elif action == WAKE and event == sleep.DISPLAY_ON and rest_mode.is_early_wake():
+            await rest_mode.sleep_again()
         elif action == WAKE:
             await on_resume()
 

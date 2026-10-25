@@ -11,6 +11,7 @@ $script:GcSteps = @(
     [pscustomobject]@{ Name = 'configure-firewall';    Install = 'Install-GcFirewall';    Uninstall = 'Uninstall-GcFirewall' }
     [pscustomobject]@{ Name = 'install-openssh';       Install = 'Install-GcOpenSsh';     Uninstall = 'Uninstall-GcOpenSsh' }
     [pscustomobject]@{ Name = 'configure-power';       Install = 'Install-GcPower';       Uninstall = 'Uninstall-GcPower' }
+    [pscustomobject]@{ Name = 'allow-bluetooth-wake';  Install = 'Install-GcBluetoothWake'; Uninstall = 'Uninstall-GcBluetoothWake' }
     [pscustomobject]@{ Name = 'set-wifi-location';     Install = 'Install-GcWifiLocation'; Uninstall = 'Uninstall-GcWifiLocation' }
     [pscustomobject]@{ Name = 'configure-autologon';   Install = 'Install-GcAutologon';   Uninstall = 'Uninstall-GcAutologon' }
     [pscustomobject]@{ Name = 'register-session-task'; Install = 'Install-GcSessionTask'; Uninstall = 'Uninstall-GcSessionTask' }

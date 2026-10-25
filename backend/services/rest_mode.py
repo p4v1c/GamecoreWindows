@@ -13,6 +13,12 @@ The interface is covered and the pads turned off before the sleep is asked
 for (`resume.going_to_sleep()`), as logind's delay lock made happen on Linux:
 a Modern Standby PC freezes the backend within a second of its display going
 off, and announces nothing first (dev-log D62).
+
+On Modern Standby the display goes off only once keyboard, mouse, touchpad and
+pads have been still for a moment: any input in the first second ends the
+standby (measured: the touchpad click that chose Rest, Kernel-Power 507 after
+0.97 s). A display that still comes back within seconds is put out again
+(dev-log D65).
 """
 import asyncio
 import logging
@@ -21,7 +27,7 @@ import time
 from . import launch
 from .errors import ServiceError
 from .game_session import Session
-from .platform import sleep
+from .platform import power, sleep
 from .process_manager import process_manager
 
 log = logging.getLogger(__name__)
@@ -37,6 +43,15 @@ POLL_SECS = 0.1
 #: Reopens launches if no wake is ever reported (S3 sleep accepted but skipped).
 REOPEN_AFTER_SECS = 60.0
 
+#: Keyboard, mouse, touchpad and pads still this long before the display goes off.
+INPUT_QUIET_SECS = 2.0
+#: A hand left on the touchpad does not hold the box awake past this.
+INPUT_QUIET_MAX_SECS = 15.0
+#: A display back on this soon after Rest put it out is input settling, not a wake.
+EARLY_WAKE_SECS = 5.0
+#: Times the display is put out again before such a wake counts as real.
+MAX_RESLEEPS = 3
+
 GATE_REASON = "The box is going to sleep."
 #: Shown in the menu row: Windows refused (no sleep state, sleep disabled by policy).
 REFUSED = "This PC can’t sleep right now. Turn it off instead."
@@ -44,6 +59,8 @@ REFUSED = "This PC can’t sleep right now. Turn it off instead."
 _resting = False
 _modern_standby = False
 _reopen_task: asyncio.Task | None = None
+_display_off_at = 0.0
+_resleeps = 0
 
 
 def is_resting() -> bool:
@@ -115,10 +132,59 @@ async def close_everything(exit_wait: float | None = None,
     return [s.pid for s in survivors]
 
 
+def _seconds_since_input() -> float:
+    """The quieter of Windows' input (keyboard, mouse, touchpad) and the pads'."""
+    from . import standby       # standby imports this module
+    try:
+        windows = power.seconds_since_input()
+    except OSError:
+        windows = INPUT_QUIET_SECS
+    return min(windows, standby.seconds_since_pad_input())
+
+
+async def _wait_input_quiet() -> None:
+    """Return once nobody has touched an input for INPUT_QUIET_SECS (or the cap passed)."""
+    deadline = time.monotonic() + INPUT_QUIET_MAX_SECS
+    while True:
+        idle = await asyncio.to_thread(_seconds_since_input)
+        if idle >= INPUT_QUIET_SECS:
+            return
+        if time.monotonic() >= deadline:
+            log.warning("rest: input still moving after %ss; sleeping anyway",
+                        INPUT_QUIET_MAX_SECS)
+            return
+        await asyncio.sleep(max(POLL_SECS, INPUT_QUIET_SECS - idle))
+
+
 async def _suspend() -> tuple[bool, str]:
+    await _wait_input_quiet()
     # In a thread: an S3 sleep returns only after the wake, and the loop must
     # stay free for the suspend event (services/resume.py).
     return await asyncio.to_thread(sleep.suspend)
+
+
+def settling() -> bool:
+    """The display went off for a Modern Standby rest less than EARLY_WAKE_SECS ago."""
+    return _modern_standby and time.monotonic() - _display_off_at < EARLY_WAKE_SECS
+
+
+def is_early_wake() -> bool:
+    """A display back on now is input settling: put it out again instead of waking."""
+    return settling() and _resleeps < MAX_RESLEEPS
+
+
+async def sleep_again() -> None:
+    """Put the display out again after an early wake (`is_early_wake`)."""
+    global _resleeps, _display_off_at
+    _resleeps += 1
+    log.info("rest: display back on %.1fs after going off; off again (%d/%d)",
+             time.monotonic() - _display_off_at, _resleeps, MAX_RESLEEPS)
+    # Still settling while input quietens: a press then is not a wake either.
+    _display_off_at = time.monotonic()
+    ok, detail = await _suspend()
+    _display_off_at = time.monotonic()
+    if not ok:
+        log.warning("rest: could not put the display out again: %s", detail)
 
 
 def in_modern_standby() -> bool:
@@ -147,7 +213,7 @@ async def _reopen_later() -> None:
 
 async def enter() -> dict:
     """Close everything, then suspend. Raises ServiceError when sleep is refused."""
-    global _resting, _reopen_task, _modern_standby
+    global _resting, _reopen_task, _modern_standby, _display_off_at, _resleeps
     from . import resume        # resume imports this module
     if _resting:
         raise ServiceError(409, "The box is already going to sleep.")
@@ -172,6 +238,8 @@ async def enter() -> dict:
         # The wake cannot be lost (the display, or a press): a timer here would
         # reopen launches while the PC sleeps, its clock still running.
         _modern_standby = True
+        _display_off_at = time.monotonic()
+        _resleeps = 0
     else:
         _reopen_task = asyncio.create_task(_reopen_later())
     return {"ok": True, "forced": len(survivors)}

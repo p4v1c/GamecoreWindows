@@ -139,6 +139,14 @@ def _no_real_commands_from_the_suite():
     standby._power = original
 
 
+@_pytest.fixture(autouse=True)
+def _no_rest_left_over(monkeypatch):
+    """A Rest one test began leaves the next one awake: standby skips its work
+    while a rest is on (`standby._rest_in_progress`)."""
+    from backend.services import resume
+    monkeypatch.setattr(resume, "_sleeping", False)
+
+
 # ── This PC is not a test bench: no platform call that changes it ────────────
 #
 # The Windows calls that change the machine (display mode, screen power, power

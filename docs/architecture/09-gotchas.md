@@ -63,7 +63,10 @@ even with system-required and execution-required power requests held
 (measured 25/10/2026, 140 s and 277 s paused). Rest mode uses it as its
 sleep (`power.sleep_display()`, dev-log D62), so everything it owes the
 sleep (black cover, sweep, pads off) happens **before** the display goes
-off: after it, the backend may already be frozen. Standby's screen-off is
+off: after it, the backend may already be frozen. That entry is an idle
+one: any input in its first second ends it, so Rest waits for still input
+first, and nothing may light the display during a rest (no
+`signal_activity()` on pad input, no standby stage; dev-log D65). Standby's screen-off is
 not a sleep on the Linux box, so `power.screen_off()` leaves such a display
 on, black, under a display-required request (`platform/awake.py`, D56).
 The TV then shows black rather than going to its own standby.
