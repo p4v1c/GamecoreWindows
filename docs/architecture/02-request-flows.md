@@ -24,12 +24,25 @@ sequenceDiagram
     pm->>emu: jobs.spawn(): created suspended, put in a new Job Object, resumed
     pm->>ws: set_current_game() + broadcast("game:started")
     pm->>pm: create_task(_watch()) — polls the job until it is empty
-    r->>r: window_focus.present() or fullscreen_enforcer.enforce()
-    ws-->>ui: game:started
+    ws-->>ui: game:started (store.awaitingWindow: the launch curtain stays up)
+    r-->>ui: {ok: true, game_key}
+    r->>r: _hand_over(): window_focus.present() or fullscreen_enforcer.enforce()
+    r->>ws: broadcast("game:presented", {window}) — at the timeout too
+    ws-->>ui: game:presented
     ui->>el: window.gamecore.sessionScreen(true)
     el->>el: mainWindow.hide() — the game's window is in front
-    r-->>ui: {ok: true, game_key}
 ```
+
+An app tile (`defaults.launchApp()`) locks the pad and raises the launch
+curtain at the press (`launchAppSession()`: an optimistic session plus
+`awaitingWindow` = the app's name), before the POST answers, as on the Linux
+box where the answer comes at once; a refusal gives the interface back.
+Until `game:presented` the interface stays shown, black under
+`LaunchCurtain`, and only then does the shell hide it: no empty desktop
+while the app starts (`hooks/useSessionScreen.ts`, bounded by
+`AWAIT_WINDOW_MAX_MS`, 50 s). The way out meanwhile is the same as in game:
+the guide button. An app skips the pad-profile wait (emulator configs only;
+it cost Steam 6.7 s on the port's PC).
 
 After the spawn, `launch.py` schedules one fire-and-forget task for the new
 game's window: `window_focus.present()` brings its first window to the front

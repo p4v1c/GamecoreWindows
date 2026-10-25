@@ -8,6 +8,7 @@ import { useStore } from './store'
 import { api } from './api'
 
 import Splash from './components/Splash'
+import LaunchCurtain from './components/LaunchCurtain'
 import BootRecovery from './components/BootRecovery'
 import { bootBackground, bootSteps, isBootReady, onBootChange } from './lib/boot'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -180,6 +181,10 @@ export default function App() {
           otherwise leave a frozen emulator holding gigabytes of RAM with
           nothing on screen able to resume or close it. */}
       <SessionBar view={theme.sessionBar} menuView={theme.sessionMenu} />
+
+      {/* From the press to the new session's window: black, the pad locked.
+          Over the shell and the theme's ceremony, under the boot splash. */}
+      <LaunchCurtain />
 
       {/* Over every shell, under the splash: asked by the host so no theme can
           drop it. Drawn during the boot, answered once the splash is gone. */}

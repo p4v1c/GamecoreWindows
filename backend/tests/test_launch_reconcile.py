@@ -374,3 +374,19 @@ def test_the_wait_comes_before_the_emulator_starts(launcher, waiting):
     _launch(launcher)
 
     assert order == ["profiled", "launch"], order
+
+
+def test_an_app_does_not_wait_for_pads_it_never_reads(launcher, waiting):
+    """Steam waited 6.7 s on the PC for a pad profile no app reads, while the
+    interface still answered the pad (owner report, 25/10/2026)."""
+    waiting.setattr(systems_service, "list_all",
+                    lambda: [{**GHOST, "kind": "app", "path": r"C:\definitely\not-steam.exe"}])
+    waiting.setattr(launch_service, "PROFILE_BUDGET", 3.0)
+    _pad_is_connected(unprofiled=True)
+
+    start = time.monotonic()
+    r = _launch(launcher)
+    elapsed = time.monotonic() - start
+
+    assert r.status_code == 503, r.text
+    assert elapsed < 1.0, f"an app launch waited {elapsed:.2f}s for a pad profile"

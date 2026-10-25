@@ -6,7 +6,7 @@
  */
 import { render, act, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useSessionScreen } from './useSessionScreen'
+import { AWAIT_WINDOW_MAX_MS, useSessionScreen } from './useSessionScreen'
 import { useStore, type BackgroundSession } from '../store'
 
 const HELD: BackgroundSession = {
@@ -80,5 +80,26 @@ describe('who owns the screen', () => {
     delete (window as unknown as { gamecore?: unknown }).gamecore
     render(<Host />)
     setState({ sessionGameKey: 'Zelda.iso', sessionSystemId: 'dolphin' })
+  })
+})
+
+describe('a launch hands the screen over once its window is up', () => {
+  afterEach(() => { useStore.setState({ awaitingWindow: null }); vi.useRealTimers() })
+
+  it('keeps the interface shown while the new window is awaited', () => {
+    mount()
+    setState({ sessionGameKey: 'steam', sessionSystemId: 'steam', awaitingWindow: 'Steam' })
+    expect(screenClaim).not.toHaveBeenCalledWith(true)
+    setState({ awaitingWindow: null })            // game:presented
+    expect(screenClaim).toHaveBeenLastCalledWith(true)
+  })
+
+  it('hands over anyway when the presented event never comes', () => {
+    vi.useFakeTimers()
+    mount()
+    setState({ sessionGameKey: 'steam', sessionSystemId: 'steam', awaitingWindow: 'Steam' })
+    act(() => { vi.advanceTimersByTime(AWAIT_WINDOW_MAX_MS) })
+    expect(useStore.getState().awaitingWindow).toBeNull()
+    expect(screenClaim).toHaveBeenLastCalledWith(true)
   })
 })

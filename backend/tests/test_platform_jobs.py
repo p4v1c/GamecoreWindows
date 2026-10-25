@@ -169,3 +169,14 @@ def test_what_the_game_prints_reaches_its_log(tmp_path):
     assert _wait_for(lambda: not job.alive())
     job.close()
     assert sorted(log.read_text().split()) == ["hello", "oops"]
+
+
+def test_the_game_is_told_the_name_of_its_job(tmp_path):
+    """A launcher opens its own job by this name to take a running app into it."""
+    log = tmp_path / "launch.log"
+    with log.open("wb") as out:
+        job = jobs.spawn([sys.executable, "-c", "import os; print(os.environ['GAMECORE_JOB'])"],
+                         env=None, stdout=out)
+    assert _wait_for(lambda: not job.alive())
+    job.close()
+    assert log.read_text().strip() == job.name

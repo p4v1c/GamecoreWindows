@@ -85,7 +85,26 @@ const writeSession = (gameKey: string | null, systemId: string | null,
                       session: number | null = null) => {
   sessionEpoch += 1
   currentSession = gameKey ? session : null
+  if (!gameKey) useStore.getState().setAwaitingWindow(null)
   useStore.getState().setSession(gameKey, systemId)
+}
+
+/**
+ * An app launched from a tile: the pad locks and the curtain goes up at the
+ * press, as on the Linux box where the launch answers at once. The backend
+ * may take seconds before its answer (it waits for nothing an app reads, but
+ * the spawn is still a round trip); a refusal gives the interface back.
+ */
+export async function launchAppSession(systemId: string, label: string): Promise<void> {
+  writeSession(systemId, systemId)
+  useStore.getState().setAwaitingWindow(label)
+  const epoch = sessionEpoch
+  try {
+    await api.games.launch(systemId)
+  } catch (e) {
+    if (epoch === sessionEpoch) writeSession(null, null)
+    throw e
+  }
 }
 
 /**
@@ -112,6 +131,9 @@ export const applySessionState = (data: SessionState | Record<string, unknown>) 
       kind: b.kind === 'app' ? 'app' as const : 'game' as const,
     }))
     .filter(b => b.gameKey)
+  // A snapshot never describes a window still opening: a resume shows one
+  // that exists, and a reconnect cannot tell.
+  useStore.getState().setAwaitingWindow(null)
   useStore.getState().setSessionState(
     { gameKey: key, systemId: key ? String(d.system_id ?? '') : null },
     background)
@@ -204,7 +226,16 @@ export function useWebSocket() {
     const runNumber = (d: Record<string, unknown>) =>
       typeof d.session === 'number' ? d.session : null
     const off1 = onWsEvent('game:started', (d) => {
+      const label = useStore.getState().awaitingWindow
       writeSession(d.game_key as string, d.system_id as string, runNumber(d))
+      // A new session's window is not up yet; an app's label set at the press stays.
+      useStore.getState().setAwaitingWindow(label ?? '')
+    })
+    // Its window is in front (or never came): the shell may hide the interface.
+    const off1c = onWsEvent('game:presented', (d) => {
+      const run = runNumber(d)
+      if (run !== null && currentSession !== null && run !== currentSession) return
+      useStore.getState().setAwaitingWindow(null)
     })
     // Sent on every connection: the session as the backend has it, which is
     // `{}` when there is none. An empty one is an answer — see backend/ws.py.
@@ -292,7 +323,7 @@ export function useWebSocket() {
     return () => {
       if (suspendBeat.timer) clearTimeout(suspendBeat.timer)
       if (useStore.getState().transition === 'suspend') useStore.getState().setTransition(null)
-      off1(); off1b(); off2(); off4(); off5(); off6(); off7(); off8(); off9(); off10()
+      off1(); off1b(); off1c(); off2(); off4(); off5(); off6(); off7(); off8(); off9(); off10()
     }
   }, [])
 }
