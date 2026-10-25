@@ -170,3 +170,25 @@ def test_uninstall_deletes_a_value_that_was_absent_and_restores_the_policies(tmp
 def test_uninstall_turns_a_translated_off_back_into_off(tmp_path):
     result = run_ps(tmp_path, BOOT_FAKES + "Uninstall-GcQuietBoot @{ bootuxdisabled = 'Non' }")
     assert calls(result, "bcdedit") == ["/set {current} bootuxdisabled off"]
+
+
+def test_a_pc_already_in_kiosk_reports_no_change_and_no_error(tmp_path):
+    """The owner's PC after the hand-set values: the re-run must find nothing to do."""
+    command = _shell_command(tmp_path)
+    result = run_ps(tmp_path, SHELL_FAKES + rf"""
+        $script:reg['{MACHINE}|Shell'] = '{command}'
+        $script:reg['{MARKER}|KioskShell'] = '{command}'
+        $script:sddl = 'D:(A;;FA;;;BA)(A;;FRFX;;;{SID})'
+        Install-GcKioskShell {settings_ps(tmp_path)}
+    """)
+    assert result["calls"] == [] and result["changes"] == [] and result["warnings"] == []
+
+
+def test_a_missing_key_outside_hklm_is_made_by_the_provider(tmp_path):
+    result = run_ps(tmp_path, r"""
+        function Test-Path { param($LiteralPath) $false }
+        function New-Item { param($Path, [switch]$Force) Note 'new-item' "$Path|$Force" }
+        function New-ItemProperty { param($LiteralPath, $Name, $Value, $PropertyType, [switch]$Force) Note 'value' $Name }
+        Set-GcRegistryValue 'HKCU:\Software\GameCoreTest' 'X' 1
+    """)
+    assert calls(result, "new-item") == [r"HKCU:\Software\GameCoreTest|True"] and calls(result, "value") == ["X"]

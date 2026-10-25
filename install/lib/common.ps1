@@ -227,8 +227,20 @@ function Set-GcRegistryValue {
         [Parameter(Mandatory)]$Value,
         [string]$Type = 'DWord'
     )
-    if (-not (Test-Path -LiteralPath $Path)) { New-Item -Path $Path -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $Path)) { New-GcRegistryKey $Path }
     New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType $Type -Force | Out-Null
+}
+
+function New-GcRegistryKey {
+    <#
+    Create a missing key. HKLM goes through .NET's 64-bit view: the provider's
+    New-Item -Force failed elevated on HKLM\SOFTWARE\GameCore on the owner's PC
+    ("Requested registry access is not allowed").
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    if ($Path -notmatch '^HKLM:\\(.+)$') { New-Item -Path $Path -Force | Out-Null; return }
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey('LocalMachine', 'Registry64')
+    try { $base.CreateSubKey($Matches[1]).Close() } finally { $base.Close() }
 }
 
 function Restore-GcRegistryValue {
