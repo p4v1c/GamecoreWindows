@@ -19,7 +19,14 @@ export function onResumed(resumes: unknown): void {
   const n = typeof resumes === 'number' ? resumes : null
   if (n !== null && lastResumes !== null && n <= lastResumes) return
   if (n !== null) lastResumes = n
+  wakeUp()
+}
+
+/** Home with the splash, and the shell's window back in front: a Modern
+ *  Standby wake sends the shell no resume of its own. */
+function wakeUp(): void {
   useStore.getState().wake()
+  window.gamecore?.wakeWindow?.()
 }
 
 /** `power:sleeping`: black over everything until the wake is announced. */
@@ -41,7 +48,7 @@ export function onShellResumed(): void {
 export async function syncWake(): Promise<void> {
   try {
     const { resumes, sleeping, resting } = await api.power.state()
-    if (lastResumes !== null && resumes > lastResumes) useStore.getState().wake()
+    if (lastResumes !== null && resumes > lastResumes) wakeUp()
     // `power:sleeping` can die with the socket it was sent on: the backend's
     // word puts the black back until the wake is announced.
     else if (sleeping || resting) useStore.getState().setAsleep(true)
