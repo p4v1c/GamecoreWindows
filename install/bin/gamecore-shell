@@ -1,0 +1,104 @@
+"""gamecore-shell: the console's Windows shell, in place of Explorer.
+
+Winlogon starts it at sign-in (HKLM `Winlogon\\Shell`, written by
+install/steps/set-kiosk-shell.ps1), unelevated, with the venv's `pythonw.exe`.
+It starts the elevated `\\GameCore\\Session` task at once (the logon trigger
+fires too; the task runs one copy, and the session's mutex keeps it single),
+starts it again if the session dies, and starts Explorer, unelevated, when
+gamecore-session opens the desktop for Desktop mode. As on Linux, where the
+console session has no desktop until the player asks for one. The decisions
+live in install/bin/kiosk_desktop.py. Stdlib only.
+
+    gamecore-shell              run as the shell
+    gamecore-shell --desktop    open the Windows desktop now. Escape hatch:
+                                Ctrl+Alt+Del, Task Manager, Run new task, tick
+                                "administrative privileges" (HKLM is written)
+"""
+from __future__ import annotations
+
+import argparse
+import ctypes
+import logging
+import os
+import sys
+from pathlib import Path
+
+import kiosk_desktop as kd
+import kiosk_shell as ks
+
+log = logging.getLogger("gamecore-shell")
+
+POLL_MS = 2000
+WAIT_OBJECT_0 = 0
+ERROR_ALREADY_EXISTS = 183
+LOG_CAP_BYTES = 1_000_000
+
+
+def _desktop_event() -> int:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateEventW.restype = ctypes.c_void_p
+    return k32.CreateEventW(None, False, False, ks.DESKTOP_EVENT)
+
+
+def _single_instance() -> bool:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW(None, False, ks.SHELL_MUTEX)    # held until the process ends
+    return ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+
+
+def run(shell: kd.Shell) -> int:
+    if not _single_instance():
+        log.info("a shell already runs in this session")
+        return 0
+    kd.black_desktop()
+    shell.keep_session()
+    event = _desktop_event()
+    k32 = ctypes.WinDLL("kernel32")
+    desktop_open = False
+    while True:
+        if k32.WaitForSingleObject(ctypes.c_void_p(event), POLL_MS) == WAIT_OBJECT_0:
+            shell.start_explorer()
+            desktop_open = True
+        elif desktop_open and not ks.taskbar_window():
+            desktop_open = False
+            kd.black_desktop()
+        shell.keep_session()
+
+
+def _setup_logging() -> None:
+    # The unelevated shell cannot read session.env, so it does not know the data root.
+    logs = Path(os.environ.get("LOCALAPPDATA", ".")) / "GameCore"
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / "shell.log"
+    try:
+        if path.stat().st_size > LOG_CAP_BYTES:
+            path.replace(path.with_suffix(".log.1"))
+    except OSError:
+        pass
+    logging.basicConfig(filename=path, encoding="utf-8", level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+
+
+def open_desktop_now() -> int:
+    """The escape hatch: elevated, run the whole trip; unelevated, Explorer alone (a folder window)."""
+    if ctypes.WinDLL("shell32").IsUserAnAdmin():
+        trip = kd.DesktopTrip(ks.WinRegistry(), ask_shell=lambda: False)
+        return 0 if trip.open() else 1
+    kd.start_program([ks.EXPLORER])
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="gamecore-shell", description=__doc__.splitlines()[0])
+    parser.add_argument("--desktop", action="store_true", help="open the Windows desktop now")
+    args = parser.parse_args(argv)
+    _setup_logging()
+    if args.desktop:
+        return open_desktop_now()
+    log.info("shell started")
+    return run(kd.Shell(ks.WinRegistry(machine=False)))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

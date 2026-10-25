@@ -53,24 +53,54 @@ function Set-GcLsaSecret {
 }
 
 function Read-GcLogonPassword {
-    param([Parameter(Mandatory)][string]$User)
-    $secure = Read-Host -AsSecureString "   Windows password of $User (for automatic sign-in; empty if the account has none)"
+    param([Parameter(Mandatory)][string]$User, [switch]$Microsoft)
+    $what = if ($Microsoft) { 'Microsoft account password (not the PIN)' } else { 'Windows password' }
+    $secure = Read-Host -AsSecureString "   $what of $User (for automatic sign-in; empty if the account has none)"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
 }
 
-function Test-GcAutologonSet {
+function Get-GcMicrosoftAccountEmail {
+    <# The e-mail of the Microsoft account linked to $User, from its profile (IdentityCRL), or $null. #>
     param([Parameter(Mandatory)][string]$User)
+    $sid = (New-Object Security.Principal.NTAccount $User).Translate([Security.Principal.SecurityIdentifier]).Value
+    $key = "Registry::HKEY_USERS\$sid\Software\Microsoft\IdentityCRL\UserExtendedProperties"
+    $names = @(Get-ChildItem -LiteralPath $key -ErrorAction SilentlyContinue | ForEach-Object { $_.PSChildName })
+    return ($names | Where-Object { $_ -like '*@*' } | Select-Object -First 1)
+}
+
+function Get-GcLogonIdentity {
+    <#
+    What Winlogon must be given for $User. A Microsoft account signs in as its
+    e-mail in the `MicrosoftAccount` domain with the account's password; a PIN
+    (Windows Hello) cannot sign in automatically. A local account: its name here.
+    #>
+    param([Parameter(Mandatory)][string]$User)
+    $account = Get-LocalUser -Name $User -ErrorAction SilentlyContinue
+    if ($null -eq $account -or "$($account.PrincipalSource)" -ne 'MicrosoftAccount') {
+        return [pscustomobject]@{ UserName = $User; Domain = $env:COMPUTERNAME; Microsoft = $false }
+    }
+    $email = Get-GcMicrosoftAccountEmail $User
+    if (-not $email) {
+        throw "$User is a Microsoft account whose e-mail is not in its profile: sign in to it once, then re-run"
+    }
+    return [pscustomobject]@{ UserName = $email; Domain = 'MicrosoftAccount'; Microsoft = $true }
+}
+
+function Test-GcAutologonSet {
+    param([Parameter(Mandatory)]$Identity)
     return (Get-GcRegistryValue $script:GcWinlogonKey 'AutoAdminLogon') -eq '1' -and
-        (Get-GcRegistryValue $script:GcWinlogonKey 'DefaultUserName') -ieq $User
+        (Get-GcRegistryValue $script:GcWinlogonKey 'DefaultUserName') -ieq $Identity.UserName -and
+        (Get-GcRegistryValue $script:GcWinlogonKey 'DefaultDomainName') -ieq $Identity.Domain
 }
 
 function Install-GcAutologon {
     param([Parameter(Mandatory)]$Settings, [switch]$Unattended)
     if (-not $Settings.Autologon) { Write-GcInfo 'AUTOLOGON=0: skipped'; return }
     $user = $Settings.ConsoleUser
-    if (Test-GcAutologonSet $user) { Write-GcInfo "$user already signs in automatically"; return }
+    $identity = Get-GcLogonIdentity $user
+    if (Test-GcAutologonSet $identity) { Write-GcInfo "$user already signs in automatically"; return }
     if ($Unattended) {
         Write-GcWarning ("automatic sign-in needs the account's password, typed by the owner: run " +
             '.\install\install.ps1 -Only configure-autologon at the PC')
@@ -81,11 +111,11 @@ function Install-GcAutologon {
     }
     Set-GcRecord 'configure-autologon' 'DevicePasswordLessBuildVersion' (Get-GcRegistryValue $script:GcPasswordLessKey 'DevicePasswordLessBuildVersion')
     Invoke-GcChange "sign $user in automatically at boot" {
-        $password = Read-GcLogonPassword $user
+        $password = Read-GcLogonPassword $identity.UserName -Microsoft:$identity.Microsoft
         Set-GcLsaSecret 'DefaultPassword' $password
         Remove-ItemProperty -LiteralPath $script:GcWinlogonKey -Name 'DefaultPassword' -ErrorAction SilentlyContinue
-        Set-GcRegistryValue $script:GcWinlogonKey 'DefaultUserName' $user 'String'
-        Set-GcRegistryValue $script:GcWinlogonKey 'DefaultDomainName' $env:COMPUTERNAME 'String'
+        Set-GcRegistryValue $script:GcWinlogonKey 'DefaultUserName' $identity.UserName 'String'
+        Set-GcRegistryValue $script:GcWinlogonKey 'DefaultDomainName' $identity.Domain 'String'
         Set-GcRegistryValue $script:GcWinlogonKey 'AutoAdminLogon' '1' 'String'
         Set-GcRegistryValue $script:GcPasswordLessKey 'DevicePasswordLessBuildVersion' 0
     }

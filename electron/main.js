@@ -1,9 +1,10 @@
 'use strict'
 const { app, BrowserWindow, ipcMain, powerMonitor, screen } = require('electron')
-const { exec, execFile, spawn } = require('child_process')
+const { exec, spawn } = require('child_process')
 const path = require('path')
 const fs   = require('fs')
 const { leaveToDesktop } = require('./desktop.js')
+const { createFullscreenGuard } = require('./fullscreen.js')
 
 // Settings → Display → Scale is the interface's only zoom. Windows' own
 // display scaling (150 % on most 4K TVs) would multiply it a second time.
@@ -103,9 +104,9 @@ function bootBackground() {
 // ── Main window ───────────────────────────────────────────────────────────────
 function createWindow() {
   const bootBg = bootBackground()
+  const monitor = screen.getPrimaryDisplay().bounds
   mainWindow = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    ...monitor,
     fullscreen: true,
     // Presented on `ready-to-show`, never before: a window shown while its
     // first document is still empty is a white rectangle over the desktop.
@@ -148,6 +149,7 @@ function createWindow() {
   // window as soon as it exists and the first frame is white — a white flash
   // on a dark boot is more noticeable than the desktop it replaced.
   mainWindow.once('ready-to-show', () => { mainWindow?.show() })
+  if (!DEBUG && !DEV) createFullscreenGuard({ win: mainWindow, screen }).watch()
 
   // A renderer that dies takes the interface with it, and what is left is a
   // window showing the last frame it painted — a console that looks frozen
@@ -402,7 +404,7 @@ require('./power.js').register({ app, ipcMain, exec, powerMonitor,
 // from an accidental close.
 ipcMain.on('system:quit', () => {
   quitting = true
-  leaveToDesktop({ execFile, spawn, quit: () => app.quit(), announce: () => announceDesktop(true) })
+  leaveToDesktop({ quit: () => app.quit(), announce: () => announceDesktop(true) })
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

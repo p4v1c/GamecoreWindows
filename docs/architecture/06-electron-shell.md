@@ -1,6 +1,6 @@
 # 6 — Electron shell
 
-`electron/`: `main.js`, `desktop.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
+`electron/`: `main.js`, `desktop.js`, `fullscreen.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
 `start-ui.sh`. It owns two windows: the kiosk window and the HUD toast.
 
 
@@ -26,7 +26,7 @@ Windows composes transparent windows (the HUD) without it.
 
 | Window | Created by | Nature |
 |---|---|---|
-| main | `createWindow()` | kiosk, loads `BACKEND_URL` (or `DEV_URL` when `DEV`) |
+| main | `createWindow()` | kiosk, created on the primary display's bounds, loads `BACKEND_URL` (or `DEV_URL` when `DEV`); `createFullscreenGuard()` (`electron/fullscreen.js`) puts it back on its monitor's full bounds on `show`, `resize`, `restore`, `leave-full-screen` and every display change, at most 5 times in 10 s: Windows hides the taskbar only for a window covering the whole monitor, and a fullscreen round trip left it 1920x1079 |
 | HUD toast | `showHudToast()` (`electron/hud.js`) | transparent, click-through, `focusable: false`, created hidden and shown with `showInactive()` at the `screen-saver` level, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
 
 Both use `nodeIntegration: false`, `contextIsolation: true`. The renderer
@@ -92,7 +92,7 @@ X-wide; on Windows a game hides its own pointer.
 |---|---|
 | `system:reboot` | `exec('shutdown /r /t 0')` (`electron/power.js`) |
 | `system:shutdown` | `exec('shutdown /s /t 0')` (`electron/power.js`) |
-| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), starts `explorer.exe` when `tasklist` shows none in this session, then `app.quit()`; the check is bounded by `LEAVE_DEADLINE_MS` (5 s) |
+| `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), then `app.quit()` (exit code 0), bounded by `LEAVE_DEADLINE_MS` (5 s). Opening the desktop is `gamecore-session`'s and `gamecore-shell`'s ([1](01-runtime-topology.md#the-console-users-desktop)): Explorer started here would be elevated, and a folder window under the GameCore shell |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
 

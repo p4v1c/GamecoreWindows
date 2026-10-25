@@ -21,6 +21,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "install" / "bin" / "gamecore-session"
+sys.path.insert(0, str(SCRIPT.parent))     # kiosk_shell, beside the script
 
 
 def _load():
@@ -190,6 +191,92 @@ def test_coming_back_from_the_desktop_starts_the_interface(started):
     sup.tick()
     sup.show_interface()
     assert len(spawned) == 3 and spawned[2]["env"]["GAMECORE_MANAGED"] == "1"
+
+
+def test_desktop_mode_and_the_way_back_reach_the_shell(settings):
+    events = []
+    spawned = []
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        spawned.append(FakeProc())
+        return spawned[-1]
+
+    sup = gs.Supervisor(settings, spawn, clock=Clock(), on_desktop=lambda: events.append("desktop"),
+                        on_return=lambda: events.append("return"))
+    sup.start()
+    spawned[1].code = 0
+    sup.tick()
+    sup.show_interface()
+    assert events == ["desktop", "return"]
+
+
+def test_an_interface_crash_is_not_a_trip_to_the_desktop(settings):
+    events = []
+    spawned = []
+
+    def spawn(argv, env, cwd, log_path, hidden):
+        spawned.append(FakeProc())
+        return spawned[-1]
+
+    sup = gs.Supervisor(settings, spawn, clock=Clock(), on_desktop=lambda: events.append("desktop"))
+    sup.start()
+    spawned[1].code = 1
+    sup.tick()
+    assert events == []
+
+
+class _FakeTrip:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def __call__(self, registry):
+        return self
+
+    def open(self):
+        self.calls.append("open")
+
+    def close(self):
+        self.calls.append("close")
+
+
+@pytest.fixture
+def trips(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gs.kiosk_shell, "WinRegistry", lambda: "registry")
+    monkeypatch.setattr(gs.kiosk_desktop, "DesktopTrip", _FakeTrip(calls))
+    monkeypatch.setattr(gs, "_in_background", lambda action: action())
+    return calls
+
+
+def test_desktop_mode_and_the_way_back_are_the_elevated_sessions_trip(trips):
+    gs.leave_to_desktop()
+    gs.back_from_desktop()
+    assert trips == ["open", "close"]
+
+
+def test_trips_run_one_at_a_time(monkeypatch):
+    import threading
+    order = []
+    release = threading.Event()
+
+    def slow():
+        order.append("open-start")
+        release.wait(5)
+        order.append("open-end")
+
+    gs._in_background(slow)
+    gs._in_background(lambda: order.append("close"))
+    release.set()
+    for _ in range(200):
+        if len(order) == 3:
+            break
+        threading.Event().wait(0.01)
+    assert order == ["open-start", "open-end", "close"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="GetTickCount64 and WTS are Windows calls")
+def test_the_startup_timeline_names_boot_and_sign_in():
+    assert gs.startup_timeline().startswith("boot +")
 
 
 def test_asking_to_show_a_running_interface_starts_nothing(started):

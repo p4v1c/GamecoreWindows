@@ -122,8 +122,14 @@ What the installer does, one step per file in `install\steps\`:
 - installs OpenSSH Server if you want it
 - sets the power options a console needs, in every power plan: power button =
   sleep, no wake timers, no password on wake, Fast Startup off
-- signs your account in at boot (the password is stored as an LSA secret, never in a file)
+- signs your account in at boot (the password is stored as an LSA secret, never in a file;
+  a Microsoft account needs its password, a PIN cannot sign in automatically)
 - registers the `\GameCore\Session` logon task and a `GameCore` shortcut
+- makes GameCore your account's Windows shell in place of Explorer: the PC
+  boots straight into GameCore, as the Linux box does (`KIOSK=0` keeps Explorer)
+- quiets the boot: no Windows logo or spinner, no sign-in animation or
+  status text (`QUIET_BOOT=0` keeps them). Your PC maker's logo is drawn by the
+  firmware: turn it off in the BIOS/UEFI setup if it offers that
 - downloads the offline game database (LaunchBox, 234 MB)
 
 Re-running it is safe: it changes only what differs. Scripted install:
@@ -133,8 +139,13 @@ sign-in is then left for you: `.\install\install.ps1 -Only configure-autologon`)
 From a clone of this repository instead of a release, the installer also
 builds the interface and the shell, which needs Node.js 22 and npm.
 
-**Return to desktop** in the Power menu leaves GameCore for the Windows desktop;
-the `GameCore` shortcut brings it back.
+**Return to desktop** in the Power menu opens the Windows desktop (Explorer,
+taskbar and all); the `GameCore` shortcut brings GameCore back and closes
+the desktop. If GameCore ever shows nothing: Ctrl+Alt+Del, Task Manager,
+Run new task, tick "Create this task with administrative privileges", and type
+`"C:\Program Files\GameCore\.venv\Scripts\pythonw.exe" "C:\Program Files\GameCore\install\bin\gamecore-shell" --desktop`.
+Apps that start with Windows (Startup folder, Steam's autostart) start only
+with the desktop.
 
 ---
 

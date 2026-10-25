@@ -109,6 +109,21 @@ Window moves (`window_focus`, `fullscreen_enforcer`) run in `asyncio.to_thread`
 for the same reason: `SetWindowLongPtrW` waits for the window's thread. Same
 reason argon2 goes through `asyncio.to_thread` in the auth router.
 
+**Explorer started by the GameCore shell is a folder window.** Explorer
+becomes the desktop (taskbar, Start) only when HKLM Winlogon `Shell` names it
+as it starts; under `gamecore-shell` it opens File Explorer windows. Desktop
+mode points HKLM `Shell` at `explorer.exe` for the start and back, from the
+elevated `gamecore-session` (`install/bin/kiosk_desktop.py`). The per-user
+values look like the fix and are not: HKCU `Winlogon\Shell` is mapped to HKLM
+only (IniFileMapping `SYS:`) and the HKCU `Policies\System\Shell` policy is
+ignored on Home; a reboot with either still landed on the desktop.
+
+**The kiosk window one pixel short.** Windows hides the taskbar only for a
+window covering the whole monitor. Electron's frameless fullscreen came back
+1920x1079 after a fullscreen round trip, and the taskbar stayed over the
+interface. `electron/fullscreen.js` puts the bounds back; keep it wired in
+`createWindow()`.
+
 ## The data root, seen from inside a sandbox
 
 **A Flatpak's filesystem is a literal list of paths, and moving the data

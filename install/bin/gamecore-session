@@ -1,9 +1,11 @@
 """gamecore-session: the console session. Starts the backend, then the interface, and keeps both up.
 
-Run by the `\\GameCore\\Session` logon task: elevated, in the console user's
-session, with `pythonw.exe` from the installation's venv (no console window).
-Run it again (the GameCore shortcut, coming back from the Windows desktop)
-and it asks the running copy to show the interface, then exits.
+Run by the `\\GameCore\\Session` task: elevated, in the console user's
+session, with `pythonw.exe` from the installation's venv (no console window),
+at sign-in and by gamecore-shell, the console's shell. Run it again (the
+GameCore shortcut, coming back from the Windows desktop) and it asks the
+running copy to show the interface, then exits. It runs the desktop round
+trip, being the elevated side (install/bin/kiosk_desktop.py).
 
 Stdlib only: it runs before anything else and must not depend on the backend.
 
@@ -18,10 +20,15 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+
+import kiosk_desktop
+import kiosk_shell
 
 log = logging.getLogger("gamecore-session")
 
@@ -43,7 +50,7 @@ POLL_S = 1.0
 # it instead of flashing a window of its own over the TV.
 CREATE_NO_WINDOW = 0x08000000
 
-MUTEX_NAME = "Local\\GameCoreSession"
+MUTEX_NAME = kiosk_shell.SESSION_MUTEX
 SHOW_EVENT_NAME = "Local\\GameCoreSessionShowInterface"
 ERROR_ACCESS_DENIED = 5
 ERROR_ALREADY_EXISTS = 183
@@ -137,10 +144,13 @@ class Supervisor:
     """Keeps the backend and the interface running. Every effect is injected, so tests drive it."""
 
     def __init__(self, settings: Settings, spawn: Spawn,
-                 clock: Callable[[], float] = time.monotonic):
+                 clock: Callable[[], float] = time.monotonic,
+                 on_desktop: Callable[[], None] = lambda: None,
+                 on_return: Callable[[], None] = lambda: None):
         self.settings = settings
         self._spawn = spawn
         self._clock = clock
+        self._on_desktop, self._on_return = on_desktop, on_return
         self.backend = Child("backend", settings.backend_argv(), settings.backend_env(),
                              "backend-console.log", hidden=True, restart_on_clean_exit=True)
         self.interface = Child("interface", settings.interface_argv(), settings.interface_env(),
@@ -158,6 +168,7 @@ class Supervisor:
             return
         child.stopped_by_player = False
         child.next_start = 0.0
+        self._on_return()
         self._start(child)
 
     def tick(self) -> None:
@@ -178,6 +189,7 @@ class Supervisor:
             # The shell exits 0 only when the player chose Desktop mode.
             log.info("%s exited cleanly: left to the Windows desktop", child.name)
             child.stopped_by_player = True
+            self._on_desktop()
             return
         child.crashes = [t for t in child.crashes if now - t < CRASH_WINDOW_S] + [now]
         delay = SLOW_RESTART_DELAY_S if len(child.crashes) >= CRASH_BURST else RESTART_DELAY_S
@@ -280,14 +292,83 @@ def _setup_logging(settings: Settings) -> None:
                         format="%(asctime)s %(levelname)s %(message)s")
 
 
+_TRIP_LOCK = threading.Lock()
+
+
+def _in_background(action: Callable[[], object]) -> None:
+    """A trip waits on Explorer for seconds: off the supervisor's loop, one trip at a time."""
+    def serialised() -> None:
+        with _TRIP_LOCK:
+            action()
+    threading.Thread(target=serialised, daemon=True).start()
+
+
+def leave_to_desktop() -> None:
+    """Desktop mode. Only this elevated process may point HKLM `Shell` at Explorer for the start."""
+    _in_background(kiosk_desktop.DesktopTrip(kiosk_shell.WinRegistry()).open)
+
+
+def back_from_desktop() -> None:
+    _in_background(kiosk_desktop.DesktopTrip(kiosk_shell.WinRegistry()).close)
+
+
+class _WtsInfo(ctypes.Structure):
+    _fields_ = [("State", ctypes.c_int), ("SessionId", ctypes.c_ulong), ("Counters", ctypes.c_ulong * 6),
+                ("WinStationName", ctypes.c_wchar * 32), ("Domain", ctypes.c_wchar * 17),
+                ("UserName", ctypes.c_wchar * 21), ("ConnectTime", ctypes.c_longlong),
+                ("DisconnectTime", ctypes.c_longlong), ("LastInputTime", ctypes.c_longlong),
+                ("LogonTime", ctypes.c_longlong), ("CurrentTime", ctypes.c_longlong)]
+
+
+def startup_timeline() -> str:
+    """Seconds since boot and since sign-in, for the startup log line; "" when Windows will not say."""
+    try:
+        uptime = ctypes.WinDLL("kernel32").GetTickCount64
+        uptime.restype = ctypes.c_ulonglong
+        parts = [f"boot +{uptime() / 1000:.1f} s"]
+        wts = ctypes.WinDLL("wtsapi32")
+        buffer, size = ctypes.c_void_p(), ctypes.c_ulong()
+        if wts.WTSQuerySessionInformationW(None, -1, 24, ctypes.byref(buffer), ctypes.byref(size)):
+            info = _WtsInfo.from_address(buffer.value)
+            if info.LogonTime:
+                parts.append(f"sign-in +{(info.CurrentTime - info.LogonTime) / 1e7:.1f} s")
+            wts.WTSFreeMemory(buffer)
+        return ", ".join(parts)
+    except (OSError, AttributeError):
+        return ""
+
+
+def log_when_backend_ready(port: str, timeout_s: float = 180.0) -> None:
+    """One line in session.log when /api/ready first answers: where the startup time goes."""
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/ready", timeout=1) as reply:
+                if reply.status == 200:
+                    log.info("backend ready %.1f s after the session started (%s)",
+                             time.monotonic() - started, startup_timeline())
+                    return
+        except OSError:
+            pass
+        time.sleep(0.25)
+
+
 def run(settings: Settings) -> int:
     instance = SingleInstance()
     if not instance.acquire():
         shown = instance.ask_first_copy_to_show()
         log.info("already running; asked it to show the interface (%s)", shown)
         return 0 if shown else 1
-    supervisor = Supervisor(settings, spawn_process)
+    log.info("session started (%s)", startup_timeline())
+    try:
+        # A trip cut short, or anything else that reset it, would boot the next session on the desktop.
+        kiosk_shell.rearm(kiosk_shell.WinRegistry())
+    except OSError as e:
+        log.error("could not put the GameCore shell back: %s", e)
+    supervisor = Supervisor(settings, spawn_process, on_desktop=leave_to_desktop,
+                            on_return=back_from_desktop)
     supervisor.start()
+    threading.Thread(target=log_when_backend_ready, args=(settings.port,), daemon=True).start()
     while True:
         if instance.show_requested(int(POLL_S * 1000)):
             supervisor.show_interface()

@@ -165,7 +165,8 @@ Written by `install/install.ps1` ([11](11-install-script-seams.md)):
 
 | Piece | What | Why this form |
 |---|---|---|
-| `\GameCore\Session` | scheduled task: at the console user's sign-in, highest privileges, `.venv\Scripts\pythonw.exe install\bin\gamecore-session` | a window opens only in its own process's session; a service lives in session 0 (D8). Elevated: games inherit it, the wake settings need it (D36) |
+| `gamecore-shell` | the console's Windows shell (HKLM Winlogon `Shell`, `install/steps/set-kiosk-shell.ps1`), unelevated: starts `\GameCore\Session` at once with `schtasks /run` and again if its mutex disappears (every 30 s at most); starts Explorer when the session opens the desktop ([below](#the-console-users-desktop)). Logs to `%LOCALAPPDATA%\GameCore\shell.log` | the Linux console session has no desktop either. Only the HKLM value works on Windows 11 Home (D59) |
+| `\GameCore\Session` | scheduled task: at the console user's sign-in and on demand from `gamecore-shell`, highest privileges, `.venv\Scripts\pythonw.exe install\bin\gamecore-session`; the console user may run it (`FRFX` in its DACL) | a window opens only in its own process's session; a service lives in session 0 (D8). Elevated: games inherit it, the wake settings need it (D36) |
 | `gamecore-session` | starts the backend (`python -m uvicorn backend.main:app --host 127.0.0.1`), then the shell (`<code>\shell\GameCore.exe`) at once, since the shell waits for `/api/ready` itself; restarts either 5 s after a crash, 60 s after five in two minutes. A clean exit of the shell is Desktop mode and is not undone; the `GameCore` shortcut runs `gamecore-session` again, unelevated, and it only asks the running copy to start the shell (a named mutex and event whose descriptor lets the unelevated user see and set them) | the Linux units' `Restart=on-failure`, without a "failed" state nobody can reset on a console |
 | `%ProgramData%\GameCore\session.env` | `GAMECORE_PATH`, `GAMECORE_DATA`, `GAMECORE_BACKEND_PORT`, the scraper keys; Administrators and SYSTEM only | the Linux unit's `Environment=` lines and its `override.conf` drop-in, in one file |
 | `GameCoreCaddy` | Windows service, automatic, restarted on failure: `caddy\caddy.exe run --config install\system\Caddyfile`; `XDG_DATA_HOME` = `%ProgramData%\GameCore\caddy` (the local CA) | web access works before anyone signs in |
@@ -179,7 +180,9 @@ The backend's console is created with `CREATE_NO_WINDOW`: every console program
 it runs (powercfg, wevtutil, tasklist, the SDL probes) inherits that hidden
 console instead of flashing a window over the TV.
 
-Logs: `<data>\logs\session\session.log` (the session itself),
+Logs: `<data>\logs\session\session.log` (the session itself, with the startup
+timeline: `session started (boot +N s, sign-in +N s)`, then `backend ready N s
+after the session started`),
 `backend-console.log` and `interface-console.log` (what the two print), each
 kept with one previous copy (`.1`). Updates log to `<data>\logs\update\update.log`.
 
@@ -209,11 +212,34 @@ that is off still lists its output.
 
 ### The console user's desktop
 
-Explorer stays the console user's shell: GameCore's kiosk window covers it, and
-Desktop mode leaves the kiosk for it (`electron/desktop.js`). Replacing the
-shell for that user (Winlogon `Shell`) would boot without Explorer, but an
-`explorer.exe` started later may then open a folder window instead of the
-desktop Desktop mode needs; untested, so not done (dev log, open questions).
+GameCore is the console's shell; Explorer runs only in Desktop mode, as Plasma
+does on the Linux box (dev log D59). `gamecore-shell` and `gamecore-session`
+share `install/bin/kiosk_shell.py` (the registry values, the named objects)
+and `install/bin/kiosk_desktop.py` (the decisions).
+
+| Moment | What happens |
+|---|---|
+| sign-in | Winlogon starts HKLM `Shell` = `gamecore-shell`; it blacks the desktop for this sign-in (`SetSysColors`, no wallpaper, nothing saved to the profile) and starts `\GameCore\Session` at once (the logon trigger fires too; the task runs one copy and the session's mutex keeps it single) |
+| session start | `gamecore-session` re-arms HKLM `Shell` from HKLM `SOFTWARE\GameCore\KioskShell` (the installer's record) whenever it differs: a trip cut short, or anything else that reset it (seen once on the owner's PC, cause unknown) |
+| Settings → Desktop mode | the interface exits 0; `gamecore-session` (elevated, the only one allowed to write HKLM) sets `Shell` = `explorer.exe`, sets `Local\GameCoreShellDesktop` so `gamecore-shell` starts Explorer unelevated (or starts it itself when no shell runs), waits up to 45 s for `Shell_TrayWnd`, then puts `Shell` back. Explorer is the desktop only when `Shell` names it as it starts; otherwise it opens folder windows. No taskbar in time: `Shell` is put back anyway and Task Manager opens (File, Run new task) |
+| the `GameCore` shortcut | `gamecore-session` restarts the interface and closes the desktop: the taskbar's own "Exit Explorer" message, then `taskkill /f /im explorer.exe` for this session (folder windows, an Explorer that stayed) |
+| sign-out, shutdown | the interface exits 0 then too; nothing opens while Windows reports the session ending (`SM_SHUTTINGDOWN`) |
+| `KIOSK=0` | no `KioskShell` record: Explorer stays the shell, Desktop mode starts it only if no taskbar exists, the way back leaves it |
+
+Way out without the interface: Ctrl+Alt+Del → Task Manager → Run new task,
+tick "Create this task with administrative privileges" →
+`"C:\Program Files\GameCore\.venv\Scripts\pythonw.exe" "C:\Program Files\GameCore\install\bin\gamecore-shell" --desktop`
+(the whole trip; unticked, or plain `explorer.exe`, a folder window).
+`install\uninstall.ps1` gives Windows Explorer back as the shell; it shows at
+the next sign-in.
+
+Values that do nothing on Windows 11 Home, measured on the owner's PC: HKCU
+`Winlogon\Shell` (`IniFileMapping\system.ini\boot\Shell` = `SYS:`, HKLM only)
+and the HKCU "Custom User Interface" policy (`Policies\System\Shell`).
+
+Gone without Explorer: the Run keys and the Startup folder (Explorer starts
+them), so apps that autostart with Windows (Steam's `-silent`) do not; toast
+notifications.
 
 ## Environment reconstruction
 
