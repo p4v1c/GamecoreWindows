@@ -17,6 +17,11 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, Rest mode: a Modern Standby PC now really sleeps (screen
+  off, Windows' low-power sleep) instead of staying on with a black screen.
+  Wake it with the power button or the keyboard; a pad wakes it only where
+  the PC supports it. Bluetooth pads are disconnected before every sleep.
+  Nothing to do: the update brings it.
 - Windows edition, launching: the pad locks and a black "Starting Steam"
   screen shows at the press; the interface hands over once the app's window
   is up. A Steam already running opens Big Picture in about a second

@@ -51,12 +51,12 @@ def test_a_resumed_game_with_no_window_reports_it(screen):
 def test_the_interface_is_raised_over_a_frozen_game(screen):
     """The largest window of the interface's process: the kiosk, not the HUD."""
     screen["shells"] = ["kiosk", "hud"]
-    assert wf._hide_sync("pcsx2")
+    assert wf._raise_interface_sync("pcsx2")
     assert screen["raised"] == ["kiosk"]
 
 
 def test_no_interface_window_is_said_rather_than_guessed(screen):
-    assert not wf._hide_sync("pcsx2")
+    assert not wf._raise_interface_sync("pcsx2")
     assert screen["raised"] == []
 
 
@@ -83,6 +83,7 @@ def test_a_failure_while_raising_never_reaches_the_caller(monkeypatch):
     def broken(*a):
         raise OSError("access denied")
     monkeypatch.setattr(wf, "_activate_sync", broken)
-    monkeypatch.setattr(wf, "_hide_sync", broken)
+    monkeypatch.setattr(wf, "_raise_interface_sync", broken)
     assert asyncio.run(wf.activate("pcsx2", FakeJob())) is False
     assert asyncio.run(wf.hide("pcsx2")) is False
+    assert asyncio.run(wf.raise_interface()) is False

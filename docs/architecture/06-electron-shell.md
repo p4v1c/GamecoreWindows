@@ -75,7 +75,7 @@ The methods on `window.gamecore` (plus the boot ones: `bootBackground`, `bootRea
 ```js
 reboot()  shutdown()  quit()
 batteryToast(data)  controllerToast(data)
-onResume(cb)
+onResume(cb)  wakeWindow()
 ```
 
 Typed for the UI in `frontend/src/gamecore.d.ts` (`GamecoreAPI`).
@@ -95,6 +95,7 @@ X-wide; on Windows a game hides its own pointer.
 | `system:quit` | `leaveToDesktop()` (`electron/desktop.js`): posts `/api/standby/desktop` `{active: true}` (Windows' idle timers back to Windows), then `app.quit()` (exit code 0), bounded by `LEAVE_DEADLINE_MS` (5 s). Opening the desktop is `gamecore-session`'s and `gamecore-shell`'s ([1](01-runtime-topology.md#the-console-users-desktop)): Explorer started here would be elevated, and a folder window under the GameCore shell |
 | `notify:battery` | `showBatteryToast(data)` (`electron/hud.js`) |
 | `notify:controller` | `notifyController(data)` → `showHudToast(...)` (`electron/hud.js`) |
+| `shell:wake-window` | the renderer heard `power:resumed`: unless a session owns the screen, the main window fullscreen, shown, focused and repainted (`registerWakeWindowIpc`, `electron/power.js`); Windows sends `powerMonitor` no resume for Modern Standby |
 
 `powerMonitor` `resume` (`electron/power.js`, `watchResume`, registered with the IPC by `register()` and subscribed once the app is ready): unless a session
 owns the screen, the main window is set fullscreen again, shown and focused,

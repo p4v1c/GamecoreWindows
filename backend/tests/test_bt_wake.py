@@ -1,4 +1,5 @@
-"""Which devices may wake the box: the Bluetooth radio and the pads, nothing disarmed.
+"""Which devices may wake the box (the Bluetooth radio and the pads, nothing
+disarmed), and the pads turned off before a sleep.
 
 `platform/device_wake.py` is faked; the instance ids are the shapes Windows
 gives (the DS4 and the mouse are this PC's own, read on 24/10/2026).
@@ -99,12 +100,30 @@ def test_unreadable_or_empty_settings_are_reported_as_unknown(monkeypatch):
     assert asyncio.run(bt_wake.set_wake_permissions()) is None
 
 
-def test_pads_cannot_be_turned_off_on_windows_and_say_so_once(monkeypatch, caplog):
-    monkeypatch.setattr(bt_wake, "_told_no_turn_off", False)
-    caplog.set_level("INFO")
-    assert asyncio.run(bt_wake.turn_off_pads()) == 0
-    assert asyncio.run(bt_wake.turn_off_pads()) == 0
-    assert caplog.text.count("cannot drop one device's link") == 1
+def test_connected_bluetooth_pads_are_disconnected_before_a_sleep(monkeypatch):
+    """As BlueZ's Disconnect on Linux; a wired pad (sdl key) has no link to end."""
+    asked = []
+    monkeypatch.setattr(bt_wake.gamepad_monitor, "roster", lambda: {
+        DS4: ("054c", "09cc", "PS4 Controller", 0x05),
+        "sdl3": ("045e", "028e", "Xbox 360 Controller", bt_wake.BUS_USB)})
+    monkeypatch.setattr(bt_wake.bt_link, "disconnect", lambda mac: asked.append(mac) or True)
+    assert asyncio.run(bt_wake.turn_off_pads()) == 1
+    assert asked == [DS4]
+
+
+def test_a_pad_that_will_not_disconnect_never_stops_the_sleep(monkeypatch, caplog):
+    monkeypatch.setattr(bt_wake.gamepad_monitor, "roster", lambda: {
+        DS4: ("054c", "09cc", "PS4 Controller", 0x05),
+        "aa:bb:cc:dd:ee:ff": ("045e", "0b13", "Xbox Wireless Controller", 0x05)})
+
+    def disconnect(mac):
+        if mac == DS4:
+            raise OSError("no Bluetooth radio")
+        return False
+
+    monkeypatch.setattr(bt_wake.bt_link, "disconnect", disconnect)
+    assert asyncio.run(bt_wake.turn_off_pads()) == 2
+    assert "could not disconnect" in caplog.text and "no radio would disconnect" in caplog.text
 
 
 def test_the_loop_passes_again_when_a_new_pad_connects(monkeypatch):

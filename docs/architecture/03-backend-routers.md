@@ -245,8 +245,8 @@ on disk; `videos` are clips, `stills` screenshots of games without one (at most
 
 `POST /power/rest` → `rest_mode.enter()`: closes every session, then suspends.
 Answers `{ok, forced}` after the wake on an S3 PC (`SetSuspendState` returns
-then), at once on a Modern Standby PC (the screen goes dark and the PC keeps
-running until a press, dev-log D56), 409 while already going to sleep, 503 when Windows
+then), at once on a Modern Standby PC (the display goes off and Windows sleeps
+within a second, dev-log D62), 409 while already going to sleep, 503 when Windows
 refuses the sleep (`rest_mode.REFUSED`). `GET /power/state` → `{resting, resumes, sleeping}`; `resumes` grows by
 one per wake, counted once the TV shows a picture (`resume.resume_count()`);
 `sleeping` is true from the sleep announcement until then.

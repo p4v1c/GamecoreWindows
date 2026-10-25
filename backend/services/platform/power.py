@@ -7,6 +7,7 @@ Replaces `xset dpms`, `kscreen-doctor --dpms`, the session's
 | Here | Win32 |
 |---|---|
 | `screen_off()` / `screen_on()` | `SC_MONITORPOWER` posted to every top-level window, the PC held awake (`awake.py`); on a Modern Standby PC the screen stays on, black, held on, since switching it off sleeps the PC; on: plus a zero-length mouse move, which is what lights a panel Windows turned off, and the hold released |
+| `sleep_display()` | the same message with every hold released: on a Modern Standby PC, the sleep itself |
 | `signal_activity()` | `SetThreadExecutionState` once, no `ES_CONTINUOUS`: resets the display and sleep idle timers, holds nothing |
 | `idle_timeouts()` / `set_idle_timeouts()` | the active scheme's "turn off the display" and "sleep after", on AC and battery (PowrProf) |
 | `active_scheme()` / `set_active_scheme()` | the power plan (Power saver while the screen is off) |
@@ -104,6 +105,17 @@ def screen_on() -> None:
     move = _INPUT(type=_INPUT_MOUSE, mi=_MOUSEINPUT(0, 0, 0, _MOUSEEVENTF_MOVE, 0, 0))
     _user32().SendInput(1, ctypes.byref(move), ctypes.sizeof(_INPUT))
     signal_activity()
+
+
+def sleep_display() -> None:
+    """The display off with nothing held: the way into Modern Standby (Rest mode, dev-log D62).
+
+    No call enters Modern Standby itself; a console display that goes off with
+    no power request held is Windows' own signal to sleep (measured: Kernel-Power
+    506 within a second).
+    """
+    awake.release()
+    _monitor(_MONITOR_OFF)
 
 
 def signal_activity() -> None:

@@ -245,10 +245,10 @@ sequenceDiagram
     be->>be: launch.close_gate(), wait for a launch in flight (15 s)
     be->>pm: kill() every session, frozen ones too
     be->>be: poll each job; terminate survivors after 8 s; 2 s more
-    be->>win: sleep.suspend() in a thread: S3 = SetSuspendState, Modern Standby = screen dark, PC held running
-    win-->>be: SUSPEND (S3), or rest_mode itself (Modern Standby, dark_rest_began): power:sleeping, sleep_guard sweep
-    Note over win: S3 asleep, the pad wakes it through the Bluetooth radio; Modern Standby running, the backend reads the pad
-    win-->>be: RESUME (S3), or the first press (Modern Standby, dark_rest_ended) (resume.py)
+    be->>be: resume.going_to_sleep(): WS power:sleeping, sleep_guard sweep, Bluetooth pads disconnected
+    be->>win: sleep.suspend() in a thread: S3 = SetSuspendState, Modern Standby = display off, nothing held
+    Note over win: asleep (S3 or Modern Standby); power button, keyboard, or a pad where the hardware wakes on it
+    win-->>be: RESUME (S3), the console display back on (Modern Standby), or a press seen while asleep (resume.py)
     be->>be: sweep again, open the gate, screen on
     be->>be: wait for an active monitor (10 s max), display mode, settle delay
     be-->>ui: WS power:resumed (or GET /api/power/state after a reconnect)
@@ -264,16 +264,19 @@ sequenceDiagram
     sleeping and `RESUME` (`PBT_APMRESUMEAUTOMATIC`) after.
   - **Modern Standby** (S0 low-power idle; the port's PC is one): no call
     enters it, and `SetSuspendState` **hibernates** such a PC (measured on
-    24/10/2026: S4, about 30 s to wake, and a pad cannot wake S4). Rest mode's
-    sleep is therefore every game closed, the screen dark and the PC held
-    running (dev-log D34, D56: switching the display off took this PC into
-    standby, so it stays on, black, under a display-required power request). `resume.classify()` treats the console display
-    going off **while Rest mode is under way** as the sleep and coming back on
-    as the wake; a pad press lights it through standby (`standby.on_input()`
-    after a silence). A display going off at any other time is standby's own
-    screen-off and is ignored. If Windows' own sleep timer later takes the PC
-    down, its suspend and resume events go through the S3 path (the port's
-    PC sent them for a hibernation).
+    24/10/2026: S4, about 30 s to wake), so it is never called there. The
+    console display switched off with no power request held is Windows' own
+    way in (`power.sleep_display()`; measured: Kernel-Power 506 within a
+    second, the backend frozen until a key woke it). Windows announces
+    nothing first and freezes the backend within that second, so Rest mode
+    covers the interface, sweeps and turns the pads off **before** asking
+    (`resume.going_to_sleep()`), which logind's delay lock did on Linux
+    (dev-log D62). The wake is the console display coming back on
+    (`resume.classify()`), or a press the backend sees while asleep, past
+    `PRESS_WAKE_GUARD_SECS` (3 s, so the press that chose Rest mode is not
+    one): a display Windows never switched off sends no event. If Windows'
+    own sleep timer takes the PC down, its suspend and resume events go
+    through the S3 path.
 - **Every sleep closes the games**, not only Rest mode's (power button, Start
   menu, lid, idle timer): Windows' suspend event holds its power thread until
   the handler returns, about 2 s at most, and no lock buys more (logind's
@@ -293,9 +296,12 @@ sequenceDiagram
   (Settings → System, 0-8 s, 2.5 s default), and only then counts the wake and
   sends `power:resumed`. Windows can report the monitor active an instant
   before the TV shows the picture, which the settle delay covers.
-- Electron's `powerMonitor` `resume` (`electron/power.js`) puts the main
-  window back in fullscreen and focus, tells the renderer to cover itself in
-  black and forces a full repaint; everything else is the backend's.
+- The window after a wake: `resume.on_resume()` raises the interface
+  (`window_focus.raise_interface()`), and the renderer, on `power:resumed`,
+  asks the shell (`shell:wake-window`) to put its window back in fullscreen
+  and focus with a full repaint. Electron's `powerMonitor` `resume` does the
+  same by itself for S3 and hibernation; Windows sends it nothing for Modern
+  Standby.
 - Wake permission: `services/bt_wake.py` allows the Bluetooth radios, the
   Bluetooth pads on the roster (by address) and the wired pads (by
   vendor:product) to wake the PC (`platform/device_wake.py`, WMI
@@ -305,10 +311,14 @@ sequenceDiagram
 - What woke the box: `services/wake_source.py` keeps the newest
   `Power-Troubleshooter` record of the System log and, after the wake, logs
   the source of a newer one (`woken by …`). A Modern Standby wake logs none.
-- Pads stay on into the sleep: Windows has no public call to drop one
-  device's link (dev-log D28), so `bt_wake.turn_off_pads()` turns off nothing.
-  On Linux an Xbox pad answered the kernel's "power off" disconnect by paging
-  straight back, which woke the box; whether it does on Windows is untested.
+- Pads are turned off before the sleep, as on Linux (dev-log D62):
+  `bt_wake.turn_off_pads()` disconnects every Bluetooth pad on the roster
+  (`platform/bt_link.py`, `IOCTL_BTH_DISCONNECT_DEVICE`: "remote user
+  terminated", the reason BlueZ sends, and the pad turns itself off). On
+  Linux an Xbox pad answered the sleep's own disconnect by paging straight
+  back, which woke the box. Wake sources: the power button and the keyboard
+  always; a pad's home button only where the radio and the hardware wake on
+  it (S3 with the radio armed; Modern Standby PCs differ).
 - The power button's action and Windows' wake timers are the installer's
   (step 7).
 

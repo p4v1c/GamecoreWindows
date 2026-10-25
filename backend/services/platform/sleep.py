@@ -6,14 +6,14 @@ Replaces `systemctl suspend`, logind's `PrepareForSleep` (read through
 | Here | Win32 |
 |---|---|
 | `power_model()` | `GetPwrCapabilities`: S3 sleep, Modern Standby (S0 low-power idle, `AoAc`), or neither |
-| `suspend()` | S3: `SetSuspendState` with the shutdown privilege enabled. Modern Standby: the screen off, games closed, the PC left running; `SetSuspendState` there hibernates (measured: S4, about 30 s to wake, and a pad cannot wake S4) |
+| `suspend()` | S3: `SetSuspendState` with the shutdown privilege enabled. Modern Standby: the display off with no power request held, which is Windows' own way into it (`power.sleep_display()`); `SetSuspendState` there hibernates (measured: S4, about 30 s to wake), so it is never called on such a PC |
 | `watch()` | `PowerRegisterSuspendResumeNotification` (suspend, automatic resume) and `PowerSettingRegisterNotification` on the console display state, both as callbacks: no window needed |
 | `last_wake()` | the newest `Power-Troubleshooter` event 1 of the System log, read as XML (its field names are never translated) |
 
 A Modern Standby PC is not promised the suspend and resume callbacks for its
 own standby (the port's PC sent them for a hibernation), so `watch()` also
-reports the console display going off and on; the service decides what that
-means.
+reports the console display going off and on: Windows lights the display when
+it leaves Modern Standby. The service decides what that means.
 """
 from __future__ import annotations
 
@@ -30,9 +30,6 @@ from . import power
 log = logging.getLogger(__name__)
 
 S3, MODERN_STANDBY, NO_SLEEP = "s3", "modern_standby", "none"
-# What suspend() answers on Modern Standby: no sleep happened, so no power
-# event will say so either (dev-log D56).
-DARK_REST = "modern standby: screen dark, PC kept running"
 SUSPEND, RESUME, DISPLAY_OFF, DISPLAY_ON = "suspend", "resume", "display_off", "display_on"
 
 _PBT_APMSUSPEND = 0x0004
@@ -116,17 +113,17 @@ def _enable_shutdown_privilege() -> None:
 def suspend() -> tuple[bool, str]:
     """Put the PC to sleep. (True, how) when asked, (False, why) when refused.
 
-    S3 blocks until the wake. Modern Standby returns at once with the screen
-    dark and the PC held running (`power.screen_off()`): a pad press lights it
-    again through standby (services/standby.py).
+    S3 blocks until the wake. Modern Standby returns at once, the display going
+    off: Windows sleeps within a second and lights the display again at the
+    wake (`watch()` reports both).
     """
     try:
         model = power_model()
     except OSError as e:
         return False, str(e)
     if model == MODERN_STANDBY:
-        power.screen_off()
-        return True, DARK_REST
+        power.sleep_display()
+        return True, MODERN_STANDBY
     if model == NO_SLEEP:
         return False, "this PC offers no sleep state"
     try:

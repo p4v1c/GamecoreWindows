@@ -8,6 +8,11 @@ lingers.
 
 Launches are refused from the first step to the wake (`launch.close_gate`),
 so a launch racing the menu cannot start a game after the sweep.
+
+The interface is covered and the pads turned off before the sleep is asked
+for (`resume.going_to_sleep()`), as logind's delay lock made happen on Linux:
+a Modern Standby PC freezes the backend within a second of its display going
+off, and announces nothing first (dev-log D62).
 """
 import asyncio
 import logging
@@ -29,8 +34,7 @@ EXIT_WAIT_SECS = 8.0
 #: The grace after the forced kill, before sleeping anyway.
 FORCE_WAIT_SECS = 2.0
 POLL_SECS = 0.1
-#: Reopens launches if no wake is ever reported (sleep accepted but skipped,
-#: or a Modern Standby PC that kept running with its screen off).
+#: Reopens launches if no wake is ever reported (S3 sleep accepted but skipped).
 REOPEN_AFTER_SECS = 60.0
 
 GATE_REASON = "The box is going to sleep."
@@ -38,7 +42,7 @@ GATE_REASON = "The box is going to sleep."
 REFUSED = "This PC can’t sleep right now. Turn it off instead."
 
 _resting = False
-_dark = False
+_modern_standby = False
 _reopen_task: asyncio.Task | None = None
 
 
@@ -117,19 +121,19 @@ async def _suspend() -> tuple[bool, str]:
     return await asyncio.to_thread(sleep.suspend)
 
 
-def is_dark() -> bool:
-    """Resting with the screen dark and the PC running (Modern Standby, dev-log D56)."""
-    return _dark
+def in_modern_standby() -> bool:
+    """Resting through Modern Standby: the next wake is the display coming back, or a press."""
+    return _modern_standby
 
 
 def woke() -> None:
     """The box is awake: launches are allowed again."""
-    global _resting, _reopen_task, _dark
+    global _resting, _reopen_task, _modern_standby
     if _reopen_task is not None and not _reopen_task.done():
         _reopen_task.cancel()
     _reopen_task = None
     _resting = False
-    _dark = False
+    _modern_standby = False
     launch.open_gate()
 
 
@@ -143,7 +147,8 @@ async def _reopen_later() -> None:
 
 async def enter() -> dict:
     """Close everything, then suspend. Raises ServiceError when sleep is refused."""
-    global _resting, _reopen_task, _dark
+    global _resting, _reopen_task, _modern_standby
+    from . import resume        # resume imports this module
     if _resting:
         raise ServiceError(409, "The box is already going to sleep.")
     _resting = True
@@ -151,21 +156,22 @@ async def enter() -> dict:
     try:
         await _settle_launch()
         survivors = await close_everything()
+        await resume.going_to_sleep()
         ok, detail = await _suspend()
     except BaseException:
+        resume.sleep_called_off()
         woke()
         raise
     if not ok:
+        resume.sleep_called_off()
         woke()
         log.warning("rest: suspend refused: %s", detail)
         raise ServiceError(503, REFUSED)
     log.info("rest: suspend requested (%s)", detail)
-    if detail != sleep.DARK_REST:
-        _reopen_task = asyncio.create_task(_reopen_later())
+    if detail == sleep.MODERN_STANDBY:
+        # The wake cannot be lost (the display, or a press): a timer here would
+        # reopen launches while the PC sleeps, its clock still running.
+        _modern_standby = True
     else:
-        # The wake is ours (the first press), never lost: no timer would clear
-        # the dark rest under a player who comes back after an hour.
-        _dark = True
-        from . import resume        # resume imports this module
-        await resume.dark_rest_began()
+        _reopen_task = asyncio.create_task(_reopen_later())
     return {"ok": True, "forced": len(survivors)}

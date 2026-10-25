@@ -1,7 +1,7 @@
 """A press during Rest mode lights the screen at once.
 
-On a Modern Standby PC Rest mode's sleep is the screen off with the PC
-running (dev-log D34), and the wake is a pad press lighting it. Outside Rest
+A Rest mode sleep that Windows did not take leaves the PC running with its
+screen off, and the wake is a pad press lighting it. Outside Rest
 mode a press lights a dark screen only after `_WAKE_AFTER_SILENCE` (60 s): a
 player pressing again 20 s after choosing Rest mode stayed in the dark.
 """
@@ -32,6 +32,7 @@ def presses(monkeypatch):
     monkeypatch.setattr(standby, "_last_press", time.monotonic() - 20)
     monkeypatch.setattr(rest_mode, "_resting", False)
     monkeypatch.setattr(resume, "_sleeping", False)
+    monkeypatch.setattr(resume, "_slept_at", 0.0)
     return lit
 
 
@@ -52,3 +53,11 @@ def test_a_press_while_asleep_lights_the_screen_once_rest_mode_has_reopened(pres
     monkeypatch.setattr(resume, "_sleeping", True)
     standby.on_input()
     assert presses == [True]
+
+
+def test_the_press_that_chose_rest_mode_does_not_light_the_screen(presses, monkeypatch):
+    monkeypatch.setattr(rest_mode, "_resting", True)
+    monkeypatch.setattr(resume, "_sleeping", True)
+    monkeypatch.setattr(resume, "_slept_at", time.monotonic())
+    standby.on_input()
+    assert presses == []

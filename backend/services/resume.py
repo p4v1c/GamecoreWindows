@@ -5,11 +5,12 @@ Rest mode or not (power button, Start menu, lid, idle timer):
 
 - S3 and hibernation: `SUSPEND` (Windows waits about 2 s for the handler, so
   the games are closed under it: services/sleep_guard.py), then `RESUME`;
-- Modern Standby: Rest mode's sleep is the screen off with every game closed
-  (`SetSuspendState` would hibernate, and a pad cannot wake that). So while
-  Rest mode is under way the console display going off is the sleep, and
-  coming back on (a pad press, through standby) is the wake. A display going
-  off outside Rest mode is standby's own screen-off and means nothing here.
+- Modern Standby: Rest mode announces the sleep itself (`going_to_sleep()`)
+  before switching the display off, since Windows freezes the backend within
+  a second and says nothing first. The console display coming back on is the
+  wake; so is a press the backend sees while asleep (a display that never went
+  off). A display going off outside Rest mode is standby's own screen-off and
+  means nothing here.
 
 A wake puts the screen, pads and launch gate back. The interface learns it
 from the `power:resumed` event, and from `GET /api/power/state` after a
@@ -17,10 +18,11 @@ socket that dropped across the sleep.
 """
 import asyncio
 import logging
+import time
 
 from .. import ws
 from . import (bt_wake, display, display_ready, gamepad_monitor, rest_mode, sleep_guard,
-               standby, wake_source)
+               standby, wake_source, window_focus)
 from .platform import sleep
 
 log = logging.getLogger(__name__)
@@ -29,10 +31,14 @@ SLEEP, WAKE = "sleep", "wake"
 #: How long Windows' power thread is held on a suspend event: just under the
 #: ~2 s Windows grants, so the sweep finishes before the sleep.
 SUSPEND_HOLD_SECS = 1.8
+#: A press this soon after the sleep began is the one that chose Rest mode
+#: (its release, a stick at rest), not a wake.
+PRESS_WAKE_GUARD_SECS = 3.0
 
 _resumes = 0
 # From the sleep announcement to the UI being told the screen is back.
 _sleeping = False
+_slept_at = 0.0
 
 
 def resume_count() -> int:
@@ -50,9 +56,20 @@ def is_sleeping() -> bool:
 
 async def announce_sleep() -> None:
     """`power:sleeping`: the UI covers everything in black until `power:resumed`."""
-    global _sleeping
+    global _sleeping, _slept_at
     _sleeping = True
+    _slept_at = time.monotonic()
     await ws.broadcast("power:sleeping", {})
+
+
+def sleep_called_off() -> None:
+    """Windows refused the sleep Rest mode announced: nothing to wake from.
+
+    The interface lifts its black layer on the refusal, and `GET
+    /api/power/state` no longer reports a sleep.
+    """
+    global _sleeping
+    _sleeping = False
 
 
 def classify(event: str, *, model: str, resting: bool, sleeping: bool) -> str | None:
@@ -85,7 +102,8 @@ async def _step(name: str, coro) -> None:
 
 
 async def going_to_sleep() -> None:
-    """The sleep is announced: cover the interface, then close every game."""
+    """The sleep is announced: cover the interface, then close every game and
+    turn the pads off. Rest mode calls it before asking for the sleep."""
     log.info("resume: the box is going to sleep")
     await _step("announce the sleep", announce_sleep())
     await sleep_guard.before_sleep()
@@ -109,6 +127,7 @@ async def on_resume() -> None:
     _resumes += 1
     _sleeping = False
     await _step("announce", ws.broadcast("power:resumed", {"resumes": _resumes}))
+    await _step("interface in front", window_focus.raise_interface())
     gamepad_monitor.request_reprofile()
     await _step("bluetooth wake", bt_wake.set_wake_permissions())
     # The record the next wake is compared with.
@@ -126,13 +145,18 @@ def _event_lock() -> asyncio.Lock:
     return _lock
 
 
-async def dark_rest_began() -> None:
-    """Rest mode darkened a Modern Standby PC it keeps running: the sleep Windows will not announce."""
-    await handle(sleep.DISPLAY_OFF, sleep.MODERN_STANDBY, _event_lock())
+def press_guard_over() -> bool:
+    """The press that chose Rest mode is behind us: a new one is a wake."""
+    return time.monotonic() - _slept_at >= PRESS_WAKE_GUARD_SECS
 
 
-async def dark_rest_ended() -> None:
-    """A press during a dark rest: the wake Windows will not announce."""
+def is_press_a_wake() -> bool:
+    """A pad press now ends a Modern Standby rest: the backend runs, so the PC is awake."""
+    return _sleeping and rest_mode.in_modern_standby() and press_guard_over()
+
+
+async def woken_by_press() -> None:
+    """The wake for a press seen while asleep, when Windows lit no display to say so."""
     await handle(sleep.DISPLAY_ON, sleep.MODERN_STANDBY, _event_lock())
 
 

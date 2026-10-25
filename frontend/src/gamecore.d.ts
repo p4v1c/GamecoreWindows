@@ -45,6 +45,8 @@ interface GamecoreAPI {
 
   /** Electron's powerMonitor `resume`, relayed by electron/power.js. Older shells lack it. */
   onResume?: (cb: () => void) => void
+  /** After `power:resumed`: the shell puts its window back in front (electron/power.js). Older shells lack it. */
+  wakeWindow?: () => void
 }
 
 declare global {

@@ -54,17 +54,18 @@ after the wake; `test_sleep_guard.py` checks the budget order.
 
 **On a Modern Standby PC, `SetSuspendState` hibernates.**
 Measured on the port's PC: S4, about 30 s to wake, and a pad cannot wake S4.
-No call enters Modern Standby itself, so Rest mode's sleep there is every game
-closed and the screen dark (dev-log D34).
+No call enters Modern Standby itself: never call `SetSuspendState` there.
 
 **On a Modern Standby PC, a display switched off is a PC asleep.**
 `SC_MONITORPOWER` off took the port's PC into Modern Standby within a
 second (Kernel-Power 506) and paused the backend until a keyboard press,
 even with system-required and execution-required power requests held
-(measured 25/10/2026, 140 s and 277 s paused). The Linux box keeps running
-with DPMS off, so `power.screen_off()` leaves such a display on, black,
-under a display-required request (`platform/awake.py`), and Rest mode
-announces its own sleep and wake (`resume.dark_rest_began()` / `ended()`).
+(measured 25/10/2026, 140 s and 277 s paused). Rest mode uses it as its
+sleep (`power.sleep_display()`, dev-log D62), so everything it owes the
+sleep (black cover, sweep, pads off) happens **before** the display goes
+off: after it, the backend may already be frozen. Standby's screen-off is
+not a sleep on the Linux box, so `power.screen_off()` leaves such a display
+on, black, under a display-required request (`platform/awake.py`, D56).
 The TV then shows black rather than going to its own standby.
 
 **Device wake settings need an elevated backend.**
