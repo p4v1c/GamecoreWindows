@@ -1,7 +1,8 @@
-"""Keep the PC running while GameCore has the screen dark.
+"""Keep the PC running while standby has the screen dark.
 
-On Linux, Rest mode and standby cut the screen (DPMS) and the box keeps
-running, so the next pad press wakes it. A Modern Standby PC enters standby
+On Linux, standby cuts the screen (DPMS) and the box keeps running, so the
+next pad press wakes it. (Rest mode really sleeps, on both: dev-log D62.)
+A Modern Standby PC enters standby
 as soon as its display goes off, and paused the backend for minutes when
 `SC_MONITORPOWER` turned it off (measured, dev-log D56), even with a
 system-required power request held. So there the screen is not switched off:

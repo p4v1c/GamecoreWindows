@@ -142,7 +142,8 @@ def _no_real_commands_from_the_suite():
 # ── This PC is not a test bench: no platform call that changes it ────────────
 #
 # The Windows calls that change the machine (display mode, screen power, power
-# plan and idle timers, disk eject, sleep, device wake settings) are replaced
+# plan and idle timers, disk eject, sleep, device wake settings, Bluetooth
+# links) are replaced
 # for the whole session; a test
 # that needs one fakes it on top (`fake_display.fake_screen`,
 # `fake_volumes.disks`). Reads stay real, except the idle timers (a claim would
@@ -156,6 +157,7 @@ def _no_real_commands_from_the_suite():
 
 @_pytest.fixture(autouse=True, scope="session")
 def _no_machine_changes_from_the_suite():
+    from backend.services.platform import bt_link as platform_bt_link
     from backend.services.platform import device_wake as platform_device_wake
     from backend.services.platform import display as platform_display
     from backend.services.platform import gamepads as platform_gamepads
@@ -174,7 +176,7 @@ def _no_machine_changes_from_the_suite():
 
     with _pytest.MonkeyPatch.context() as mp:
         mp.setattr(platform_display, "apply_mode", no_screen)
-        for name in ("screen_on", "screen_off", "signal_activity"):
+        for name in ("screen_on", "screen_off", "sleep_display", "signal_activity"):
             mp.setattr(platform_power, name, nothing)
         for name in ("idle_timeouts", "set_idle_timeouts", "active_scheme", "set_active_scheme"):
             mp.setattr(platform_power, name, no_plan)
@@ -186,6 +188,7 @@ def _no_machine_changes_from_the_suite():
         mp.setattr(platform_sleep, "watch", lambda handler: (lambda: None))
         mp.setattr(platform_sleep, "last_wake", lambda: None)
         mp.setattr(platform_device_wake, "wake_devices", lambda: [])
+        mp.setattr(platform_bt_link, "disconnect", lambda mac: False)
         mp.setattr(platform_device_wake, "set_wake",
                    lambda name, allowed: no_plan())
         yield

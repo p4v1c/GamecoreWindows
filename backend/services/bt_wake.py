@@ -1,4 +1,4 @@
-"""Pads wake the box: the devices a pad wakes it through are allowed to.
+"""Pads wake the box, and are turned off before it sleeps.
 
 Windows decides per device whether it may wake the PC (Device Manager's
 "Allow this device to wake the computer", `platform/device_wake.py`). On the
@@ -14,9 +14,12 @@ Armed, when Windows lists them as able to wake:
 - a wired pad's USB device, by the vendor:product SDL reports.
 
 Nothing is disarmed: keyboards and mice keep what Windows gave them (dev-log
-D36). Turning pads off before a sleep has no Windows counterpart (D28: no
-public call drops one device's link), so `turn_off_pads()` turns off nothing.
-A Modern Standby PC wakes on pad input by itself; these settings matter for S3.
+D36).
+
+Before a sleep, connected Bluetooth pads are disconnected, as on Linux
+(dev-log D62): the link ends with "remote user terminated" and the pad turns
+itself off (`platform/bt_link.py`). Left on, an Xbox pad pages back as the
+link drops and wakes the box. Wired pads have no link to end.
 """
 import asyncio
 import logging
@@ -24,7 +27,7 @@ import re
 
 from . import gamepad_monitor
 from .controller_registry import normalize_mac
-from .platform import device_wake
+from .platform import bt_link, device_wake
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +35,8 @@ log = logging.getLogger(__name__)
 ROSTER_POLL_SECS = 5.0
 #: How soon a pass that could not read the wake settings is retried.
 RETRY_SECS = 30.0
+#: Per pad; the radio answers once the link is down, normally well under a second.
+DISCONNECT_SECS = 3.0
 BUS_USB = 0x03
 
 _RADIO_BUSES = ("USB\\", "PCI\\")
@@ -40,8 +45,6 @@ _BT_ENUMERATORS = ("BTHENUM\\", "BTHLE\\")
 _BT_ADDRESS = re.compile(r"&([0-9A-F]{12})(?:_[0-9A-F]+)?$", re.IGNORECASE)
 # A whole USB device, not one of its interfaces (&MI_xx).
 _USB_DEVICE = re.compile(r"^USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})\\", re.IGNORECASE)
-
-_told_no_turn_off = False
 
 
 def _bt_address(instance: str) -> str:
@@ -107,13 +110,27 @@ async def set_wake_permissions() -> bool | None:
     return True
 
 
+async def _disconnect(mac: str) -> None:
+    try:
+        done = await asyncio.wait_for(asyncio.to_thread(bt_link.disconnect, mac),
+                                      DISCONNECT_SECS)
+    except (OSError, ValueError, asyncio.TimeoutError) as e:
+        log.warning("bt_wake: could not disconnect %s: %s", mac, e or type(e).__name__)
+        return
+    if done:
+        log.info("bt_wake: %s turned off for the sleep", mac)
+    else:
+        log.warning("bt_wake: no radio would disconnect %s", mac)
+
+
 async def turn_off_pads() -> int:
-    """Turn the connected pads off before a sleep: nothing on Windows (D28). Returns 0."""
-    global _told_no_turn_off
-    if not _told_no_turn_off:
-        _told_no_turn_off = True
-        log.info("bt_wake: Windows cannot drop one device's link; pads stay on into the sleep")
-    return 0
+    """Disconnect every connected Bluetooth pad, all at once. Returns how many were asked.
+
+    Wake permissions are left as they are, so a pad's home button can still wake the box.
+    """
+    macs = sorted(roster_macs())
+    await asyncio.gather(*(_disconnect(m) for m in macs))
+    return len(macs)
 
 
 async def run() -> None:

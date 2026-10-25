@@ -92,7 +92,8 @@ home".
 - No test may change this PC: the session guard in `conftest.py` replaces the
   display mode switch, the screen power, the power plan and idle timers, the
   disk eject, the sleep (`platform/sleep.py` `suspend()`, and `watch()`, which
-  registers nothing) and the device wake settings; `fake_screen` and `disks`
+  registers nothing), the device wake settings and the Bluetooth disconnect
+  (`platform/bt_link.py`); `fake_screen` and `disks`
   fake them per test, SDL's pad snapshot is faked by patching
   `platform/gamepads.py` `pads()`, and `test_resume.py` fires Windows' power
   events from a thread through a fake `watch()`.

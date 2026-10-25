@@ -1,7 +1,8 @@
-"""The dark screen keeps the PC running, as DPMS did on the Linux box (dev-log D56).
+"""Standby's dark screen keeps the PC running, as DPMS did on the Linux box
+(dev-log D56); Rest mode's sleep lets it go (D62).
 
 Fakes only: the power request, the monitor message and the sleep model. The
-real screen_off/screen_on are taken at import, before conftest replaces them.
+real screen_off/screen_on/suspend are taken at import, before conftest replaces them.
 """
 from __future__ import annotations
 
@@ -11,6 +12,8 @@ from backend.services.platform import awake, power, sleep
 
 REAL_SCREEN_OFF = power.screen_off
 REAL_SCREEN_ON = power.screen_on
+REAL_SUSPEND = sleep.suspend
+REAL_SLEEP_DISPLAY = power.sleep_display
 
 
 class FakeRequest:
@@ -90,3 +93,21 @@ def test_release_before_any_hold_is_harmless(monkeypatch):
     monkeypatch.setattr(awake, "_held", set())
     awake.release()
     assert awake.held() == set()
+
+
+def test_rest_on_modern_standby_lets_go_of_every_hold_and_switches_the_display_off(pc, monkeypatch):
+    """The display off with nothing held is Windows' own way into Modern Standby."""
+    request, monitor, _ = pc
+    monkeypatch.setattr(sleep, "_powrprof", lambda: pytest.fail("SetSuspendState hibernates this PC"))
+    monkeypatch.setattr(power, "sleep_display", REAL_SLEEP_DISPLAY)
+    REAL_SCREEN_OFF()                     # standby had the screen dark and held
+    assert REAL_SUSPEND() == (True, sleep.MODERN_STANDBY)
+    assert awake.held() == set()
+    assert monitor[-1] == power._MONITOR_OFF
+
+
+def test_a_pc_with_no_sleep_state_refuses_rest_mode(pc):
+    _, monitor, model = pc
+    model["value"] = sleep.NO_SLEEP
+    ok, _why = REAL_SUSPEND()
+    assert not ok and monitor == []

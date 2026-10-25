@@ -58,8 +58,8 @@ def _activate_sync(system_id: str, job) -> bool:
     return raised[-1]
 
 
-def _hide_sync(system_id: str) -> bool:
-    """Bring the interface over a session about to be frozen.
+def _raise_interface_sync(system_id: str) -> bool:
+    """Bring the interface to the front: over a session about to be frozen, or after a wake.
 
     Before the freeze, never after: a frozen window in front does not answer
     the activation messages, and Windows then refuses to put it behind
@@ -71,8 +71,7 @@ def _hide_sync(system_id: str) -> bool:
                  "— the suspended game may stay on top", system_id)
         return False
     raised = window_control.bring_to_front(shells[0])
-    log.info("window_focus[%s]: interface raised over the frozen session: %s",
-             system_id, raised)
+    log.info("window_focus[%s]: interface raised: %s", system_id, raised)
     return raised
 
 
@@ -98,9 +97,19 @@ async def activate(system_id: str, job) -> bool:
 async def hide(system_id: str) -> bool:
     """Raise the interface over a session about to be suspended."""
     try:
-        return await asyncio.to_thread(_hide_sync, system_id)
+        return await asyncio.to_thread(_raise_interface_sync, system_id)
     except Exception as e:
         log.warning("window_focus[%s]: %s", system_id, e)
+        return False
+
+
+async def raise_interface() -> bool:
+    """Put the interface in front after a wake: Windows hands the foreground
+    back to whatever had it, and a Modern Standby wake sends Electron no resume."""
+    try:
+        return await asyncio.to_thread(_raise_interface_sync, "wake")
+    except Exception as e:
+        log.warning("window_focus[wake]: %s", e)
         return False
 
 
