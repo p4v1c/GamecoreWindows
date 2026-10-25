@@ -83,6 +83,10 @@ function Write-GcSummary {
     Write-Host "   code  $($Settings.CodeRoot)"
     Write-Host "   data  $($Settings.DataRoot)"
     foreach ($warning in $script:GcWarnings) { Write-Host "   ! $warning" -ForegroundColor Yellow }
+    if ($script:GcRestartReasons.Count) {
+        $need = if ($script:GcDryRun) { 'would need' } else { 'needs' }
+        Write-Host "   A restart $need to apply: $($script:GcRestartReasons -join ', ')" -ForegroundColor Yellow
+    }
     if (-not $script:GcDryRun -and -not $script:GcWarnings.Count) {
         Write-Host '   Restart the PC: it signs in and starts GameCore.' -ForegroundColor Green
     }

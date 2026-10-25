@@ -130,6 +130,11 @@ What the installer does, one step per file in `install\steps\`:
 - quiets the boot: no Windows logo or spinner, no sign-in animation or
   status text (`QUIET_BOOT=0` keeps them). Your PC maker's logo is drawn by the
   firmware: turn it off in the BIOS/UEFI setup if it offers that
+- on Windows Enterprise, Education or IoT Enterprise (LTSC too), also turns on
+  Windows' Custom Logon and Unbranded Boot: no "Welcome" screen during
+  automatic sign-in, no sign-in animation, no Windows logo or status text for
+  any boot entry. Ctrl+Alt+Del still works. Restart once afterwards. Windows
+  Home and Pro do not have these features: the installer says so and moves on
 - downloads the offline game database (LaunchBox, 234 MB)
 
 Re-running it is safe: it changes only what differs. Scripted install:

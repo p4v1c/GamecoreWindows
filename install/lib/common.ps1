@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 $script:GcDryRun = $false
 $script:GcChanges = New-Object System.Collections.Generic.List[string]
 $script:GcWarnings = New-Object System.Collections.Generic.List[string]
+$script:GcRestartReasons = New-Object System.Collections.Generic.List[string]
 $script:GcManifest = @{}
 
 # The install's own record: what each step changed and the values it replaced.
@@ -32,6 +33,17 @@ function Write-GcWarning {
     param([Parameter(Mandatory)][string]$Message)
     $script:GcWarnings.Add($Message)
     Write-Host "   ! $Message" -ForegroundColor Yellow
+}
+
+function Add-GcRestartReason {
+    <# A change that only applies after a restart; the summary lists them. The installer never restarts. #>
+    param([Parameter(Mandatory)][string]$Reason)
+    $script:GcRestartReasons.Add($Reason)
+}
+
+function Get-GcEditionId {
+    <# The Windows edition: Core (Home), Professional, Enterprise, EnterpriseS (LTSC), Education, IoTEnterprise... #>
+    return Get-GcRegistryValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' 'EditionID'
 }
 
 function Invoke-GcChange {
