@@ -89,7 +89,6 @@ class Plan:
     renamed: list[tuple[str, str]] = field(default_factory=list)
     links: list[str] = field(default_factory=list)
     unreadable: list[str] = field(default_factory=list)
-    existing: list[str] = field(default_factory=list)
 
 
 def _aside_reason(rel: str) -> str | None:
@@ -135,7 +134,6 @@ def _walk(source: Path, rel: PurePosixPath, out_rel: PurePosixPath, plan: Plan, 
             continue
         reason = _aside_reason(str(src_rel))
         if reason is None and os.path.lexists(long_path(dest / dst_rel)):
-            plan.existing.append(str(dst_rel))
             reason = "a file of that name is already in the destination; it was kept"
         if reason is not None:
             plan.aside[str(src_rel)] = reason
@@ -194,7 +192,7 @@ def apply(source: Path, dest: Path, plan: Plan, linux_root: str) -> list[str]:
         target = dest / dst_rel
         os.makedirs(long_path(target.parent), exist_ok=True)
         if os.path.lexists(long_path(target)):
-            notes.append(f"  {dst_rel}: appeared during the copy; kept, not overwritten")
+            notes.append(f"  {dst_rel}: already there (an earlier run?); kept, not overwritten")
             continue
         try:
             shutil.copy2(long_path(source / src_rel), long_path(target))
