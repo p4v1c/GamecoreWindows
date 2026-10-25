@@ -273,13 +273,13 @@ Re-verification of steps 1-9 on `main` at `462c498` (addons `7415fae`), then thi
 
 | | main `462c498` | This branch |
 |---|---|---|
-| pytest | 2 522 passed, 71 skipped, 0 failed | 2 542 passed, 67 skipped, 0 failed |
+| pytest | 2 522 passed, 71 skipped, 0 failed | 2 543 passed, 67 skipped, 0 failed |
 | vitest | 755 | 755 |
 | Electron bench | 44 | 44 |
 | addons repo | 40 + 13 addon test files, 0 failed | unchanged |
 | `linux_until_port` items ([list](windows-port-linux-tests.md)) | 145 in 22 files | 142 in 20 files, all under 11 |
 
-New: `test_import_linux_data.py` (18), `test_platform_awake.py` (6), `test_rest_dark.py` (4). Deleted with its code: `test_migration.py`. Ported:
+New: `test_import_linux_data.py` (18), `test_platform_awake.py` (6), `test_rest_dark.py` (5). Deleted with its code: `test_migration.py`. Ported:
 `test_system_split.py::test_the_command_dry_runs_by_default`.
 
 ## Done
