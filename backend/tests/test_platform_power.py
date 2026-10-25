@@ -11,6 +11,7 @@ from backend.services.platform import power
 
 REAL_ACTIVE_SCHEME = power.active_scheme
 REAL_IDLE_TIMEOUTS = power.idle_timeouts
+REAL_SECONDS_SINCE_INPUT = power.seconds_since_input
 
 
 def test_a_guid_survives_the_trip_through_windows_byte_order():
@@ -33,3 +34,9 @@ def test_the_real_plan_and_its_timers_read_without_changing_anything():
     timers = REAL_IDLE_TIMEOUTS()
     assert set(timers) == set(power.TIMERS)
     assert all(isinstance(v, int) and v >= 0 for v in timers.values())
+
+
+def test_the_real_input_clock_reads_a_plausible_idle_time():
+    # A runner's session may have had no input since boot: hours, never negative.
+    idle = REAL_SECONDS_SINCE_INPUT()
+    assert 0.0 <= idle < 50 * 86400

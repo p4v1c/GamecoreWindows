@@ -43,14 +43,25 @@ export const soundSettings = {
 }
 
 let ctx: AudioContext | null = null
+let asleep = false
 
 function audio(): AudioContext | null {
   if (!ctx) {
     try { ctx = new AudioContext() } catch { return null }
   }
   // Chromium may start the context suspended until a user gesture
-  if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+  if (ctx.state === 'suspended' && !asleep) ctx.resume().catch(() => {})
   return ctx
+}
+
+/** Rest mode: suspend the shared context, and keep it suspended until the wake.
+ *  A running context holds an audio stream open, and Windows keeps a Modern
+ *  Standby PC busy for it (Kernel-Power 507 reported AudioPlaying). */
+export function setAudioAsleep(value: boolean): void {
+  asleep = value
+  if (!ctx) return
+  if (value) ctx.suspend().catch(() => {})
+  else ctx.resume().catch(() => {})
 }
 
 /** The shared AudioContext — for callers that synthesize their own sounds

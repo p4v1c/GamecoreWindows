@@ -37,6 +37,9 @@ def box(monkeypatch):
     monkeypatch.setattr(rest_mode, "close_everything", AsyncMock(return_value=[]))
     monkeypatch.setattr(rest_mode, "_suspend", suspend)
     monkeypatch.setattr(rest_mode, "REOPEN_AFTER_SECS", 3600)
+    # A wake right after the display went off is input settling (D65): tested below.
+    monkeypatch.setattr(rest_mode, "EARLY_WAKE_SECS", 0.0)
+    monkeypatch.setattr(rest_mode, "_resleeps", 0)
     monkeypatch.setattr(launch, "close_gate", lambda reason: seen.append("gate closed"))
     monkeypatch.setattr(launch, "open_gate", lambda: seen.append("gate open"))
     monkeypatch.setattr(resume.sleep_guard, "before_sleep", note("close and pads off"))
@@ -151,3 +154,115 @@ def test_a_refused_sleep_takes_the_announcement_back(box):
     assert refused.value.status == 503
     assert not resume.is_sleeping() and not rest_mode.is_resting()
     assert seen[-1] == "gate open"
+
+
+# ── Input settling (dev-log D65) ─────────────────────────────────────────────
+# Measured on the port's PC: Kernel-Power 506 (SC_MONITORPOWER), then 507
+# "Input Touchpad" 0.97 s later; the backend took that display as the wake.
+
+
+def test_a_display_back_on_right_after_the_rest_is_put_out_again(box, monkeypatch):
+    seen, _ = box
+    monkeypatch.setattr(rest_mode, "EARLY_WAKE_SECS", 60.0)
+
+    async def scenario():
+        await _rest()
+        await resume.handle(sleep.DISPLAY_ON, sleep.MODERN_STANDBY, resume._event_lock())
+
+    asyncio.run(scenario())
+    assert seen.count("suspend") == 2
+    assert resume.is_sleeping() and rest_mode.in_modern_standby()
+    assert "power:resumed" not in seen and "interface in front" not in seen
+
+
+def test_the_display_coming_back_again_and_again_is_a_real_wake(box, monkeypatch):
+    seen, _ = box
+    monkeypatch.setattr(rest_mode, "EARLY_WAKE_SECS", 60.0)
+
+    async def scenario():
+        await _rest()
+        for _ in range(rest_mode.MAX_RESLEEPS + 1):
+            await resume.handle(sleep.DISPLAY_ON, sleep.MODERN_STANDBY, resume._event_lock())
+
+    asyncio.run(scenario())
+    assert seen.count("suspend") == 1 + rest_mode.MAX_RESLEEPS
+    assert seen.count("power:resumed") == 1 and not resume.is_sleeping()
+
+
+def test_a_press_while_the_display_settles_is_not_a_wake(box, monkeypatch):
+    seen, _ = box
+    monkeypatch.setattr(resume, "PRESS_WAKE_GUARD_SECS", 0)
+    monkeypatch.setattr(rest_mode, "EARLY_WAKE_SECS", 60.0)
+
+    async def scenario():
+        await _rest()
+        await _press_and_settle()
+
+    asyncio.run(scenario())
+    assert resume.is_sleeping() and "power:resumed" not in seen
+
+
+def test_no_pad_input_tells_windows_somebody_is_there_during_a_rest(box, monkeypatch):
+    """Display required lights the display Rest put out, which ends the standby."""
+    signals: list[str] = []
+    monkeypatch.setattr(standby, "_signal_user_activity",
+                        AsyncMock(side_effect=lambda: signals.append("signal")))
+    monkeypatch.setattr(standby, "_last_activity_signal", 0.0)
+
+    async def scenario():
+        await _rest()
+        await _press_and_settle()
+
+    asyncio.run(scenario())
+    assert signals == []
+
+
+def test_the_standby_watcher_holds_nothing_during_a_rest(box, monkeypatch):
+    entered: list[str] = []
+    monkeypatch.setattr(standby, "_enter", AsyncMock(side_effect=entered.append))
+    monkeypatch.setattr(standby, "_last_input", 0.0)
+
+    async def scenario():
+        await _rest()
+        await standby._tick({"enabled": True, "sleep_mins": 1, "screensaver_mins": 1})
+
+    asyncio.run(scenario())
+    assert entered == []
+
+
+def _idle_clock(monkeypatch, readings: list[float]) -> list[float]:
+    """`_seconds_since_input` answers `readings` in turn, then the last one."""
+    asked: list[float] = []
+
+    def read():
+        asked.append(readings[0] if len(readings) == 1 else readings.pop(0))
+        return asked[-1]
+
+    monkeypatch.setattr(rest_mode, "_seconds_since_input", read)
+    monkeypatch.setattr(rest_mode, "POLL_SECS", 0.001)
+    monkeypatch.setattr(rest_mode, "INPUT_QUIET_SECS", 0.01)
+    return asked
+
+
+def test_the_display_goes_off_only_once_input_is_still(monkeypatch):
+    asked = _idle_clock(monkeypatch, [0.0, 0.005, 0.02])
+    asyncio.run(rest_mode._wait_input_quiet())
+    assert asked == [0.0, 0.005, 0.02]
+
+
+def test_a_hand_left_on_the_touchpad_does_not_hold_the_rest_for_ever(monkeypatch):
+    asked = _idle_clock(monkeypatch, [0.0])
+    monkeypatch.setattr(rest_mode, "INPUT_QUIET_MAX_SECS", 0.05)
+    asyncio.run(rest_mode._wait_input_quiet())
+    assert asked and set(asked) == {0.0}
+
+
+def test_pads_count_as_input_and_windows_unreadable_does_not_block(monkeypatch):
+    def refused():
+        raise OSError("no input info")
+
+    monkeypatch.setattr(rest_mode.power, "seconds_since_input", refused)
+    monkeypatch.setattr(standby, "_last_press", time.monotonic())
+    assert rest_mode._seconds_since_input() < 1.0
+    monkeypatch.setattr(standby, "_last_press", time.monotonic() - 100)
+    assert rest_mode._seconds_since_input() == rest_mode.INPUT_QUIET_SECS

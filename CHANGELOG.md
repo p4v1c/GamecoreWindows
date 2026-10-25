@@ -22,6 +22,13 @@ are the auto-incremented tags.
   (no Welcome screen, no boot logo or status text). To get it on an installed
   PC: `.\install\install.ps1 -Only enable-device-lockdown` as administrator,
   then restart. Home and Pro: nothing changes.
+- Windows edition, Rest mode: the PC stays asleep. It used to wake within a
+  second (the touchpad or mouse click that chose Rest) and GameCore came
+  back. The screen now goes off once nobody has touched an input for 2 s.
+  The installer allows the Bluetooth radio and Bluetooth input devices to
+  wake the PC: re-run `install.ps1 -Only allow-bluetooth-wake` elevated on
+  an installed PC (the update alone does not change wake settings).
+
 - Windows edition, boot: no white frame between sign-in and GameCore any
   more; the screen goes from black to the interface. Nothing to do: the
   update brings it.

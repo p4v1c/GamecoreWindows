@@ -271,7 +271,17 @@ sequenceDiagram
     nothing first and freezes the backend within that second, so Rest mode
     covers the interface, sweeps and turns the pads off **before** asking
     (`resume.going_to_sleep()`), which logind's delay lock did on Linux
-    (dev-log D62). The wake is the console display coming back on
+    (dev-log D62). The display goes off only once keyboard, mouse, touchpad
+    and pads have been still for `INPUT_QUIET_SECS` (2 s, at most 15 s of
+    waiting): such an entry is an "idle" one, and any input ends it
+    (measured: Kernel-Power 507 "Input Touchpad" 0.97 s after the click that
+    chose Rest). A display back on within `EARLY_WAKE_SECS` (5 s) is put out
+    again, up to `MAX_RESLEEPS` (3) times, without waking the interface; a
+    press in that window is not a wake either. While a rest is on, standby
+    neither signals activity on pad input nor runs its stages: a
+    display-required call lights the display (dev-log D65). The interface
+    suspends its `AudioContext` on `power:sleeping` (an open audio stream
+    keeps the PC busy). The wake is the console display coming back on
     (`resume.classify()`), or a press the backend sees while asleep, past
     `PRESS_WAKE_GUARD_SECS` (3 s, so the press that chose Rest mode is not
     one): a display Windows never switched off sends no event. If Windows'
@@ -306,7 +316,9 @@ sequenceDiagram
   Bluetooth pads on the roster (by address) and the wired pads (by
   vendor:product) to wake the PC (`platform/device_wake.py`, WMI
   `MSPower_DeviceWakeEnable`, elevated only), at start, after each wake and
-  whenever a new pad joins the roster. Nothing is disarmed: on Windows a
+  whenever a new pad joins the roster; the installer arms the radios and
+  the Bluetooth HID devices once (`allow-bluetooth-wake`, noted for
+  uninstall). Nothing is disarmed: on Windows a
   Bluetooth mouse wakes through the same radio as the pads (dev-log D36).
 - What woke the box: `services/wake_source.py` keeps the newest
   `Power-Troubleshooter` record of the System log and, after the wake, logs
