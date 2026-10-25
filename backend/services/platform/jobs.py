@@ -14,6 +14,7 @@ explicit `terminate()`.
 from __future__ import annotations
 
 import ctypes
+import os
 import subprocess
 import uuid
 from ctypes import wintypes
@@ -44,6 +45,8 @@ _MAX_LISTED_PIDS = 512
 _SUSPEND_PASSES = 4
 # What a killed game exits with, like 128 + SIGKILL on Linux.
 KILLED_EXIT_CODE = 137
+#: Names the session's job to the processes inside it.
+JOB_ENV = "GAMECORE_JOB"
 
 _kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
 _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
@@ -216,9 +219,12 @@ def spawn(cmd: list[str], *, env: dict, stdout, cwd: str | None = None) -> GameJ
     """Start `cmd` inside a new job. Raises OSError as Popen does.
 
     The process is created suspended and only runs once it is in the job, so
-    nothing it starts can be born outside it.
+    nothing it starts can be born outside it. `JOB_ENV` in its environment
+    names the job, so a launcher can take a running single-instance app into
+    it (catalog/steam/files/steam_session.py).
     """
     name = f"Local\\GameCore-{uuid.uuid4().hex}"
+    env = {**(os.environ if env is None else env), JOB_ENV: name}
     job = _kernel32.CreateJobObjectW(None, name)
     _check(job)
     try:
