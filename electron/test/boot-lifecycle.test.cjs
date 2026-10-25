@@ -61,7 +61,8 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     loadURL(u) { this.loaded.push({ kind: 'url', at: u }) }
     once(event, fn) { this.handlers.set(event, fn) }
     on(event, fn) { (this.listeners ||= new Map()).set(event, fn) }
-    close() {} hide() {} isVisible() { return true }
+    close() {} hide() {} isVisible() { return true } isDestroyed() { return false }
+    isFullScreen() { return true } setFullScreen() {}
     show() { this.shown = true }
     /** What Electron does once the first document can be painted. */
     readyToShow() { this.handlers.get('ready-to-show')?.() }
@@ -80,7 +81,11 @@ function rig({ answers = [true], env = {}, execRefuses = [], tasklist = '' } = {
     },
     BrowserWindow: Window,
     ipcMain: { on: (key, fn) => ipc.set(key, fn) },
-    screen: { getPrimaryDisplay: () => ({ scaleFactor: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }) },
+    screen: {
+      getPrimaryDisplay: () => ({ scaleFactor: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }),
+      getDisplayMatching: () => ({ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }),
+      on: () => {}, removeListener: () => {},
+    },
   }
 
   const stubs = {

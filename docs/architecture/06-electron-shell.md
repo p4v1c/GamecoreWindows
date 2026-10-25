@@ -1,6 +1,6 @@
 # 6 — Electron shell
 
-`electron/`: `main.js`, `desktop.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
+`electron/`: `main.js`, `desktop.js`, `fullscreen.js`, `hud.js`, `power.js`, `preload.js`, `boot/boot.html`,
 `start-ui.sh`. It owns two windows: the kiosk window and the HUD toast.
 
 
@@ -26,7 +26,7 @@ Windows composes transparent windows (the HUD) without it.
 
 | Window | Created by | Nature |
 |---|---|---|
-| main | `createWindow()` | kiosk, loads `BACKEND_URL` (or `DEV_URL` when `DEV`) |
+| main | `createWindow()` | kiosk, created on the primary display's bounds, loads `BACKEND_URL` (or `DEV_URL` when `DEV`); `createFullscreenGuard()` (`electron/fullscreen.js`) puts it back on its monitor's full bounds on `show`, `resize`, `restore`, `leave-full-screen` and every display change, at most 5 times in 10 s: Windows hides the taskbar only for a window covering the whole monitor, and a fullscreen round trip left it 1920x1079 |
 | HUD toast | `showHudToast()` (`electron/hud.js`) | transparent, click-through, `focusable: false`, created hidden and shown with `showInactive()` at the `screen-saver` level, `data:` URL, auto-closes after `HUD_TOAST_MS` (10 s) |
 
 Both use `nodeIntegration: false`, `contextIsolation: true`. The renderer

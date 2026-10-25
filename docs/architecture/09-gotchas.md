@@ -109,6 +109,12 @@ Window moves (`window_focus`, `fullscreen_enforcer`) run in `asyncio.to_thread`
 for the same reason: `SetWindowLongPtrW` waits for the window's thread. Same
 reason argon2 goes through `asyncio.to_thread` in the auth router.
 
+**The kiosk window one pixel short.** Windows hides the taskbar only for a
+window covering the whole monitor. Electron's frameless fullscreen came back
+1920x1079 after a fullscreen round trip, and the taskbar stayed over the
+interface. `electron/fullscreen.js` puts the bounds back; keep it wired in
+`createWindow()`.
+
 ## The data root, seen from inside a sandbox
 
 **A Flatpak's filesystem is a literal list of paths, and moving the data
