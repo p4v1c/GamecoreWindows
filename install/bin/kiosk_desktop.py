@@ -73,9 +73,11 @@ class Shell:
                  taskbar: Callable[[], int] = ks.taskbar_window,
                  explorer: Callable[[], None] = start_explorer,
                  exit_explorer: Callable[[int], bool] = ks.ask_explorer_to_exit,
+                 ending: Callable[[], bool] = ks.session_ending,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep):
         self.registry = registry
+        self._ending = ending
         self._run, self._session_running, self._taskbar = run, session_running, taskbar
         self._explorer, self._exit_explorer = explorer, exit_explorer
         self._clock, self._sleep = clock, sleep
@@ -84,7 +86,7 @@ class Shell:
     def keep_session(self) -> None:
         """Start the elevated session task unless it runs; at most once per SESSION_RETRY_S."""
         now = self._clock()
-        if now < self.next_session_try or self._session_running():
+        if now < self.next_session_try or self._ending() or self._session_running():
             return
         self.next_session_try = now + SESSION_RETRY_S
         code = self._run(["schtasks.exe", "/run", "/tn", TASK])
@@ -94,6 +96,10 @@ class Shell:
         """Explorer as the desktop, the GameCore shell put back once its taskbar is up."""
         if self._taskbar():
             return True
+        if self._ending():
+            # Shell left pointing at Explorer by a sign-out cut short = next boot on the desktop.
+            log.info("Windows is signing out: no desktop to open")
+            return False
         replaced = ks.point_shell_at_explorer(self.registry)
         try:
             restore_wallpaper(self.registry)

@@ -223,6 +223,7 @@ named objects) and `install/bin/kiosk_desktop.py` (the decisions).
 | Settings → Desktop mode | the interface exits 0; `gamecore-session` sets `Local\GameCoreShellDesktop`; `gamecore-shell` points HKCU `Shell` at `explorer.exe`, puts the wallpaper back, starts Explorer unelevated and, once `Shell_TrayWnd` exists (20 s at most), points `Shell` back at itself. Explorer is the desktop only when that value names it; otherwise it opens a folder window |
 | the `GameCore` shortcut | `gamecore-session` restarts the interface and sets `Local\GameCoreShellReturn`; `gamecore-shell` asks Explorer to exit (the taskbar's own "Exit Explorer" message) and ends it after 8 s if it stays |
 | no `gamecore-shell` running | an update stops every process of the code root, the shell included; it is back at the next sign-in. Until then `gamecore-session` finds nobody on the events and runs the same trip itself, so Explorer is elevated |
+| sign-out, shutdown | the interface exits 0 then too; nothing opens while Windows reports the session ending (`SM_SHUTTINGDOWN`), since a `Shell` value left on Explorer would boot the desktop |
 | a trip cut short | the GameCore command waits in HKCU `Software\GameCore\ShellRearm` while `Shell` names Explorer; `gamecore-session` puts it back at its next start, so the next boot is GameCore again (the Linux box's `rearm-console`) |
 | `KIOSK=0` | Explorer stays the shell; Desktop mode has `gamecore-session` start `explorer.exe` (elevated) only when no taskbar exists |
 

@@ -68,12 +68,14 @@ class World:
         self.explorer_starts = []
         self.exits = []
         self.explorer_comes_up = True
+        self.ending = False
         self.explorer_leaves = True
 
     def shell(self):
         return kd.Shell(
             self.registry, run=self._run, session_running=lambda: self.session,
             taskbar=lambda: self.taskbar, explorer=self._explorer, exit_explorer=self._exit,
+            ending=lambda: self.ending,
             clock=lambda: self.now, sleep=self._sleep)
 
     def _run(self, argv):
@@ -150,6 +152,15 @@ def test_explorer_that_fails_to_start_still_gives_the_shell_back(world):
     with pytest.raises(OSError):
         shell.open_desktop()
     assert world.registry.get(ks.WINLOGON_KEY, ks.SHELL_VALUE) == GAMECORE_SHELL
+
+
+def test_a_sign_out_is_not_a_trip_to_the_desktop(world):
+    """The interface exits 0 when Windows signs out too; a Shell value flipped then would boot the desktop."""
+    world.ending = True
+    shell = world.shell()
+    assert shell.open_desktop() is False
+    shell.keep_session()
+    assert world.explorer_starts == [] and world.registry.writes == [] and world.runs == []
 
 
 def test_a_desktop_already_open_starts_no_second_explorer(world):

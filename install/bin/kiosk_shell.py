@@ -33,6 +33,7 @@ SESSION_MUTEX = "Local\\GameCoreSession"
 EVENT_MODIFY_STATE = 0x0002
 SYNCHRONIZE = 0x00100000
 ERROR_ACCESS_DENIED = 5
+SM_SHUTTINGDOWN = 0x2000
 TASKBAR_CLASS = "Shell_TrayWnd"
 # The taskbar's own "Exit Explorer" command (Ctrl+Shift+right-click on it).
 WM_EXIT_EXPLORER = 0x0400 + 436
@@ -125,6 +126,11 @@ def mutex_exists(name: str) -> bool:
         k.CloseHandle(ctypes.c_void_p(handle))
         return True
     return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+
+
+def session_ending() -> bool:
+    """True once Windows signs out or shuts down: the interface exits 0 then too, not for Desktop mode."""
+    return bool(ctypes.WinDLL("user32").GetSystemMetrics(SM_SHUTTINGDOWN))
 
 
 def taskbar_window() -> int:
