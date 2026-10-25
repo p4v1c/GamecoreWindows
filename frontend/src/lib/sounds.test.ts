@@ -235,3 +235,21 @@ describe('a theme that ships an audio file', () => {
     expect(s.started).toEqual(['theme-sample'])
   })
 })
+
+describe('Rest mode', () => {
+  // A running context holds an audio stream, and a Modern Standby PC stays busy for it.
+  it('suspends the context and keeps it suspended until the wake', async () => {
+    const s = await load()
+    const calls: string[] = []
+    Object.assign(s.ctx, {
+      suspend: () => { calls.push('suspend'); s.ctx.state = 'suspended'; return Promise.resolve() },
+      resume: () => { calls.push('resume'); s.ctx.state = 'running'; return Promise.resolve() },
+    })
+    s.playSound('move')
+    s.setAudioAsleep(true)
+    s.playSound('move')
+    expect(calls).toEqual(['suspend'])
+    s.setAudioAsleep(false)
+    expect(calls).toEqual(['suspend', 'resume'])
+  })
+})

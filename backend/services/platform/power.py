@@ -8,6 +8,7 @@ Replaces `xset dpms`, `kscreen-doctor --dpms`, the session's
 |---|---|
 | `screen_off()` / `screen_on()` | `SC_MONITORPOWER` posted to every top-level window, the PC held awake (`awake.py`); on a Modern Standby PC the screen stays on, black, held on, since switching it off sleeps the PC; on: plus a zero-length mouse move, which is what lights a panel Windows turned off, and the hold released |
 | `sleep_display()` | the same message with every hold released: on a Modern Standby PC, the sleep itself |
+| `seconds_since_input()` | `GetLastInputInfo`: keyboard, mouse and touchpad of the console session (pads are not input to Windows) |
 | `signal_activity()` | `SetThreadExecutionState` once, no `ES_CONTINUOUS`: resets the display and sleep idle timers, holds nothing |
 | `idle_timeouts()` / `set_idle_timeouts()` | the active scheme's "turn off the display" and "sleep after", on AC and battery (PowrProf) |
 | `active_scheme()` / `set_active_scheme()` | the power plan (Power saver while the screen is off) |
@@ -57,6 +58,10 @@ class _MOUSEINPUT(ctypes.Structure):
     _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
                 ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
                 ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.UINT), ("dwTime", wintypes.DWORD)]
 
 
 class _INPUT(ctypes.Structure):
@@ -116,6 +121,17 @@ def sleep_display() -> None:
     """
     awake.release()
     _monitor(_MONITOR_OFF)
+
+
+def seconds_since_input() -> float:
+    """Seconds since the last keyboard, mouse or touchpad input. Raises OSError."""
+    info = _LASTINPUTINFO(ctypes.sizeof(_LASTINPUTINFO), 0)
+    if not _user32().GetLastInputInfo(ctypes.byref(info)):
+        raise OSError(ctypes.get_last_error(), "GetLastInputInfo failed")
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetTickCount.restype = wintypes.DWORD
+    # Both are 32-bit tick counts: the subtraction wraps with them every 49.7 days.
+    return ((kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
 
 
 def signal_activity() -> None:
