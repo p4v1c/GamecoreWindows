@@ -62,7 +62,7 @@ button, come back to it later, put the PC to rest.
 
 | Missing | Why, and what happens instead |
 |---|---|
-| **Emulator and app packs** | The Linux packs install Flatpaks; each is being rewritten for Windows. Until then no console tile appears and the interface says no system is installed. ROM folders, covers and playtime already work |
+| **Emulator and app packs** | The Linux packs install Flatpaks; each is being rewritten for Windows. Until then no console tile appears and the interface says no system is installed. ROM folders, covers and playtime already work. First one back: the **Steam** tile (install Steam first; launching it closes a Steam already open and reopens it in Big Picture) |
 | Multiplayer DS, PC games through Lutris, the Stremio, Twitch and YouTube tiles | Features of those packs; they come back with them |
 | The bezel overlay around games | Left out of the port on purpose |
 | A graphical installer | The installer is a PowerShell script for now |

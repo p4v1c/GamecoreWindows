@@ -3,16 +3,13 @@
   "kind": "app",
   "label": "Steam",
   "emulatorName": "Steam",
-  "description": "PC games (Flatpak, Big Picture)",
+  "description": "PC games, in Big Picture (install Steam from steampowered.com first)",
   "platform": "Steam",
   "color": "#1f6fb3",
   "order": 0,
-  "install": {
-    "provider": "flatpak",
-    "appIds": ["com.valvesoftware.Steam"]
-  },
+  "windows": true,
   "launch": {
-    "path": "flatpak",
-    "args": "run @APPID@ -gamepadui"
+    "path": "@GAMECORE_PATH@/python/tools/python.exe",
+    "args": "'@GAMECORE_PATH@/catalog/steam/files/steam_session.py' -gamepadui"
   }
 }

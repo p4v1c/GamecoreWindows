@@ -43,7 +43,7 @@ EMULATORS = [
 ]
 
 APPS = [
-    ('steam', 'Steam', 'PC games (Flatpak, Big Picture)'),
+    ('steam', 'Steam', 'PC games, in Big Picture (install Steam from steampowered.com first)'),
     ('youtube', 'YouTube', 'TV app in a Firefox kiosk'),
     ('twitch', 'Twitch (EmberTV)', 'Twitch for the big screen'),
     ('stremio', 'Stremio', 'Media center (gamepad-friendly)'),
