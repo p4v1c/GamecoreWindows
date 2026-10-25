@@ -140,6 +140,7 @@ function Resolve-GcConfiguration {
         Autologon   = (Get-GcSetting $Config 'AUTOLOGON' '1') -eq '1'
         Ssh         = (Get-GcSetting $Config 'SSH' '1') -eq '1'
         Kiosk       = (Get-GcSetting $Config 'KIOSK' '1') -eq '1'
+        QuietBoot   = (Get-GcSetting $Config 'QUIET_BOOT' '1') -eq '1'
         Config      = $Config
     }
 }

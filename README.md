@@ -126,6 +126,9 @@ What the installer does, one step per file in `install\steps\`:
 - registers the `\GameCore\Session` logon task and a `GameCore` shortcut
 - makes GameCore your account's Windows shell in place of Explorer: the PC
   boots straight into GameCore, as the Linux box does (`KIOSK=0` keeps Explorer)
+- quiets the boot: no Windows logo or spinner, no sign-in animation or
+  status text (`QUIET_BOOT=0` keeps them). Your PC maker's logo is drawn by the
+  firmware: turn it off in the BIOS/UEFI setup if it offers that
 - downloads the offline game database (LaunchBox, 234 MB)
 
 Re-running it is safe: it changes only what differs. Scripted install:
