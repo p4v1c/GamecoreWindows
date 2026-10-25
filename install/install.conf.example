@@ -35,7 +35,9 @@ SSH=1
 KIOSK=1
 
 # 1 = quiet boot: no Windows logo or spinner, no sign-in animation or status
-# text. The PC maker's logo is a firmware (BIOS/UEFI) setting.
+# text. The PC maker's logo is a firmware (BIOS/UEFI) setting. On Enterprise,
+# Education and IoT Enterprise it also turns on Custom Logon and Unbranded Boot
+# (no Welcome screen during automatic sign-in); Home and Pro lack them.
 QUIET_BOOT=1
 
 # 1 = build the offline metadata index (LaunchBox dump, 234 MB download):

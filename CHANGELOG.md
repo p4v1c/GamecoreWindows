@@ -17,6 +17,11 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, installer: on Enterprise, Education and IoT Enterprise the
+  new `enable-device-lockdown` step turns on Custom Logon and Unbranded Boot
+  (no Welcome screen, no boot logo or status text). To get it on an installed
+  PC: `.\install\install.ps1 -Only enable-device-lockdown` as administrator,
+  then restart. Home and Pro: nothing changes.
 - Windows edition, boot: no white frame between sign-in and GameCore any
   more; the screen goes from black to the interface. Nothing to do: the
   update brings it.

@@ -15,8 +15,9 @@ $script:GcLockScreenPolicy = [pscustomobject]@{ Path = 'HKLM:\SOFTWARE\Policies\
 $script:GcBcdOnPattern = '^(yes|on|true|1|oui|ja|s.|sim)$'
 
 function Get-GcBootUxDisabled {
-    <# The raw bootuxdisabled value of the running boot entry, or $null when it is not set. #>
-    foreach ($line in (Invoke-GcNative 'bcdedit.exe' @('/enum', '{current}'))) {
+    <# The raw bootuxdisabled value of a BCD object (the running entry by default), or $null when it is not set. #>
+    param([string]$BcdObject = '{current}')
+    foreach ($line in (Invoke-GcNative 'bcdedit.exe' @('/enum', $BcdObject))) {
         if ($line -match '^\s*bootuxdisabled\s+(\S+)') { return $Matches[1] }
     }
     return $null
@@ -29,8 +30,7 @@ function Test-GcBcdOn {
 
 function Test-GcLockScreenPolicyHonoured {
     <# Windows ignores NoLockScreen outside Enterprise and Education (since 1607). #>
-    $edition = Get-GcRegistryValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' 'EditionID'
-    return [bool]("$edition" -match '^(Enterprise|Education|IoTEnterprise|ServerRdsh)')
+    return [bool]("$(Get-GcEditionId)" -match '^(Enterprise|Education|IoTEnterprise|ServerRdsh)')
 }
 
 function Get-GcBootPolicy {

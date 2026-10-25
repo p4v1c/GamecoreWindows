@@ -35,7 +35,7 @@ def test_a_dry_run_plans_every_step_and_writes_nothing(tmp_path):
         "copy-code-root", "install-python", "create-data-root", "write-session-env", "set-web-password",
         "install-caddy", "configure-firewall", "install-openssh", "configure-power", "set-wifi-location",
         "configure-autologon", "register-session-task", "set-kiosk-shell", "configure-boot-visuals",
-        "build-media-index"]
+        "enable-device-lockdown", "build-media-index"]
     assert "would: copy" in out.stdout and "would: register the \\GameCore\\Session logon task" in out.stdout
     assert list(tmp_path.iterdir()) == [], "a dry run created files"
     assert out.returncode == 0, out.stdout
