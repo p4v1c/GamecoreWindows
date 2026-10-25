@@ -16,7 +16,7 @@ $script:GcSteps = @(
     [pscustomobject]@{ Name = 'register-session-task'; Install = 'Install-GcSessionTask'; Uninstall = 'Uninstall-GcSessionTask' }
     # After the task: the shell starts it, so the console user is let run it.
     [pscustomobject]@{ Name = 'set-kiosk-shell';       Install = 'Install-GcKioskShell';  Uninstall = 'Uninstall-GcKioskShell' }
-    [pscustomobject]@{ Name = 'configure-boot-visuals'; Install = 'Install-GcBootVisuals'; Uninstall = 'Uninstall-GcBootVisuals' }
+    [pscustomobject]@{ Name = 'configure-boot-visuals'; Install = 'Install-GcQuietBoot'; Uninstall = 'Uninstall-GcQuietBoot' }
     # Last: the long download runs after every question has been asked.
     [pscustomobject]@{ Name = 'build-media-index';     Install = 'Install-GcMediaIndex';  Uninstall = 'Uninstall-GcMediaIndex' }
 )

@@ -89,7 +89,7 @@ BOOT_FAKES = r"""
 
 
 def test_quiet_boot_hides_the_logo_and_the_sign_in_text_and_records_what_was_there(tmp_path):
-    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcBootVisuals {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcQuietBoot {settings_ps(tmp_path)}")
     assert calls(result, "bcdedit") == ["/set {current} bootuxdisabled on"]
     assert calls(result, "set") == ["EnableFirstLogonAnimation=0", "DisableStatusMessages=1",
                                     "DisableLogonBackgroundImage=1"]
@@ -98,14 +98,14 @@ def test_quiet_boot_hides_the_logo_and_the_sign_in_text_and_records_what_was_the
 
 
 def test_on_home_the_lock_screen_policy_is_not_written_and_it_says_why(tmp_path):
-    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcBootVisuals {settings_ps(tmp_path)}")
+    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcQuietBoot {settings_ps(tmp_path)}")
     assert not any(c.startswith("NoLockScreen") for c in calls(result, "set"))
 
 
 def test_on_enterprise_the_lock_screen_goes_too(tmp_path):
     result = run_ps(tmp_path, BOOT_FAKES + rf"""
         $script:reg['HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion|EditionID'] = 'Enterprise'
-        Install-GcBootVisuals {settings_ps(tmp_path)}
+        Install-GcQuietBoot {settings_ps(tmp_path)}
     """)
     assert "NoLockScreen=1" in calls(result, "set")
 
@@ -113,19 +113,19 @@ def test_on_enterprise_the_lock_screen_goes_too(tmp_path):
 def test_a_boot_logo_already_off_in_french_is_left_alone(tmp_path):
     result = run_ps(tmp_path, BOOT_FAKES + rf"""
         $script:bcd += 'bootuxdisabled          Oui'
-        Install-GcBootVisuals {settings_ps(tmp_path)}
+        Install-GcQuietBoot {settings_ps(tmp_path)}
     """)
     assert calls(result, "bcdedit") == []
 
 
 def test_quiet_boot_off_changes_nothing(tmp_path):
-    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcBootVisuals {settings_ps(tmp_path, QuietBoot=False)}")
+    result = run_ps(tmp_path, BOOT_FAKES + f"Install-GcQuietBoot {settings_ps(tmp_path, QuietBoot=False)}")
     assert result["calls"] == []
 
 
 def test_uninstall_deletes_a_value_that_was_absent_and_restores_the_policies(tmp_path):
     result = run_ps(tmp_path, BOOT_FAKES + r"""
-        Uninstall-GcBootVisuals @{ bootuxdisabled = $null
+        Uninstall-GcQuietBoot @{ bootuxdisabled = $null
             'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\DisableStatusMessages' = 0 }
     """)
     assert calls(result, "bcdedit") == ["/deletevalue {current} bootuxdisabled"]
@@ -133,5 +133,5 @@ def test_uninstall_deletes_a_value_that_was_absent_and_restores_the_policies(tmp
 
 
 def test_uninstall_turns_a_translated_off_back_into_off(tmp_path):
-    result = run_ps(tmp_path, BOOT_FAKES + "Uninstall-GcBootVisuals @{ bootuxdisabled = 'Non' }")
+    result = run_ps(tmp_path, BOOT_FAKES + "Uninstall-GcQuietBoot @{ bootuxdisabled = 'Non' }")
     assert calls(result, "bcdedit") == ["/set {current} bootuxdisabled off"]

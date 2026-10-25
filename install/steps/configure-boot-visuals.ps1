@@ -39,7 +39,7 @@ function Get-GcBootPolicy {
     return @($script:GcBootPolicies)
 }
 
-function Install-GcBootVisuals {
+function Install-GcQuietBoot {
     param([Parameter(Mandatory)]$Settings)
     if (-not $Settings.QuietBoot) { Write-GcInfo 'QUIET_BOOT=0: skipped'; return }
     try {
@@ -65,7 +65,7 @@ function Install-GcBootVisuals {
     }
 }
 
-function Uninstall-GcBootVisuals {
+function Uninstall-GcQuietBoot {
     param($Record)
     if ($null -eq $Record) { return }
     if ($Record.ContainsKey('bootuxdisabled')) {

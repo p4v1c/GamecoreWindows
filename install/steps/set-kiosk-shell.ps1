@@ -109,9 +109,11 @@ function Uninstall-GcKioskShell {
     $previous = $Record['Shell']
     Invoke-GcInUserHive -Sid $Record['sid'] -GcHiveAction {
         param($root)
+        $winlogon = Join-Path $root $script:GcUserWinlogonKey
+        $gamecore = Join-Path $root $script:GcUserGameCoreKey
         Invoke-GcChange 'give the console user Explorer back as the shell' {
-            Restore-GcRegistryValue (Join-Path $root $script:GcUserWinlogonKey) 'Shell' $previous 'String'
-            Restore-GcRegistryValue (Join-Path $root $script:GcUserGameCoreKey) 'ShellRearm' $null 'String'
+            Restore-GcRegistryValue $winlogon 'Shell' $previous 'String'
+            Restore-GcRegistryValue $gamecore 'ShellRearm' $null 'String'
         }
     }
     Write-GcInfo 'sign out and back in (Ctrl+Alt+Del, Sign out) to get the Windows desktop'
