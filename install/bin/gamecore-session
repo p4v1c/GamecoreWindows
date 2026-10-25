@@ -36,6 +36,8 @@ log = logging.getLogger("gamecore-session")
 # since it carries the scraper credentials.
 DEFAULT_ENV_FILE = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "GameCore" / "session.env"
 ENV_FILE_OVERRIDE = "GAMECORE_SESSION_ENV"
+# Tests run beside a real session on a dev PC: a suffix keeps their kernel objects apart.
+INSTANCE_OVERRIDE = "GAMECORE_SESSION_INSTANCE"
 
 # systemd's Restart=on-failure / RestartSec=5 on the Linux units, plus a slower
 # pace after a burst: a console has nobody to run `systemctl reset-failed`.
@@ -241,7 +243,10 @@ class SingleInstance:
     start a second backend.
     """
 
-    def __init__(self, mutex_name: str = MUTEX_NAME, event_name: str = SHOW_EVENT_NAME):
+    def __init__(self, mutex_name: str | None = None, event_name: str | None = None):
+        suffix = os.environ.get(INSTANCE_OVERRIDE, "")
+        mutex_name = mutex_name or MUTEX_NAME + suffix
+        event_name = event_name or SHOW_EVENT_NAME + suffix
         self._k = ctypes.WinDLL("kernel32", use_last_error=True)
         self._a = ctypes.WinDLL("advapi32", use_last_error=True)
         for name in ("CreateMutexW", "OpenMutexW", "CreateEventW", "OpenEventW"):
@@ -270,6 +275,14 @@ class SingleInstance:
             return False
         self._event = self._k.CreateEventW(ctypes.byref(attributes), False, False, self._event_name)
         return True
+
+    def another_copy_runs(self) -> bool:
+        """True when the session's mutex exists, even one this unelevated copy may not open."""
+        existing = self._k.OpenMutexW(SYNCHRONIZE, False, self._mutex_name)
+        if existing:
+            self._k.CloseHandle(ctypes.c_void_p(existing))
+            return True
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
 
     def ask_first_copy_to_show(self) -> bool:
         event = self._k.OpenEventW(SYNCHRONIZE_AND_MODIFY, False, self._event_name)
@@ -379,6 +392,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="gamecore-session", description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="print the resolved settings and exit")
     args = parser.parse_args(argv)
+    if not args.check:
+        # The shortcut runs unelevated and cannot read session.env: ask the running
+        # (elevated) copy to show the interface before touching the settings.
+        instance = SingleInstance()
+        if instance.another_copy_runs():
+            return 0 if instance.ask_first_copy_to_show() else 1
     env_file = Path(os.environ.get(ENV_FILE_OVERRIDE) or DEFAULT_ENV_FILE)
     try:
         settings = load_settings(env_file, dict(os.environ))

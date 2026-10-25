@@ -330,7 +330,8 @@ def test_without_its_env_file_it_exits_and_leaves_a_note(tmp_path):
     env_file = tmp_path / "GameCore" / "session.env"
     env_file.parent.mkdir()
     out = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True,
-                         env={**os.environ, gs.ENV_FILE_OVERRIDE: str(env_file)}, timeout=60)
+                         env={**os.environ, gs.ENV_FILE_OVERRIDE: str(env_file),
+                              gs.INSTANCE_OVERRIDE: f"-test-{os.getpid()}"}, timeout=60)
     assert out.returncode == 2
     assert "install.ps1" in (env_file.parent / "session-error.log").read_text(encoding="utf-8")
 
@@ -346,3 +347,17 @@ def test_a_second_copy_finds_the_first_and_wakes_it(tmp_path):
     assert second.ask_first_copy_to_show() is True
     assert first.show_requested(0) is True
     assert first.show_requested(0) is False       # auto-reset: one press, one show
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="named kernel objects are a Windows mechanism")
+def test_the_shortcut_wakes_the_running_copy_without_reading_session_env(tmp_path, monkeypatch):
+    # The shortcut runs unelevated: session.env (admin-only) must not stop it waking the session.
+    names = {"mutex_name": rf"Local\GameCoreTest-{os.getpid()}-{tmp_path.name}",
+             "event_name": rf"Local\GameCoreTestShow-{os.getpid()}-{tmp_path.name}"}
+    first = gs.SingleInstance(**names)
+    assert first.acquire() is True
+    real = gs.SingleInstance
+    monkeypatch.setattr(gs, "SingleInstance", lambda: real(**names))
+    monkeypatch.setenv(gs.ENV_FILE_OVERRIDE, str(tmp_path / "missing" / "session.env"))
+    assert gs.main([]) == 0
+    assert first.show_requested(0) is True
