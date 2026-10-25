@@ -304,8 +304,8 @@ def _rest_in_progress() -> bool:
 def _rest_screen_off() -> bool:
     """Rest mode put the screen out: the next press is the wake, however soon
     it comes, once the press that chose Rest mode is behind it."""
-    from . import rest_mode, resume     # resume imports this module
-    return (rest_mode.is_resting() or resume.is_sleeping()) and resume.press_guard_over()
+    from . import resume     # resume imports this module
+    return _rest_in_progress() and resume.press_guard_over()
 
 
 def _press_wakes_rest() -> bool:
