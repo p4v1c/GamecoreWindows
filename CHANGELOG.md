@@ -17,6 +17,12 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, first pack: the Steam tile. Install Steam yourself; the
+  installer (and each update) adds the tile to `config\apps.json`. Launching
+  it closes a Steam already open and reopens it in Big Picture inside the
+  GameCore session. Packs reach a Windows grid only when marked
+  `"windows": true`.
+
 - Windows edition, moving from the Linux box: `scripts\import-linux-data.py
   <linux data root> --to <new data root>` prints the plan; `--apply` copies
   the library, saves, covers, media, profiles and playtime into the layout the

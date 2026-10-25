@@ -167,7 +167,9 @@ Elevated (inherited from the backend), from the work directory, logging to
 4. Runs pip only when `backend\requirements.txt` differs from the stamp
    `install-python.ps1` writes.
 5. Runs `update\windows.py finish` with the new venv (`update/finish.py`):
-   themes into the data root, then the catalogue merge. Neither is fatal.
+   themes into the data root, then the catalogue merge, then the tiles of
+   the app packs marked `"windows": true` into `config\apps.json`
+   (`seed_windows_apps`, created if absent). Neither is fatal.
 6. Starts Caddy again, then the `\GameCore\Session` task (or
    `gamecore-session` directly where there is no task), and waits up to 180 s
    for `/api/ready` to answer at all: a 503 ("still starting") counts, a

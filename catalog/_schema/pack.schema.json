@@ -39,6 +39,10 @@
       "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" }
     },
     "color":    { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "windows": {
+      "description": "Rewritten for GameCore for Windows. Only these packs get a tile on a Windows grid (update/finish.py, run by the installer and after each update); the Linux packs stay in the tree as test data until each one is ported (dev log D57). Absent = Linux pack.",
+      "type": "boolean"
+    },
 
     "install": {
       "description": "How the MAIN artifact is obtained. Extra system dependencies go in `packages`, never here.",

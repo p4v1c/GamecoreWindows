@@ -7,8 +7,8 @@
     "platform": "Steam",
     "color": "#1f6fb3",
     "iconPath": "assets/logos/steam.png",
-    "path": "flatpak",
-    "args": "run @APPID@ -gamepadui"
+    "path": "@GAMECORE_PATH@/python/tools/python.exe",
+    "args": "'@GAMECORE_PATH@/catalog/steam/files/steam_session.py' -gamepadui"
   },
   {
     "id": "youtube",

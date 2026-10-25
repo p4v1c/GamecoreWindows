@@ -129,3 +129,20 @@ def test_the_operator_s_own_packs_are_read_from_the_data_root(two_roots):
     mgba = next(s for s in live if s["id"] == "mgba")
     assert [c["id"] for c in mgba["consoles"]] == ["gba", "gb"], \
         "the operator's catalog.d pack under the DATA root was not honoured"
+
+
+def test_a_fresh_data_root_gets_the_ported_app_tiles_and_only_those(tmp_path):
+    """The installer runs the same finish step: apps.json is created with the
+    `"windows": true` packs; the Linux app packs (Firefox, Flatpak) stay out."""
+    code, data = tmp_path / "GameCore", tmp_path / "data"
+    code.mkdir()
+    filesystem.link_dir(code / "backend", REPO / "backend")
+    filesystem.link_dir(code / "catalog", REPO / "catalog")
+    (data / "config").mkdir(parents=True)
+    r = _run_merge(code, data)
+    assert r.returncode == 0, r.stderr
+    apps = json.loads((data / "config" / "apps.json").read_text(encoding="utf-8"))
+    assert [a["id"] for a in apps] == ["steam"]
+    assert not (data / "config" / "systems.json").exists()
+    r = _run_merge(code, data)                     # a second run changes nothing
+    assert json.loads((data / "config" / "apps.json").read_text(encoding="utf-8")) == apps
