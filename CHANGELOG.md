@@ -17,6 +17,9 @@ are the auto-incremented tags.
 
 ## Unreleased
 
+- Windows edition, boot: no white frame between sign-in and GameCore any
+  more; the screen goes from black to the interface. Nothing to do: the
+  update brings it.
 - Windows edition, Rest mode: a Modern Standby PC now really sleeps (screen
   off, Windows' low-power sleep) instead of staying on with a black screen.
   Wake it with the power button or the keyboard; a pad wakes it only where

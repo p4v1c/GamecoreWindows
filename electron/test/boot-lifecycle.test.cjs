@@ -63,8 +63,6 @@ function rig({ answers = [true], env = {}, execRefuses = [] } = {}) {
     close() {} hide() {} isVisible() { return true } isDestroyed() { return false }
     isFullScreen() { return true } setFullScreen() {}
     show() { this.shown = true }
-    /** What Electron does once the first document can be painted. */
-    readyToShow() { this.handlers.get('ready-to-show')?.() }
     /** What Electron does when the renderer process dies. */
     rendererGone(reason = 'crashed') {
       this.rendererHandlers.get('render-process-gone')?.({}, { reason })
@@ -161,7 +159,6 @@ test('the screen is covered before anything is waited for', async () => {
   const first = r.windows[0].loaded[0]
   assert.equal(first.kind, 'file', 'the first document came from the network')
   assert.match(first.at, /boot[\\/]boot\.html$/)
-  assert.equal(r.windows[0].options.show, false, 'a window shown before its first paint is a white flash')
 })
 
 test('the interface replaces the boot screen in the same window', async () => {
@@ -185,14 +182,17 @@ test('a backend that never answers leaves the boot screen up', async () => {
     'the interface was loaded over a backend that cannot serve it')
 })
 
-test('the window is shown when it has something to show', async () => {
+test('the window is shown fullscreen from its creation, never resized into it', () => {
+  // A hidden fullscreen window is resized when shown, and Windows paints that
+  // frame white: ~100 ms of white over a black boot, 10/10 frame captures.
   const r = rig({ answers: [false], env: { GAMECORE_MANAGED: '1' } })
-  r.start()
-  await settle(120)
-  r.stop()
-  assert.equal(r.windows[0].shown, false)
-  r.windows[0].readyToShow()
-  assert.equal(r.windows[0].shown, true)
+  r.context.createWindow()
+  const { options } = r.windows[0]
+  assert.equal(options.show, true, 'a hidden window flashes white when it is shown')
+  assert.equal(options.fullscreen, true)
+  assert.equal(options.kiosk, true)
+  assert.equal(r.windows[0].handlers.has('ready-to-show'), false,
+    'nothing should wait to show the window: it is already on screen')
 })
 
 test('a managed box never starts a second backend', async () => {

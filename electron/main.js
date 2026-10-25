@@ -108,9 +108,10 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     ...monitor,
     fullscreen: true,
-    // Presented on `ready-to-show`, never before: a window shown while its
-    // first document is still empty is a white rectangle over the desktop.
-    show: false,
+    // Shown at creation, already fullscreen. A hidden fullscreen window is
+    // resized when shown, and Windows paints that frame white (10/10 frame
+    // captures); shown at once, the first frames are black, then backgroundColor.
+    show: true,
     kiosk: !DEBUG && !DEV,
     frame: false,
     autoHideMenuBar: true,
@@ -145,10 +146,6 @@ function createWindow() {
   // wrong.
   mainWindow.loadFile(path.join(__dirname, 'boot', 'boot.html'))
 
-  // Shown when it has something to show. Without this, Electron presents the
-  // window as soon as it exists and the first frame is white — a white flash
-  // on a dark boot is more noticeable than the desktop it replaced.
-  mainWindow.once('ready-to-show', () => { mainWindow?.show() })
   if (!DEBUG && !DEV) createFullscreenGuard({ win: mainWindow, screen }).watch()
 
   // A renderer that dies takes the interface with it, and what is left is a
